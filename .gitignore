@@ -1,0 +1,23 @@
+# Environment / secrets
+.env
+
+# Large data files (loaded into DB at runtime, not part of the app code)
+*.csv
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# macOS metadata
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,40 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fraud
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./app/data/db_init/001_create_ip_country.sql:/docker-entrypoint-initdb.d/001_create_ip_country.sql:ro
+      - ./app/data/db_init/002_load_ip_country.sql:/docker-entrypoint-initdb.d/002_load_ip_country.sql:ro
+      - ./app/data/db_init/003_create_device_data.sql:/docker-entrypoint-initdb.d/003_create_device_data.sql:ro
+      - ./app/data/IpAddress_to_Country.csv:/data/IpAddress_to_Country.csv:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
