@@ -140,40 +140,34 @@ requires separating the API contract from the persistence model explicitly.
 
 ### Minimum to get a test request through (do these first)
 
-- [ ] **`main.py`** — define `engine` and `SessionLocal` (currently referenced but never defined;
-      server crashes on first request with `NameError`)
-      `python
-engine = create_engine(settings.database_url)
-SessionLocal = sessionmaker(bind=engine)
-`
+- [x] **`main.py`** — `engine` defined via `create_async_engine(settings.database_url)` at module level
 - [x] **`features/velocity.py`, `features/db.py`, `features/request.py`** — all stubs replaced
       with real implementations; no longer returns `Ellipsis`
-- [ ] **`main.py`** — comment out `db.add(response)` and `db.commit()` temporarily until
-      `orm_models.py` exists; passing a Pydantic model to SQLAlchemy `add()` crashes
+- [x] **`main.py`** — `db.add()` now receives a `TransactionRecord` ORM instance built from `DBWrite.model_dump()`
 
 ---
 
 ### `app/main.py`
 
-- [ ] Replace `Session` / `SessionLocal` with `AsyncSession` / `async_sessionmaker`
-- [ ] Move `get_redis()` into `lifespan`, store on `app.state`, close on shutdown
-- [ ] Add `get_executor` dependency backed by `ThreadPoolExecutor` in `lifespan`
-- [ ] Fix idempotency: replace GET→check→SET with `SET NX` atomic claim + polling
-- [ ] Replace placeholder comments in `run_process` with actual feature + model calls
+- [x] Replace `Session` / `SessionLocal` with `AsyncSession` + `create_async_engine`
+- [x] Move Redis into `lifespan` via `asynccontextmanager`; stored on `app.state.redis`; closed on shutdown
+- [ ] Add `get_executor` dependency backed by `ThreadPoolExecutor` in `lifespan` (needed when `models.py` is implemented)
+- [x] Fix idempotency: replaced GET→check→SET with atomic `redis.set(..., nx=True, ex=600)`
+- [ ] Replace `## rule decision` / `## model decision` comments with actual calls once `models.py` is implemented
 - [ ] Call `update_velocity_counters()` via `asyncio.create_task` after response built
-- [ ] Fix `db.add(response)` — convert Pydantic `DBWrite` to ORM instance before insert
+- [x] Fix `db.add()` — now passes `TransactionRecord(**db_record.model_dump())` ORM instance
 
 ### `app/data/data_models.py`
 
-- [ ] Make `Response` lean — remove `Transaction` inheritance, keep only
-      `transaction_id` and `fraud_decision`
+- [x] Made `DecisionResponse` lean — now a standalone `BaseModel` with only
+      `transaction_id`, `fraud_decision`, `response_time`
 - [x] Add default values to all `Features` fields; add missing 7d/90d velocity and
       purchase fields to match `build_features` output
 
 ### `app/data/orm_models.py` _(new file)_
 
-- [ ] Define `TransactionRecord(Base)` with all `DBWrite` fields as `Mapped` columns
-- [ ] Add `__tablename__` and primary key on `transaction_id`
+- [x] `TransactionRecord(Base)` defined with all `DBWrite` fields as `Mapped` columns
+- [x] `__tablename__ = "transactions"`, primary key on `transaction_id` (`SAUUID(as_uuid=True)`)
 
 ### `app/data/db_init/` _(new files)_
 

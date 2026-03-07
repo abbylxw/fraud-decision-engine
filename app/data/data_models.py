@@ -1,7 +1,7 @@
-from typing import Annotated
-from pydantic import BaseModel, Field, Literal, ConfigDict
+from typing import Annotated, Literal
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime, time, timedelta
-from uuid import UUID, uuid7
+from uuid import UUID, uuid4
 
 class Transaction(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -17,9 +17,10 @@ class Transaction(BaseModel):
     ip_address: int | None = None
     fraud_class: Literal[0, 1] = Field(alias='class')
 
-class Response(Transaction):
+class DecisionResponse(BaseModel):
     transaction_id: UUID
     fraud_decision: str
+    response_time: datetime
 
 class Features(Transaction):
     days_since_signup: int = 0
@@ -56,9 +57,7 @@ class Features(Transaction):
     purchase_success_cnt_90d: int = 0
     purchase_success_amt_90d: float = 0
 
-class DBWrite(Transaction, Features):
-    transaction_id: UUID
-    fraud_decision: str
+class DBWrite(Features, DecisionResponse):
     created_at: datetime   
 
 

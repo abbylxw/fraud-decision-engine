@@ -5,5 +5,5 @@ asyncpg
 redis
 pydantic
 pydantic-settings
-python-uuid7
+#python-uuid
 httpx
