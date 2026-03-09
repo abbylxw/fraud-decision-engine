@@ -1,7 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-async def get_ip_country(ip_int: int, db: AsyncSession) -> str | None:
+async def get_ip_country(ip_int: int, db: AsyncSession) -> str:
     stmt = text("""
         SELECT country
         FROM ip_country
@@ -9,7 +9,7 @@ async def get_ip_country(ip_int: int, db: AsyncSession) -> str | None:
         LIMIT 1
     """)
     res = await db.execute(stmt, {"ip": ip_int})
-    return res.scalar_one_or_none()
+    return res.scalar_one_or_none() or 'Unknown'
                               
 async def get_did_days_on_file(device_id: str, user_id: str, db: AsyncSession) -> int:
     stmt = text("""

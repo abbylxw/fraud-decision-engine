@@ -7,3 +7,10 @@ pydantic
 pydantic-settings
 #python-uuid
 httpx
+scikit-learn
+xgboost
+pandas
+numpy
+matplotlib
+jupyter
+tqdm
