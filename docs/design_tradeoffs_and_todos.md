@@ -17,6 +17,8 @@ all requests at the DB call.
 **Solution keywords:** `asyncpg`, `AsyncSession`, `async_sessionmaker`,
 `create_async_engine`, `yield` dependency, connection pool sizing
 
+**Status: ✅ SOLVED** — `create_async_engine` + `AsyncSession` in `main.py`
+
 ---
 
 ### 2. Redis Connection Per Request
@@ -30,6 +32,8 @@ port exhaustion under load.
 
 **Solution keywords:** `lifespan`, `app.state`, connection pool, `aclose()` on shutdown,
 `asynccontextmanager`
+
+**Status: ✅ SOLVED** — `lifespan` creates one shared client on `app.state.redis`
 
 ---
 
@@ -45,13 +49,15 @@ boilerplate but separates API contract from persistence schema cleanly.
 **Solution keywords:** `DeclarativeBase`, `Mapped`, `mapped_column`, `__tablename__`,
 `model_dump()` → ORM constructor, `DBWrite` as source of truth for columns
 
+**Status: ✅ SOLVED** — `TransactionRecord` ORM in `orm_models.py`; `DBWrite.model_dump()` feeds it
+
 ---
 
 ### 4. CPU-bound Model Inference Blocking Event Loop
 
 **Problem:** `model.predict()` is CPU-bound (no I/O waits). Running it directly in
-an `async def` function blocks the event loop for ~800ms — all other incoming requests
-queue behind it.
+an `async def` function blocks the event loop — all other incoming requests queue
+behind it.
 
 **Trade-off:** Thread pool adds concurrency but Python GIL limits true parallelism for
 pure-Python models. Process pool bypasses GIL but has higher IPC overhead.
@@ -59,6 +65,10 @@ Most ML libraries (XGBoost, scikit-learn, PyTorch) release the GIL so threads wo
 
 **Solution keywords:** `ThreadPoolExecutor`, `ProcessPoolExecutor`, `run_in_executor`,
 `get_running_loop`, GIL, `max_workers = n_cpu_cores`, `Depends(get_executor)`
+
+**Status: ✅ SOLVED** — `ThreadPoolExecutor` stored on `app.state.executor` in `lifespan`;
+`get_executor` dependency injected into endpoint; model called via
+`await loop.run_in_executor(executor, model_score, features)`
 
 ---
 
@@ -73,6 +83,8 @@ polling/retry loop for the losing request, adding latency and complexity.
 
 **Solution keywords:** `SET NX EX` (atomic), placeholder sentinel value, polling loop,
 `asyncio.sleep`, `HTTPException 503` on timeout, TOCTOU
+
+**Status: ✅ SOLVED** — `redis.set(..., nx=True, ex=600)` + `redis.getex()` for TTL refresh on reads
 
 ---
 
@@ -90,6 +102,11 @@ but doesn't cover TTL expiry.
 `zremrangebyscore`, warm-up on signup, TTL jitter, cache miss logging,
 thundering herd
 
+**Status: ✅ SOLVED** — Every `get_*` function in `velocity.py` checks `redis.exists(key)`
+first; on miss calls a private `_*_from_db` helper that reconstructs counts from
+the `transactions` table using a single `COUNT(CASE WHEN ...)` SQL query per function.
+Remaining gaps: `GETEX` TTL refresh on hits; cache miss warning logs.
+
 ---
 
 ### 7. Windowed Aggregate Accuracy
@@ -104,6 +121,9 @@ wrong at window boundaries.
 
 **Solution keywords:** `ZADD`, `ZCOUNT`, `ZRANGEBYSCORE`, `ZREMRANGEBYSCORE`,
 sliding window, score = unix timestamp, TTL on the key itself, `ZCARD`
+
+**Status: ✅ SOLVED** — All counters use Redis sorted sets with unix timestamp scores;
+`ZREMRANGEBYSCORE` prunes entries older than 90 days on every write
 
 ---
 
@@ -120,6 +140,9 @@ risks under-counting. Message queue (Kafka) is durable and decoupled but adds in
 **Solution keywords:** `asyncio.create_task` (fire-and-forget), outbox pattern,
 Kafka consumer, at-least-once, idempotent ZADD, post-response hook
 
+**Status: ✅ SOLVED** — `asyncio.create_task(update_velocity_counters(...))` fires after
+response is built; ZADD is idempotent so duplicate writes are safe
+
 ---
 
 ### 9. Response Model Carries Too Much Data
@@ -133,6 +156,29 @@ requires separating the API contract from the persistence model explicitly.
 
 **Solution keywords:** lean response model, API contract vs persistence schema,
 `model_dump(include={...})`, separate `DBWrite` from `Response`
+
+**Status: ✅ SOLVED** — `DecisionResponse` is a standalone `BaseModel` with only
+`transaction_id`, `fraud_decision`, `response_time`; `DBWrite` handles persistence
+
+---
+
+### 10. Rules Blind to Model Score
+
+**Problem:** Rules ran before the model, so they could only use raw transaction fields
+and velocity counts — not the model's fraud probability. This made it impossible to
+write rules like "deny if score > 0.7 AND velocity is elevated".
+
+**Trade-off:** Running the model before all rules means it always runs even for
+eventually-denied transactions. The two-phase design (hard rules → model → soft rules)
+avoids this: hard rules short-circuit clear-denials cheaply; model only runs for
+borderline cases; soft rules receive the score.
+
+**Solution keywords:** two-phase pipeline, hard vs soft rules, `score() -> float`,
+`execute_hard_rules`, `execute_soft_rules`, separation of concerns
+
+**Status: ✅ SOLVED** — `models.py` exposes `score(features) -> float` alongside `predict()`;
+`decisions/__init__.py` defines `execute_hard_rules` (amount/age/country) and
+`execute_soft_rules(score)` (velocity + model threshold); `main.py` runs them in order
 
 ---
 
@@ -151,10 +197,10 @@ requires separating the API contract from the persistence model explicitly.
 
 - [x] Replace `Session` / `SessionLocal` with `AsyncSession` + `create_async_engine`
 - [x] Move Redis into `lifespan` via `asynccontextmanager`; stored on `app.state.redis`; closed on shutdown
-- [ ] Add `get_executor` dependency backed by `ThreadPoolExecutor` in `lifespan` (needed when `models.py` is implemented)
+- [x] Add `get_executor` dependency backed by `ThreadPoolExecutor` in `lifespan`; stored on `app.state.executor`
 - [x] Fix idempotency: replaced GET→check→SET with atomic `redis.set(..., nx=True, ex=600)`
-- [ ] Replace `## rule decision` / `## model decision` comments with actual calls once `models.py` is implemented
-- [ ] Call `update_velocity_counters()` via `asyncio.create_task` after response built
+- [x] Wire full rule + model pipeline: `execute_hard_rules` → `model_score` in executor → `execute_soft_rules`
+- [x] Call `update_velocity_counters()` via `asyncio.create_task` after response built
 - [x] Fix `db.add()` — now passes `TransactionRecord(**db_record.model_dump())` ORM instance
 
 ### `app/data/data_models.py`
@@ -173,28 +219,40 @@ requires separating the API contract from the persistence model explicitly.
 
 - [x] `003_create_device_data.sql` — `device_data` table with `PRIMARY KEY (device_id, user_id)`;
       mounted in `docker-compose.yaml`
+- [x] `004_create_transactions.sql` — `transactions` table mirroring all `DBWrite` fields
 
 ### `app/decisions/features/` _(package)_
 
-- [x] `request.py` — `get_days_since_signup` and `get_age_group` implemented
+- [x] `request.py` — `get_days_since_signup`, `get_days_since_signup_group`, temporal features implemented
 - [x] `db.py` — `get_ip_country` (queries `ip_country` GIST index) and `get_did_days_on_file`
       (upsert into `device_data`) implemented
-- [x] `velocity.py` — all four `get_*_counts` functions implemented using sorted sets
+- [x] `velocity.py` — all `get_*_counts` functions implemented using sorted sets
       (`ZRANGEBYSCORE` with per-entity keys, `asyncio.gather` for parallel window queries)
 - [x] `velocity.py` — `update_velocity_counters()` implemented with `asyncio.gather` + `ZADD`;
       conditional write to `purchase:success:{user_id}` on non-deny decisions;
       write-time pruning via `ZREMRANGEBYSCORE` (90-day cutoff)
-- [ ] Add read-through DB fallback to every Redis `get_*` function
-- [ ] Add `GETEX` TTL refresh on every cache hit
-- [ ] Add cache miss warning log to every fallback path
+- [x] `velocity.py` — read-through DB fallback added to every `get_*` function;
+      `redis.exists(key)` used for miss detection; single `COUNT(CASE WHEN ...)` SQL
+      query per function reconstructs all time-window counts in one round-trip
+- [ ] Add `GETEX` TTL refresh on every Redis cache hit (keep hot keys alive longer)
+- [ ] Add cache miss warning log to every DB fallback path
 
 ### `app/decisions/rules.py`
 
-- [ ] Fix `transaction["purchase_value"]` → `transaction.purchase_value`
-      (Pydantic uses attribute access, not dict access)
-- [ ] Expand rules (velocity limits, device rules, country block list, etc.)
+- [x] All rules use Pydantic attribute access (`transaction.purchase_value`, not dict access)
+- [x] Rules expanded: `transaction_limit`, `age_limit`, `ip_country_block`, `rate_limiter_control`,
+      `model_score_threshold` — split into hard and soft rule sets
+- [ ] Expand `rate_limiter_control` to use `score` parameter for combined velocity+model conditions
+- [ ] Add more rules (country block list, device-age heuristics, etc.)
 
-### `app/decisions/models.py` _(currently empty)_
+### `app/decisions/models.py`
 
-- [ ] Load trained model at import time (not per request)
-- [ ] Expose a `predict(features: Features) -> str` sync function for executor use
+- [x] `score(features) -> float` — returns raw fraud probability; used by `main.py` + `model_score_threshold`
+- [x] `predict(features) -> str` — delegates to `score()` + `THRESHOLD` comparison
+- [x] Model and feature list loaded at import time (not per request)
+
+### `app/decisions/__init__.py`
+
+- [x] `execute_hard_rules(t, f)` — chains transaction_limit, age_limit, ip_country_block
+- [x] `execute_soft_rules(t, f, score)` — chains rate_limiter_control + model_score_threshold;
+      all rules receive the model score for richer conditions

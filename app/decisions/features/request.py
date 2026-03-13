@@ -1,16 +1,5 @@
-import json, bisect, pathlib
+import bisect
 from app.data.data_models import Transaction
-
-# Load age bin thresholds produced by the notebook (app/decisions/age_bins.json).
-# Falls back to empty list (age_group = 0 for all) if the file doesn't exist yet.
-_bins_path = pathlib.Path(__file__).parent.parent / "age_bins.json"
-try:
-    _raw_bins = json.loads(_bins_path.read_text())["bins"]
-    # bins = [None, t1, t2, ..., None]; extract the finite interior thresholds
-    _thresholds = [b for b in _raw_bins if b is not None]
-except Exception:
-    _thresholds = []
-
 
 def get_days_since_signup(t: Transaction) -> int:
     if t.signup_time is None:
@@ -18,12 +7,17 @@ def get_days_since_signup(t: Transaction) -> int:
     return max(0, (t.purchase_time - t.signup_time).days)
 
 
-def get_age_group(t: Transaction) -> int:
-    """Map age to integer bin index matching pd.cut(age, bins, labels) from training."""
-    age = t.age if t.age is not None else -1
-    if not _thresholds:
-        return 0
-    return bisect.bisect_right(_thresholds, age)
+# Fixed thresholds and labels for days_since_signup binning.
+# Mirrors the pd.cut bins used in the notebook (right-inclusive, so 7 → '0-7d', 8 → '8-14d').
+_SIGNUP_THRESHOLDS = [7, 14, 30, 90, 180, 360, 720]
+_SIGNUP_LABELS     = ['0-7d', '8-14d', '15-30d', '31-90d', '91-180d', '181-360d', '361-720d', '720+d']
+
+
+def get_days_since_signup_group(days_since_signup: int) -> str:
+    """Map days_since_signup to a human-readable bin label.
+    Missing (days=-999) is treated as 0 days (brand-new account → '0-7d')."""
+    d = max(0, days_since_signup)  # clip -999 sentinel to 0
+    return _SIGNUP_LABELS[bisect.bisect_left(_SIGNUP_THRESHOLDS, d)]
 
 
 def get_age_account_gap(t: Transaction, days_since_signup: int) -> float:

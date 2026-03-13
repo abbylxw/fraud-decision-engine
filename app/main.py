@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from fastapi import FastAPI, Header, Depends
 import asyncio
@@ -5,7 +6,8 @@ from app.data.data_models import DBWrite, Transaction, DecisionResponse
 from app.config import settings
 from app.data.orm_models import TransactionRecord
 from app.decisions.features import build_features, update_velocity_counters
-from app.decisions import execute_rules
+from app.decisions import execute_hard_rules, execute_soft_rules
+from app.decisions.models import score as model_score
 from uuid import uuid4
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from redis.asyncio import Redis
@@ -19,8 +21,10 @@ engine = create_async_engine(settings.database_url)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
+    app.state.executor = ThreadPoolExecutor()
     yield
     await app.state.redis.close()
+    app.state.executor.shutdown(wait=False)
  
 
 app = FastAPI(lifespan=lifespan)
@@ -36,15 +40,22 @@ async def get_redis() -> Redis:
     return app.state.redis
 
 
+def get_executor() -> ThreadPoolExecutor:
+    return app.state.executor
+
+
 async def run_process(transaction: Transaction,
                   db: AsyncSession,
                   redis: Redis,
+                  executor: ThreadPoolExecutor,
 ) -> DecisionResponse:
     features = await build_features(transaction, db, redis)
-    ## rule decision
-    ## model decision
-    ## based on all above, return fraud_decision, and write the reponse into database.
-    fraud_decision = execute_rules(transaction, features)
+    if execute_hard_rules(transaction, features) == 'deny':
+        fraud_decision = 'deny'
+    else:
+        loop = asyncio.get_running_loop()
+        prob = await loop.run_in_executor(executor, model_score, features)
+        fraud_decision = execute_soft_rules(transaction, features, prob)
     response = DecisionResponse(
         transaction_id=uuid4(),
         fraud_decision=fraud_decision,
@@ -71,13 +82,14 @@ async def run_process(transaction: Transaction,
 async def process_transaction(
     transaction: Transaction,
     idempotency_key: str = Header(...),
-    db: AsyncSession = Depends(get_db), 
-    redis: Redis = Depends(get_redis), 
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+    executor: ThreadPoolExecutor = Depends(get_executor),
 ) -> DecisionResponse:
     cached = await redis.getex(f"idem:{idempotency_key}", ex=600) # Check cache with 10 minutes expiration
     if cached:
         return DecisionResponse.model_validate_json(cached)
 
-    response = await run_process(transaction, db, redis)
+    response = await run_process(transaction, db, redis, executor)
     await redis.set(f"idem:{idempotency_key}", response.model_dump_json(), nx=True, ex=600)  # Cache for 10 minutes
     return response

@@ -7,7 +7,7 @@ class Transaction(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     user_id: str
     signup_time: datetime | None = None
-    purchase_time: datetime 
+    purchase_time: datetime
     purchase_value: float
     device_id: str | None = None
     source: str | None = None
@@ -24,56 +24,81 @@ class DecisionResponse(BaseModel):
 
 class Features(Transaction):
     days_since_signup: int = 0
+    days_since_signup_group: str = '0-7d'  # one of: 0-7d,8-14d,15-30d,31-90d,91-180d,181-360d,361-720d,720+d
     ip_country: str = 'Unknown'
-    age_group: int = 0
     did_uid_days_on_file: int = 0
-    did_uid_2h: int = 0
+    did_uid_5min: int = 0
+    did_uid_10min: int = 0
+    did_uid_1h:  int = 0
+    did_uid_2h:  int = 0
     did_uid_24h: int = 0
-    did_uid_7d: int = 0
+    did_uid_7d:  int = 0
     did_uid_30d: int = 0
     did_uid_90d: int = 0
-    uid_did_2h: int = 0
+    uid_did_5min: int = 0
+    uid_did_10min: int = 0
+    uid_did_1h:  int = 0
+    uid_did_2h:  int = 0
     uid_did_24h: int = 0
-    uid_did_7d: int = 0
+    uid_did_7d:  int = 0
     uid_did_30d: int = 0
     uid_did_90d: int = 0
-    ip_uid_2h: int = 0
+    ip_uid_5min: int = 0
+    ip_uid_10min: int = 0
+    ip_uid_1h:  int = 0
+    ip_uid_2h:  int = 0
     ip_uid_24h: int = 0
-    ip_uid_7d: int = 0
-    purchase_cnt_24h: int = 0
-    purchase_amt_24h: float = 0
-    purchase_cnt_7d: int = 0
-    purchase_amt_7d: float = 0
-    purchase_cnt_30d: int = 0
-    purchase_amt_30d: float = 0
-    purchase_cnt_90d: int = 0
-    purchase_amt_90d: float = 0
-    purchase_success_cnt_24h: int = 0
-    purchase_success_amt_24h: float = 0
-    purchase_success_cnt_7d: int = 0
-    purchase_success_amt_7d: float = 0
-    purchase_success_cnt_30d: int = 0
-    purchase_success_amt_30d: float = 0
-    purchase_success_cnt_90d: int = 0
-    purchase_success_amt_90d: float = 0
-    did_txn_cnt_2h:  int = 0
-    did_txn_cnt_24h: int = 0
-    did_txn_cnt_7d:  int = 0
-    did_txn_cnt_30d: int = 0
+    ip_uid_7d:  int = 0
+    purchase_cnt_5min:  int = 0
+    purchase_amt_5min:  float = 0
+    purchase_cnt_10min: int = 0
+    purchase_amt_10min: float = 0
+    purchase_cnt_1h:    int = 0
+    purchase_amt_1h:    float = 0
+    purchase_cnt_24h:   int = 0
+    purchase_amt_24h:   float = 0
+    purchase_cnt_7d:    int = 0
+    purchase_amt_7d:    float = 0
+    purchase_cnt_30d:   int = 0
+    purchase_amt_30d:   float = 0
+    purchase_cnt_90d:   int = 0
+    purchase_amt_90d:   float = 0
+    purchase_success_cnt_5min:  int = 0
+    purchase_success_amt_5min:  float = 0
+    purchase_success_cnt_10min: int = 0
+    purchase_success_amt_10min: float = 0
+    purchase_success_cnt_1h:    int = 0
+    purchase_success_amt_1h:    float = 0
+    purchase_success_cnt_24h:   int = 0
+    purchase_success_amt_24h:   float = 0
+    purchase_success_cnt_7d:    int = 0
+    purchase_success_amt_7d:    float = 0
+    purchase_success_cnt_30d:   int = 0
+    purchase_success_amt_30d:   float = 0
+    purchase_success_cnt_90d:   int = 0
+    purchase_success_amt_90d:   float = 0
+    did_txn_cnt_5min:  int = 0
+    did_txn_cnt_10min: int = 0
+    did_txn_cnt_1h:    int = 0
+    did_txn_cnt_2h:    int = 0
+    did_txn_cnt_24h:   int = 0
+    did_txn_cnt_7d:    int = 0
+    did_txn_cnt_30d:   int = 0
     pur_median_amt_90d:       float = 0.0
     amount_vs_user_avg_30d:   float = 1.0
     age_account_gap:          float = 0.0
     high_amount_vs_hist:      int   = 0
-    time_since_last_txn_uid: float = 0.0
-    country_txn_count_24h: int = 0
-    country_txn_count_7d:  int = 0
-    country_txn_count_30d: int = 0
+    time_since_last_txn_uid:  float = 0.0
+    country_txn_count_5min:  int = 0
+    country_txn_count_10min: int = 0
+    country_txn_count_1h:    int = 0
+    country_txn_count_24h:   int = 0
+    country_txn_count_7d:    int = 0
+    country_txn_count_30d:   int = 0
     hours_to_purchase:       float = -1.0
     hour_of_day:             int   = 0
     day_of_week:             int   = 0
     month_of_year:           int   = 1
 
 class DBWrite(Features, DecisionResponse):
-    created_at: datetime   
-
-
+    created_at: datetime
