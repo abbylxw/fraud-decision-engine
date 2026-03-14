@@ -5,7 +5,7 @@ async def get_ip_country(ip_int: int, db: AsyncSession) -> str:
     stmt = text("""
         SELECT country
         FROM ip_country
-        WHERE ip_range @> :ip
+        WHERE ip_range @> CAST(:ip AS bigint)
         LIMIT 1
     """)
     res = await db.execute(stmt, {"ip": ip_int})
@@ -28,7 +28,6 @@ async def get_did_days_on_file(device_id: str, user_id: str, db: AsyncSession) -
             0
         ) AS did_uid_days_on_file;
     """)
-    async with db.begin():
-        res = await db.execute(stmt, {"device_id": device_id, "user_id": user_id})
-        return res.scalar_one()
+    res = await db.execute(stmt, {"device_id": device_id, "user_id": user_id})
+    return res.scalar_one()
 

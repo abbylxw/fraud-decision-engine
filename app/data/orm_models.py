@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
-from sqlalchemy import UUID as SAUUID
+from sqlalchemy import UUID as SAUUID, DateTime, BigInteger
 from sqlalchemy import func
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
@@ -16,19 +16,19 @@ class TransactionRecord(Base):
     # from DecisionResponse -- primary key
     transaction_id: Mapped[UUID] = mapped_column(SAUUID(as_uuid=True), primary_key=True)
     fraud_decision: Mapped[str]
-    response_time: Mapped[datetime]
+    response_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     # from Transaction
     user_id: Mapped[str]
-    signup_time: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    purchase_time: Mapped[datetime]
+    signup_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    purchase_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     purchase_value: Mapped[float]
     device_id: Mapped[Optional[str]] = mapped_column(nullable=True)
     source: Mapped[Optional[str]] = mapped_column(nullable=True)
     browser: Mapped[Optional[str]] = mapped_column(nullable=True)
     sex: Mapped[Optional[str]] = mapped_column(nullable=True)
     age: Mapped[Optional[int]] = mapped_column(nullable=True)
-    ip_address: Mapped[Optional[int]] = mapped_column(nullable=True)
+    ip_address: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     fraud_class: Mapped[int] = mapped_column(name='fraud_class')
 
     # from Features
@@ -108,4 +108,4 @@ class TransactionRecord(Base):
     hour_of_day:             Mapped[int]   = mapped_column(default=0)
     day_of_week:             Mapped[int]   = mapped_column(default=0)
     month_of_year:           Mapped[int]   = mapped_column(default=1)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

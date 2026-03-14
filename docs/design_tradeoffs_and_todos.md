@@ -256,3 +256,132 @@ borderline cases; soft rules receive the score.
 - [x] `execute_hard_rules(t, f)` — chains transaction_limit, age_limit, ip_country_block
 - [x] `execute_soft_rules(t, f, score)` — chains rate_limiter_control + model_score_threshold;
       all rules receive the model score for richer conditions
+
+---
+
+## Bug Fixes Applied (First Test Run Session)
+
+These bugs were found and fixed while getting the first real HTTP request through end-to-end.
+
+---
+
+### Fix 1: Wrong database URL scheme for async driver
+
+**File:** `app/config.py`, `.env`
+
+**Problem:** `postgresql://` tells SQLAlchemy to use `psycopg2` (sync driver). But the code
+uses `create_async_engine`, which requires an async driver.
+
+**Fix:** Change to `postgresql+asyncpg://`.
+
+**Background to learn:** SQLAlchemy URL prefixes select the *driver* (library used to talk to
+the DB). `postgresql://` = psycopg2 (sync). `postgresql+asyncpg://` = asyncpg (async).
+The `+asyncpg` part is called a "dialect+driver" specifier.
+
+---
+
+### Fix 2: AsyncSession cannot be used concurrently
+
+**File:** `app/decisions/features/__init__.py`
+
+**Problem:** `asyncio.gather()` runs coroutines concurrently. All 8 feature functions shared
+the same `AsyncSession`. On a Redis cache miss, they all fall back to the DB simultaneously.
+SQLAlchemy's `AsyncSession` does not support concurrent access — it raises:
+`This session is provisioning a new connection; concurrent operations are not permitted`.
+
+**Fix:** Replace `asyncio.gather(...)` with sequential `await` calls.
+
+**Background to learn:** `asyncio.gather()` starts all coroutines at once (concurrent).
+`AsyncSession` is not thread-safe or concurrency-safe — it assumes one operation at a time.
+When Redis is warm (after the first request), the DB is never touched, so the performance
+difference is negligible.
+
+---
+
+### Fix 3: Explicit db.begin() when transaction already open
+
+**File:** `app/decisions/features/db.py`
+
+**Problem:** `get_ip_country` called `db.execute()` directly, which implicitly starts a
+transaction (SQLAlchemy "autobegin"). Then `get_did_days_on_file` called `async with db.begin():`
+explicitly — but a transaction was already open, causing:
+`A transaction is already begun on this Session`.
+
+**Fix:** Remove `async with db.begin():` — the session's transaction is committed in `main.py`
+via `await db.commit()`.
+
+**Background to learn:** SQLAlchemy uses "autobegin" — a transaction starts automatically on
+first use of the session. You only need to call `db.begin()` if you need manual transaction
+control. Calling it twice raises an error.
+
+---
+
+### Fix 4: PostgreSQL range type with asyncpg parameter binding
+
+**File:** `app/decisions/features/db.py`
+
+**Problem:** The query `WHERE ip_range @> :ip` passes a Python `int` to a PostgreSQL `int8range`
+column. asyncpg doesn't know to treat the int as a scalar point value in a range — it expects a
+range object. Also, writing `:ip::bigint` in SQLAlchemy `text()` causes a syntax error because
+`::` conflicts with the `:name` parameter syntax (`:ip:` is parsed as the parameter name).
+
+**Fix:** Use `CAST(:ip AS bigint)` — standard SQL syntax that SQLAlchemy's parser handles correctly.
+
+**Background to learn:**
+- PostgreSQL `@>` is the "contains" operator for range types (`int8range`, `tsrange`, etc.)
+- SQLAlchemy `text()` uses `:name` as parameter placeholders — `::` (PostgreSQL cast syntax)
+  conflicts with this. Use standard SQL `CAST(x AS type)` instead.
+- asyncpg maps Python types to PostgreSQL types automatically, but range containment with a
+  scalar needs an explicit cast hint.
+
+---
+
+### Fix 5: ORM datetime columns must match timestamptz DB columns
+
+**File:** `app/data/orm_models.py`
+
+**Problem:** The PostgreSQL schema uses `timestamptz` (timezone-aware timestamps) for
+`response_time`, `signup_time`, `purchase_time`, `created_at`. SQLAlchemy's `Mapped[datetime]`
+defaults to `TIMESTAMP WITHOUT TIME ZONE`. asyncpg rejects timezone-aware Python `datetime`
+objects when inserting into a tz-naive column:
+`can't subtract offset-naive and offset-aware datetimes`.
+
+**Fix:** Add `mapped_column(DateTime(timezone=True))` to all four datetime columns.
+
+**Background to learn:** Python `datetime` objects can be "naive" (no timezone) or "aware"
+(has `tzinfo`). PostgreSQL has two timestamp types: `TIMESTAMP` (naive) and `TIMESTAMPTZ`
+(aware). asyncpg enforces this distinction strictly. SQLAlchemy's `DateTime(timezone=True)`
+maps to `TIMESTAMPTZ`.
+
+---
+
+### Fix 6: ip_address ORM column is int32, DB schema is bigint
+
+**File:** `app/data/orm_models.py`
+
+**Problem:** `ip_address` is stored as a large integer in the dataset (e.g. `3627734734`),
+which exceeds int32 max (~2.1 billion). The DB schema correctly uses `bigint` (64-bit), but
+`Mapped[Optional[int]]` in SQLAlchemy defaults to `INTEGER` (32-bit), causing:
+`value out of int32 range`.
+
+**Fix:** Add `mapped_column(BigInteger, nullable=True)`.
+
+**Background to learn:** SQLAlchemy's `Mapped[int]` maps to PostgreSQL `INTEGER` (4 bytes,
+max 2,147,483,647). For larger integers, use `BigInteger` (8 bytes, same as PostgreSQL `bigint`).
+IP addresses encoded as 32-bit unsigned integers exceed the signed int32 range.
+
+---
+
+### Infrastructure: Missing Docker mount for 004_create_transactions.sql
+
+**File:** `docker-compose.yaml`
+
+**Problem:** `003_create_device_data.sql` was mounted but `004_create_transactions.sql` was not.
+PostgreSQL only runs init scripts on first container start — if the data volume already exists,
+new scripts are skipped silently. The `transactions` table was therefore never created.
+
+**Fix:** Added the missing volume mount. For existing containers (volume already initialized),
+run manually:
+```bash
+docker compose exec db psql -U postgres -d fraud -c "$(cat app/data/db_init/004_create_transactions.sql)"
+```

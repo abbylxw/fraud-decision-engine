@@ -1,4 +1,3 @@
-import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 from app.data.data_models import Transaction, Features
@@ -15,18 +14,16 @@ from .velocity import (
 
 
 async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Features:
-    ip_country, did_days_on_file, did_uid, uid_did, ip_uid, purchase, did_txn, last_txn_time = await asyncio.gather(
-        get_ip_country(t.ip_address, db),
-        get_did_days_on_file(t.device_id, t.user_id, db),
-        get_did_uid_counts(t.device_id, redis, db),
-        get_uid_did_counts(t.user_id, redis, db),
-        get_ip_uid_counts(t.ip_address, redis, db),
-        get_purchase_counts(t.user_id, redis, db),
-        get_did_txn_counts(t.device_id, redis, db),
-        get_uid_last_txn_time(t.user_id, redis, db),
-    )
+    ip_country       = await get_ip_country(t.ip_address, db)
+    did_days_on_file = await get_did_days_on_file(t.device_id, t.user_id, db)
+    did_uid          = await get_did_uid_counts(t.device_id, redis, db)
+    uid_did          = await get_uid_did_counts(t.user_id, redis, db)
+    ip_uid           = await get_ip_uid_counts(t.ip_address, redis, db)
+    purchase         = await get_purchase_counts(t.user_id, redis, db)
+    did_txn          = await get_did_txn_counts(t.device_id, redis, db)
+    last_txn_time    = await get_uid_last_txn_time(t.user_id, redis, db)
     # country_txn requires ip_country to be resolved first (it's the Redis key)
-    country_txn = await get_country_txn_counts(ip_country, redis, db)
+    country_txn      = await get_country_txn_counts(ip_country, redis, db)
 
     days_since_signup = get_days_since_signup(t)
 
