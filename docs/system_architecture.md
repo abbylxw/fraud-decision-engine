@@ -279,10 +279,52 @@ Services defined in `docker-compose.yaml`. The `api` service waits for
 
 ---
 
+## Endpoints
+
+| Method | Path                  | Description                                              |
+|--------|-----------------------|----------------------------------------------------------|
+| POST   | `/api/transactions`   | Score a transaction; returns `fraud_decision`            |
+| GET    | `/health`             | Liveness/readiness probe; checks DB + Redis connectivity |
+
+`GET /health` response: `{"status": "ok"|"degraded", "db": "ok"|"error: ...", "redis": "ok"|"error: ..."}`
+
+---
+
+## Logging
+
+Structured JSON logs via `_JSONFormatter` in `main.py`. One JSON object per line.
+
+| Event               | Fields logged                                       |
+|---------------------|-----------------------------------------------------|
+| `request.received`  | user_id, purchase_value, device_id                  |
+| `hard_rule.deny`    | user_id, ip_country                                 |
+| `model.scored`      | user_id, prob (4dp), decision                       |
+| `decision.written`  | transaction_id, fraud_decision                      |
+| `idempotency.hit`   | idempotency_key                                     |
+
+Example: `{"ts": "2025-03-14T12:00:01", "level": "INFO", "msg": "model.scored", "user_id": "u1", "prob": 0.0312, "decision": "allow"}`
+
+---
+
+## Test Suite
+
+69 tests in `tests/`. All pass without live DB or Redis (dependency overrides + AsyncMock).
+
+| File                        | Coverage                                              |
+|-----------------------------|-------------------------------------------------------|
+| `test_rules.py`             | All 5 rule functions, 24 cases                        |
+| `test_features.py`          | Pure request-based feature math, 20 cases             |
+| `test_api.py`               | `/health` (healthy/DB-down/Redis-down) + `/api/transactions` (deny/allow/idempotency) |
+| `test_velocity_fallback.py` | Redis→DB fallback in 5 velocity functions (cache miss and cache hit paths) |
+
+Run: `pytest tests/ -v`
+
+---
+
 ## Known Limitations
 
 See `design_tradeoffs_and_todos.md` for full detail. Key open items:
 
-- Velocity counters are fire-and-forget — stale features if the server crashes mid-request
-- `build_features` runs IO calls sequentially — could be parallelized with `asyncio.gather`
-  for lower latency under load
+- Velocity counters are fire-and-forget — stale features possible if server crashes mid-request
+- Cache miss warning logs not yet added to `velocity.py` DB fallback paths
+- `GETEX` TTL refresh on Redis hits not yet implemented

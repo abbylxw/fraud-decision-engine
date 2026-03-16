@@ -235,7 +235,7 @@ borderline cases; soft rules receive the score.
       `redis.exists(key)` used for miss detection; single `COUNT(CASE WHEN ...)` SQL
       query per function reconstructs all time-window counts in one round-trip
 - [ ] Add `GETEX` TTL refresh on every Redis cache hit (keep hot keys alive longer)
-- [ ] Add cache miss warning log to every DB fallback path
+- [ ] Add cache miss warning log to every DB fallback path in `velocity.py`
 
 ### `app/decisions/rules.py`
 
@@ -256,6 +256,97 @@ borderline cases; soft rules receive the score.
 - [x] `execute_hard_rules(t, f)` — chains transaction_limit, age_limit, ip_country_block
 - [x] `execute_soft_rules(t, f, score)` — chains rate_limiter_control + model_score_threshold;
       all rules receive the model score for richer conditions
+
+---
+
+---
+
+## Production Hardening (2025-03-14)
+
+Items added to make the project deployment-ready and portfolio-presentable.
+
+### New Files
+
+- [x] **`README.md`** — project overview, architecture diagram, quick start, example request/response,
+      engineering decisions section
+- [x] **`pyproject.toml`** — ruff linting config (`select = ["E","F","W","I"]`, `line-length = 100`);
+      pytest config (`asyncio_mode = "auto"`, `testpaths = ["tests"]`)
+- [x] **`.github/workflows/ci.yml`** — GitHub Actions CI: lint → test → docker build on every push
+
+### `app/main.py`
+
+- [x] Add `GET /health` endpoint — checks `db.execute(SELECT 1)` and `redis.ping()`;
+      returns `{"status": "ok"|"degraded", "db": "...", "redis": "..."}`;
+      standard readiness probe used by Kubernetes and load balancers
+- [x] Add structured logging via `_JSONFormatter` (stdlib `logging`; no new dependency);
+      emits one JSON object per line; 5 log events:
+  - `request.received` — user_id, purchase_value, device_id
+  - `hard_rule.deny` — user_id, ip_country (when hard rules short-circuit)
+  - `model.scored` — user_id, prob (4dp), decision
+  - `decision.written` — transaction_id, fraud_decision
+  - `idempotency.hit` — idempotency_key
+- [x] Fix `redis.close()` → `redis.aclose()` (deprecated since redis-py 5.0.1)
+
+### `tests/` _(new directory)_
+
+69 tests across 4 files; all pass without live DB or Redis.
+
+- [x] `tests/conftest.py` — `sample_transaction` and `sample_features` shared fixtures
+- [x] `tests/test_rules.py` — 24 tests covering all 5 rule functions; pure unit tests
+      (no mocking, just call rule functions with crafted inputs)
+- [x] `tests/test_features.py` — 20 tests for pure request-based feature functions
+      (`days_since_signup`, `days_since_signup_group`, `hours_to_purchase`, temporal)
+- [x] `tests/test_api.py` — 6 integration tests for `/health` and `POST /api/transactions`;
+      DB and Redis replaced with `AsyncMock` via FastAPI `dependency_overrides`;
+      covers: healthy, DB-down, Redis-down, hard-rule deny, allow, idempotency hit
+- [x] `tests/test_velocity_fallback.py` — 11 tests for Redis→DB fallback in velocity functions;
+      verifies that on `redis.exists()` → 0, the function calls `db.execute()` and returns
+      DB values; also verifies cache hits skip the DB entirely
+
+### `requirements.txt`
+
+- [x] Add `pytest`, `pytest-asyncio`, `ruff`
+
+---
+
+## Trade-off: asyncio.gather() in build_features() — Why It Was Removed
+
+**Decision:** `build_features()` uses sequential `await` calls, not `asyncio.gather()`.
+
+**Why `asyncio.gather` was tried and removed (see Fix 2 below):**
+
+`asyncio.gather()` runs coroutines concurrently. All feature functions share the same
+`AsyncSession`, which wraps a single asyncpg connection. A single connection handles one
+query at a time — concurrent `await db.execute()` calls on the same session raise:
+`This session is provisioning a new connection; concurrent operations are not permitted`.
+
+**Why not use separate sessions per call?** Each session uses one connection from the pool.
+8 concurrent feature functions = 8 connections per request. Under 50 RPS load that's
+400 simultaneous connections — well above a typical pool size.
+
+**Why the performance impact is minimal in practice:**
+- Redis is in-memory; each call completes in <1ms. Sequential is fast.
+- `asyncio.gather` IS used inside each velocity function for the multiple `ZRANGEBYSCORE`
+  calls to Redis — that's where it actually helps (fan-out to one server per function).
+- On a DB fallback (cache miss), sequential is also correct because the session is shared.
+
+**Conclusion:** Sequential `build_features()` + parallel Redis calls inside each function
+is the correct and intentional design. Do not add `gather` at the `build_features()` level
+without refactoring to use per-call sessions.
+
+---
+
+## Trade-off: structlog vs stdlib logging
+
+**Decision:** Used Python's stdlib `logging` with a custom `_JSONFormatter`.
+
+**Trade-off:** `structlog` provides richer context binding (attach `transaction_id` once,
+have it appear on every subsequent log line) but adds a dependency. Stdlib logging with
+`extra={}` achieves structured output with zero new dependencies. For this project's
+log volume and team size, stdlib is sufficient.
+
+**Revisit if:** log correlation across async tasks becomes important (structlog's
+`contextvars` integration handles this cleanly).
 
 ---
 

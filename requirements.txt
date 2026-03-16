@@ -16,3 +16,8 @@ jupyter
 tqdm
 torch
 joblib
+
+# Dev / CI
+pytest
+pytest-asyncio
+ruff
