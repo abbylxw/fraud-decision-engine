@@ -18,9 +18,12 @@ def age_limit(transaction: Transaction, feature: Features):
     return 'allow'
 
 def ip_country_block(transaction: Transaction, feature: Features):
-    if feature.ip_country != 'US':
-        return 'deny'
-    return 'allow'
+    country = feature.ip_country
+    if country == 'United States':
+        return 'allow'
+    if country == 'Unknown' and feature.did_uid_days_on_file > 90:
+        return 'allow'   # unresolvable IP but established device — low risk
+    return 'deny'
 
 def model_score_threshold(score: float) -> str:
     """Deny if the model's fraud probability meets or exceeds the threshold."""

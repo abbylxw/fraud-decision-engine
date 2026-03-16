@@ -32,7 +32,7 @@ def sample_features(sample_transaction):
     """Features built from sample_transaction. Defaults to a clean US profile."""
     return Features(
         **sample_transaction.model_dump(by_alias=False),
-        ip_country="US",
+        ip_country="United States",
         days_since_signup=438,
         days_since_signup_group="361-720d",
     )

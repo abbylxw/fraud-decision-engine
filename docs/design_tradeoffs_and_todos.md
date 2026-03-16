@@ -253,9 +253,10 @@ borderline cases; soft rules receive the score.
 
 ### `app/decisions/__init__.py`
 
-- [x] `execute_hard_rules(t, f)` — chains transaction_limit, age_limit, ip_country_block
+- [x] `execute_hard_rules(t, f)` — chains transaction_limit, age_limit, ip_country_block;
+      returns `(decision, rule_name | None)` so the triggering rule can be logged
 - [x] `execute_soft_rules(t, f, score)` — chains rate_limiter_control + model_score_threshold;
-      all rules receive the model score for richer conditions
+      returns `(decision, rule_name | None)`; all rules receive the model score
 
 ---
 
@@ -281,7 +282,7 @@ Items added to make the project deployment-ready and portfolio-presentable.
 - [x] Add structured logging via `_JSONFormatter` (stdlib `logging`; no new dependency);
       emits one JSON object per line; 5 log events:
   - `request.received` — user_id, purchase_value, device_id
-  - `hard_rule.deny` — user_id, ip_country (when hard rules short-circuit)
+  - `hard_rule.deny` — user_id, rule name, ip_country, did_uid_days_on_file, purchase_value, age
   - `model.scored` — user_id, prob (4dp), decision
   - `decision.written` — transaction_id, fraud_decision
   - `idempotency.hit` — idempotency_key
@@ -460,6 +461,105 @@ which exceeds int32 max (~2.1 billion). The DB schema correctly uses `bigint` (6
 **Background to learn:** SQLAlchemy's `Mapped[int]` maps to PostgreSQL `INTEGER` (4 bytes,
 max 2,147,483,647). For larger integers, use `BigInteger` (8 bytes, same as PostgreSQL `bigint`).
 IP addresses encoded as 32-bit unsigned integers exceed the signed int32 range.
+
+---
+
+---
+
+## Bug Fixes Applied (End-to-End Test Run — 2026-03-16)
+
+These bugs were found and fixed while running `client_mimic.py` against a live Docker stack.
+
+---
+
+### Fix 7: ip_country_block rule denied 'Unknown' country unconditionally
+
+**File:** `app/decisions/rules.py`
+
+**Problem:** `ip_country_block` returned `'deny'` for any country that wasn't `'United States'`,
+including `'Unknown'`. The synthetic IP addresses in `Fraud_Data.csv` don't exist in the real
+`IpAddress_to_Country.csv` ranges, so every lookup returned `'Unknown'` → every transaction denied.
+
+**Fix:** Updated the rule to use `'Unknown'` + device age as a combined signal:
+- `'United States'` → allow
+- `'Unknown'` + device older than 90 days → allow (established device offsets unresolvable IP)
+- `'Unknown'` + new device → deny (two unknowns together = high risk)
+- Any confirmed non-US country → deny
+
+**Background to learn:** Blocking on data-quality gaps (unknown country = deny) punishes legitimate
+users when your lookup database has coverage gaps. A better policy is to use missing data as a weak
+signal and require corroborating evidence before denying.
+
+---
+
+### Fix 8: execute_hard_rules lost the triggering rule name
+
+**File:** `app/decisions/__init__.py`, `app/main.py`
+
+**Problem:** `execute_hard_rules` used a single `if (rule1 == 'deny' or rule2 == 'deny' ...)`
+expression — short-circuit evaluation means only the first matching rule fires, and the log
+only said `"hard_rule.deny"` with no indication of which rule triggered it.
+
+**Fix:** Replaced the short-circuit `or` chain with a loop over `(rule_fn, args)` tuples.
+Both `execute_hard_rules` and `execute_soft_rules` now return `(decision, rule_name | None)`.
+The log now includes `"rule": "ip_country_block"` (or whichever rule fired).
+
+**Why this matters:** Without the rule name in logs, debugging "why is this transaction denied?"
+requires adding temporary print statements. Named rule logging is essential for production audit trails.
+
+---
+
+### Fix 9: Redis idempotency cache returned stale deny decisions after rule changes
+
+**File:** None (operational procedure)
+
+**Problem:** After fixing rules, `client_mimic.py` still showed all-deny. The script generates
+idempotency keys as `{user_id}-{counter}` where counter resets to 0 on each run. Redis cached
+the old deny decisions (10-minute TTL) from the previous run, so the API returned cached results
+without re-evaluating the new rules.
+
+**Fix:** `docker compose exec redis redis-cli FLUSHDB` between test runs.
+
+**Background to learn:** Idempotency caches are intentionally sticky — that's their purpose.
+During development, always flush the cache after changing rule logic, or use unique key prefixes
+per test session (e.g. include a timestamp in the key).
+
+---
+
+### Fix 10: model score() crashed on categorical string features
+
+**File:** `app/decisions/models.py`
+
+**Problem:** `model_features.json` includes `sex`, `source`, `browser`, and `age_group`.
+The `score()` function handled `ip_country_code` and `days_since_signup_group` via special cases,
+but let the rest fall through to `getattr(features, name)` — which returned raw strings like `'M'`,
+`'SEO'`, `'Chrome'`. `np.array(..., dtype=np.float32)` cannot convert strings:
+`ValueError: could not convert string to float: 'M'`
+
+**Fix:** Added explicit encoding maps mirroring the `pd.Categorical` codes used during training:
+- `sex`: `{'F': 0, 'M': 1}`
+- `source`: `{'Ads': 0, 'Direct': 1, 'SEO': 2}`
+- `browser`: `{'Chrome': 0, 'FireFox': 1, 'IE': 2, 'Opera': 3, 'Safari': 4}`
+- `age_group`: `pd.cut` equivalent using `age_bins.json` + `bisect.bisect_left`
+
+**Background to learn:** sklearn models store no encoding logic — they just expect numbers.
+The encoding that happened during training (e.g. `pd.Categorical(...).codes`) must be reproduced
+exactly at inference time. Saving the category lists to JSON (as this project does for
+`ip_country_categories.json`) is the correct pattern; `sex`/`source`/`browser` just needed
+the same treatment.
+
+---
+
+### Fix 11: client_mimic.py crashed on non-JSON server error responses
+
+**File:** `app/data/client_mimic.py`
+
+**Problem:** When the API returned a 500 error (empty body), `r.json()` raised
+`JSONDecodeError: Expecting value: line 1 column 1`. The script crashed entirely instead of
+printing the error.
+
+**Fix:** Wrapped `r.json()` in a try/except; on failure, returns `{"_raw": r.text}` so the
+raw error is visible in the output.
 
 ---
 

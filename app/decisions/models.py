@@ -33,6 +33,22 @@ def _country_code(ip_country: str) -> int:
     return -1
 
 
+_SEX_CODES     = {"F": 0, "M": 1}
+_SOURCE_CODES  = {"Ads": 0, "Direct": 1, "SEO": 2}
+_BROWSER_CODES = {"Chrome": 0, "FireFox": 1, "IE": 2, "Opera": 3, "Safari": 4}
+
+# Mirrors pd.cut(df["age"], bins=age_bins.json["bins"]).cat.codes
+_AGE_BINS = json.loads((_base / "age_bins.json").read_text())["bins"]
+_AGE_EDGES = [b if b is not None else float("inf") for b in _AGE_BINS[1:]]  # right edges
+
+
+def _age_group_code(age: int | None) -> int:
+    """Return the pd.cut bin index for an age value, or -1 if unclassifiable."""
+    if age is None:
+        return -1
+    return bisect.bisect_left(_AGE_EDGES, age)
+
+
 def score(features: Features) -> float:
     """Return the raw fraud probability (0.0–1.0).
 
@@ -48,6 +64,14 @@ def score(features: Features) -> float:
         elif name == "days_since_signup_group":
             label = features.days_since_signup_group
             row[name] = _SIGNUP_LABELS.index(label) if label in _SIGNUP_LABELS else 0
+        elif name == "sex":
+            row[name] = _SEX_CODES.get(features.sex or "", -1)
+        elif name == "source":
+            row[name] = _SOURCE_CODES.get(features.source or "", -1)
+        elif name == "browser":
+            row[name] = _BROWSER_CODES.get(features.browser or "", -1)
+        elif name == "age_group":
+            row[name] = _age_group_code(features.age)
         elif hasattr(features, name):
             row[name] = getattr(features, name)
 

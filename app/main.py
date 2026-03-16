@@ -102,17 +102,27 @@ async def run_process(transaction: Transaction,
         "device_id": transaction.device_id,
     })
     features = await build_features(transaction, db, redis)
-    if execute_hard_rules(transaction, features) == 'deny':
+    hard_decision, hard_rule = execute_hard_rules(transaction, features)
+    if hard_decision == 'deny':
         fraud_decision = 'deny'
-        logger.info("hard_rule.deny", extra={"user_id": transaction.user_id, "ip_country": features.ip_country})
+        logger.info("hard_rule.deny", extra={
+            "user_id": transaction.user_id,
+            "rule": hard_rule,
+            "ip_country": features.ip_country,
+            "did_uid_days_on_file": features.did_uid_days_on_file,
+            "purchase_value": transaction.purchase_value,
+            "age": transaction.age,
+        })
     else:
         loop = asyncio.get_running_loop()
         prob = await loop.run_in_executor(executor, model_score, features)
-        fraud_decision = execute_soft_rules(transaction, features, prob)
+        soft_decision, soft_rule = execute_soft_rules(transaction, features, prob)
+        fraud_decision = soft_decision
         logger.info("model.scored", extra={
             "user_id": transaction.user_id,
             "prob": round(prob, 4),
             "decision": fraud_decision,
+            "rule": soft_rule,
         })
     response = DecisionResponse(
         transaction_id=uuid4(),

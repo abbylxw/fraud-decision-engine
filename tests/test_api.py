@@ -78,7 +78,7 @@ _CLEAN_FEATURES = Features(
     purchase_time=datetime(2025, 3, 14, 12, 0, tzinfo=timezone.utc),
     purchase_value=100.0,
     fraud_class=0,
-    ip_country="US",
+    ip_country="United States",
     days_since_signup=438,
     days_since_signup_group="361-720d",
 )

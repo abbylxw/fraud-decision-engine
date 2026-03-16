@@ -83,7 +83,7 @@ class TestAgeLimit:
 
 
 # ---------------------------------------------------------------------------
-# ip_country_block — deny if country is not 'US'
+# ip_country_block — deny confirmed non-US; Unknown allowed only for old devices
 # ---------------------------------------------------------------------------
 
 class TestIpCountryBlock:
@@ -91,12 +91,20 @@ class TestIpCountryBlock:
         sample_features.ip_country = "GB"
         assert ip_country_block(sample_transaction, sample_features) == "deny"
 
-    def test_deny_unknown(self, sample_transaction, sample_features):
+    def test_deny_unknown_with_new_device(self, sample_transaction, sample_features):
+        # Unknown country + new device (≤ 90d) — two unknowns together = deny
         sample_features.ip_country = "Unknown"
+        sample_features.did_uid_days_on_file = 30
         assert ip_country_block(sample_transaction, sample_features) == "deny"
 
+    def test_allow_unknown_with_established_device(self, sample_transaction, sample_features):
+        # Unknown country but device has been around > 90d — established device offsets unknown IP
+        sample_features.ip_country = "Unknown"
+        sample_features.did_uid_days_on_file = 91
+        assert ip_country_block(sample_transaction, sample_features) == "allow"
+
     def test_allow_us(self, sample_transaction, sample_features):
-        sample_features.ip_country = "US"
+        sample_features.ip_country = "United States"
         assert ip_country_block(sample_transaction, sample_features) == "allow"
 
 

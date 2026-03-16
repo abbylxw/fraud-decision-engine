@@ -1,4 +1,10 @@
-COPY ip_country_stage(ip_from, ip_to, country)
+CREATE TEMP TABLE ip_country_stage (
+    ip_from_text text,
+    ip_to_text   text,
+    country      text
+);
+
+COPY ip_country_stage(ip_from_text, ip_to_text, country)
 FROM '/data/IpAddress_to_Country.csv'
 WITH (FORMAT csv, HEADER true);
 

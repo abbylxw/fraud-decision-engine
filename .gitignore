@@ -21,3 +21,6 @@ env/
 # IDE
 .idea/
 .vscode/
+
+# Local reference notes (not for publishing)
+docs/reference_links.md
