@@ -3,7 +3,7 @@ import json
 import pathlib
 
 import joblib
-import numpy as np
+import pandas as pd
 
 from app.data.data_models import Features
 
@@ -15,7 +15,7 @@ _countries = json.loads((_base / "ip_country_categories.json").read_text())
 
 # Probability threshold: transactions above this are flagged as fraud.
 # 0.5 is the default decision boundary; tune upward to reduce false positives.
-THRESHOLD = 0.5
+THRESHOLD = 0.7
 
 
 def _country_code(ip_country: str) -> int:
@@ -75,7 +75,7 @@ def score(features: Features) -> float:
         elif hasattr(features, name):
             row[name] = getattr(features, name)
 
-    X = np.array([[row[name] for name in _features]], dtype=np.float32)
+    X = pd.DataFrame([row], columns=_features)
     return float(_model.predict_proba(X)[0][1])
 
 

@@ -182,9 +182,9 @@ async def get_did_uid_counts(device_id: str, redis: Redis, db: AsyncSession) -> 
         "30d":   current_time - (30 * 86400),
         "90d":   current_time - (90 * 86400),
     }
-    results = await asyncio.gather(*[redis.zrangebyscore(f"did:uid:{device_id}", since, current_time)
+    results = await asyncio.gather(*[redis.zcount(f"did:uid:{device_id}", since, current_time)
                                      for since in windows.values()])
-    return {key: len(members) for key, members in zip(windows, results)}
+    return dict(zip(windows, results))
 
 
 async def get_uid_did_counts(user_id: str, redis: Redis, db: AsyncSession) -> dict:
@@ -203,9 +203,9 @@ async def get_uid_did_counts(user_id: str, redis: Redis, db: AsyncSession) -> di
         "30d":   current_time - (30 * 86400),
         "90d":   current_time - (90 * 86400),
     }
-    results = await asyncio.gather(*[redis.zrangebyscore(f"uid:did:{user_id}", since, current_time)
+    results = await asyncio.gather(*[redis.zcount(f"uid:did:{user_id}", since, current_time)
                                      for since in windows.values()])
-    return {key: len(members) for key, members in zip(windows, results)}
+    return dict(zip(windows, results))
 
 
 async def get_ip_uid_counts(ip: float, redis: Redis, db: AsyncSession) -> dict:
@@ -222,9 +222,9 @@ async def get_ip_uid_counts(ip: float, redis: Redis, db: AsyncSession) -> dict:
         "24h":   current_time - (24 * 3600),
         "7d":    current_time - (7  * 86400),
     }
-    results = await asyncio.gather(*[redis.zrangebyscore(f"ip:uid:{ip}", since, current_time)
+    results = await asyncio.gather(*[redis.zcount(f"ip:uid:{ip}", since, current_time)
                                      for since in windows.values()])
-    return {key: len(members) for key, members in zip(windows, results)}
+    return dict(zip(windows, results))
 
 
 async def get_purchase_counts(user_id: str, redis: Redis, db: AsyncSession) -> dict:
@@ -295,10 +295,10 @@ async def get_did_txn_counts(device_id: str, redis: Redis, db: AsyncSession) -> 
         "30d":   current_time - (30 * 86400),
     }
     results = await asyncio.gather(*[
-        redis.zrangebyscore(f"did:txn:{device_id}", since, current_time)
+        redis.zcount(f"did:txn:{device_id}", since, current_time)
         for since in windows.values()
     ])
-    return {key: len(members) for key, members in zip(windows, results)}
+    return dict(zip(windows, results))
 
 
 async def get_country_txn_counts(ip_country: str, redis: Redis, db: AsyncSession) -> dict:
@@ -316,10 +316,10 @@ async def get_country_txn_counts(ip_country: str, redis: Redis, db: AsyncSession
         "30d":   current_time - (30 * 86400),
     }
     results = await asyncio.gather(*[
-        redis.zrangebyscore(f"country:txn:{ip_country}", since, current_time)
+        redis.zcount(f"country:txn:{ip_country}", since, current_time)
         for since in windows.values()
     ])
-    return {key: len(members) for key, members in zip(windows, results)}
+    return dict(zip(windows, results))
 
 
 async def update_velocity_counters(user_id: str, device_id: str, ip: float,

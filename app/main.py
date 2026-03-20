@@ -63,16 +63,22 @@ logger = logging.getLogger("fraud_engine")
 # Prometheus metrics
 # ---------------------------------------------------------------------------
 
+REQUESTS_TOTAL = Counter(
+    "fraud_requests_total", "Total incoming requests including idempotency hits")
 DECISIONS_TOTAL = Counter(
     "fraud_decisions_total", "Total fraud decisions", ["decision"])
 RULE_DENIALS_TOTAL = Counter(
     "fraud_rule_denials_total", "Denials by rule name", ["phase", "rule"])
+COUNTRY_REQUESTS = Counter(
+    "fraud_country_requests_total", "Requests by ip_country and decision",
+    ["country", "decision"])
 REQUEST_LATENCY = Histogram(
     "fraud_request_duration_seconds", "End-to-end latency for POST /api/transactions",
     buckets=[.01, .025, .05, .1, .25, .5, 1.0, 2.5])
-MODEL_LATENCY = Histogram(
-    "fraud_model_score_duration_seconds", "Time spent in ML inference",
-    buckets=[.001, .005, .01, .025, .05, .1, .25])
+STEP_LATENCY = Histogram(
+    "fraud_step_duration_seconds", "Processing time per pipeline step",
+    ["step"],
+    buckets=[.001, .005, .01, .025, .05, .1, .25, .5, 1.0, 2.5, 5.0])
 MODEL_SCORE = Histogram(
     "fraud_model_score_value", "Distribution of raw fraud probability scores",
     buckets=[.0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1.0])
@@ -84,7 +90,7 @@ IDEMPOTENCY_HITS = Counter(
 # Database engine
 # ---------------------------------------------------------------------------
 
-engine = create_async_engine(settings.database_url)
+engine = create_async_engine(settings.database_url, pool_size=20, max_overflow=77)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -124,7 +130,8 @@ async def run_process(transaction: Transaction,
         "purchase_value": transaction.purchase_value,
         "device_id": transaction.device_id,
     })
-    features = await build_features(transaction, db, redis)
+    with STEP_LATENCY.labels(step="feature_extraction").time():
+        features = await build_features(transaction, db, redis)
     hard_decision, hard_rule = execute_hard_rules(transaction, features)
     if hard_decision == 'deny':
         fraud_decision = 'deny'
@@ -139,7 +146,7 @@ async def run_process(transaction: Transaction,
         })
     else:
         loop = asyncio.get_running_loop()
-        with MODEL_LATENCY.time():
+        with STEP_LATENCY.labels(step="model_inference").time():
             prob = await loop.run_in_executor(executor, model_score, features)
         MODEL_SCORE.observe(prob)
         soft_decision, soft_rule = execute_soft_rules(transaction, features, prob)
@@ -153,6 +160,7 @@ async def run_process(transaction: Transaction,
             "rule": soft_rule,
         })
     DECISIONS_TOTAL.labels(decision=fraud_decision).inc()
+    COUNTRY_REQUESTS.labels(country=features.ip_country, decision=fraud_decision).inc()
     response = DecisionResponse(
         transaction_id=uuid4(),
         fraud_decision=fraud_decision,
@@ -172,7 +180,8 @@ async def run_process(transaction: Transaction,
     )
     db_record = DBWrite(**features.model_dump(by_alias=False), **response.model_dump(), created_at=datetime.now(tz=timezone.utc))
     db.add(TransactionRecord(**db_record.model_dump()))
-    await db.commit()
+    with STEP_LATENCY.labels(step="db_write").time():
+        await db.commit()
     logger.info("decision.written", extra={
         "transaction_id": str(response.transaction_id),
         "fraud_decision": fraud_decision,
@@ -207,7 +216,8 @@ async def process_transaction(
     redis: Redis = Depends(get_redis),
     executor: ThreadPoolExecutor = Depends(get_executor),
 ) -> DecisionResponse:
-    cached = await redis.getex(f"idem:{idempotency_key}", ex=600) # Check cache with 10 minutes expiration
+    REQUESTS_TOTAL.inc()
+    cached = await redis.getex(f"idem:{idempotency_key}", ex=60) # Check cache with 1 minutes expiration
     if cached:
         IDEMPOTENCY_HITS.inc()
         logger.info("idempotency.hit", extra={"idempotency_key": idempotency_key})
@@ -216,5 +226,5 @@ async def process_transaction(
     _t0 = asyncio.get_event_loop().time()
     response = await run_process(transaction, db, redis, executor)
     REQUEST_LATENCY.observe(asyncio.get_event_loop().time() - _t0)
-    await redis.set(f"idem:{idempotency_key}", response.model_dump_json(), nx=True, ex=600)  # Cache for 10 minutes
+    await redis.set(f"idem:{idempotency_key}", response.model_dump_json(), nx=True, ex=60)  # Cache for 1 minute
     return response

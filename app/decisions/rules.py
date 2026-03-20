@@ -17,13 +17,18 @@ def age_limit(transaction: Transaction, feature: Features):
         return 'deny'
     return 'allow'
 
+# OFAC-sanctioned countries — transactions originating here are denied
+_OFAC_BLOCKED = frozenset({
+    'Cuba', 'Iran', 'North Korea', 'Russia', 'Syria',
+})
+
 def ip_country_block(transaction: Transaction, feature: Features):
     country = feature.ip_country
-    if country == 'United States':
-        return 'allow'
-    if country == 'Unknown' and feature.did_uid_days_on_file > 90:
-        return 'allow'   # unresolvable IP but established device — low risk
-    return 'deny'
+    if country in _OFAC_BLOCKED:
+        return 'deny'
+    if country == 'Unknown' and feature.did_uid_days_on_file <= 90:
+        return 'deny'   # unresolvable IP + new device — deny
+    return 'allow'
 
 def model_score_threshold(score: float) -> str:
     """Deny if the model's fraud probability meets or exceeds the threshold."""

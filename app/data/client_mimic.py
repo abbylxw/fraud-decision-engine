@@ -29,7 +29,7 @@ async def send(client, row, url, idempotency_key):
         body = {"_raw": r.text}
     return row.get("user_id", "?"), r.status_code, body
 
-async def main(rps=2, duration_seconds=30):
+async def main(rps=20, duration_seconds=float("inf")):
     rows = load_csv()
     infinite_rows = itertools.cycle(rows)
     url = "http://127.0.0.1:8000/api/transactions"
@@ -38,7 +38,10 @@ async def main(rps=2, duration_seconds=30):
     end_time = time.time() + duration_seconds
     total_sent = 0
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        limits=httpx.Limits(max_connections=1000, max_keepalive_connections=200),
+        timeout=30.0,
+    ) as client:
         while time.time() < end_time:
             # grab a batch equal to desired rps
             batch = [next(infinite_rows) for _ in range(rps)]
@@ -48,13 +51,20 @@ async def main(rps=2, duration_seconds=30):
             ]
 
             start = time.time()
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             total_sent += len(batch)
 
-            for user_id, status, body in results:
-                decision = body.get("fraud_decision", body)
-                print(f"[{status}] user={user_id:12s}  decision={decision}")
-            print(f"--- {total_sent} sent so far ---")
+            ok = sum(1 for r in results if not isinstance(r, Exception) and r[1] == 201)
+            errors = [r for r in results if isinstance(r, Exception) or r[1] != 201]
+            err = len(errors)
+            print(f"--- {total_sent} sent | {ok} ok, {err} errors ---")
+            if errors:
+                sample = errors[0]
+                if isinstance(sample, Exception):
+                    print(f"    sample error: {type(sample).__name__}: {sample}")
+                else:
+                    _, status, body = sample
+                    print(f"    sample error: HTTP {status} — {body}")
 
             # sleep remaining time to stay at target rps
             elapsed = time.time() - start
@@ -63,4 +73,4 @@ async def main(rps=2, duration_seconds=30):
 
     print(f"Done: {total_sent} requests in {duration_seconds}s")
 
-asyncio.run(main(rps=2, duration_seconds=30))
+asyncio.run(main(rps=20))

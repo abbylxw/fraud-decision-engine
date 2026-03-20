@@ -563,6 +563,94 @@ raw error is visible in the output.
 
 ---
 
+---
+
+## Performance Optimisations (2026-03-19)
+
+Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.
+Starting point: feature extraction p95 ~700–800ms. After all fixes: ~66ms.
+
+---
+
+### Opt 1: asyncio.gather for Redis-first velocity functions
+
+**File:** `app/decisions/features/__init__.py`
+
+**Problem:** `build_features()` awaited all 8 feature lookups sequentially. Total time = sum of all
+round-trips. At 5 RPS, the 7 Redis-first velocity functions alone added ~400ms in serial waiting.
+
+**Fix:** Wrapped the 7 Redis-first velocity functions in `asyncio.gather()` so they fire in parallel.
+Total time becomes `max(all)` instead of `sum(all)`.
+
+**Trade-off:** The two guaranteed-DB calls (`get_ip_country`, `get_did_days_on_file`) are kept
+sequential because `AsyncSession` does not support concurrent access — two coroutines calling
+`db.execute()` on the same session simultaneously raise `IllegalStateChangeError`. Only Redis-first
+functions are safe to gather because they almost never fall back to DB after the cache is warm.
+
+**Rule:** Redis calls → `asyncio.gather`. DB calls → sequential.
+
+---
+
+### Opt 2: Redis cache for DB-backed lookups
+
+**File:** `app/decisions/features/__init__.py`
+
+**Problem:** `get_ip_country` (5M-row range query) and `get_did_days_on_file` (INSERT + SELECT on
+`device_data`) hit the DB on every request. At 5 RPS these two sequential DB calls accounted for
+~500ms of the feature extraction time.
+
+**Fix:** Before calling the DB functions, check Redis for cached results (both checks run in parallel
+via `asyncio.gather`). On cache hit, skip the DB entirely. On miss, call DB and cache the result.
+
+| Key pattern | TTL | Rationale |
+|-------------|-----|-----------|
+| `cache:ip:{ip_int}` | 24h | IP→country mapping is static |
+| `cache:did:{device_id}:{user_id}` | 1h | Device age changes by 1 day/day; 1h staleness is acceptable |
+
+**Trade-off:** `did_days_on_file` can be stale by up to 1 hour. A device that crossed the 90-day
+threshold within the last hour might still be treated as "new" and denied by `ip_country_block`.
+Acceptable given the risk model — the alternative (DB on every request) is worse for latency.
+
+---
+
+### Opt 3: ZCOUNT instead of ZRANGEBYSCORE for count-only velocity functions
+
+**File:** `app/decisions/features/velocity.py`
+
+**Problem:** `get_did_uid_counts`, `get_uid_did_counts`, `get_ip_uid_counts`, `get_did_txn_counts`,
+`get_country_txn_counts` all called `ZRANGEBYSCORE` and then `len(result)`. `ZRANGEBYSCORE` returns
+the full list of member names (user IDs, device IDs) — potentially thousands of strings — just to
+count them. This caused ~600ms of network transfer overhead per request.
+
+**Fix:** Replace `ZRANGEBYSCORE` with `ZCOUNT` for all count-only functions. `ZCOUNT key min max`
+returns the same count as `len(ZRANGEBYSCORE key min max)` but sends only an integer back. The time
+window semantics are identical — the score is a unix timestamp in both commands.
+
+**Trade-off:** None. `ZCOUNT` is strictly better when you only need the count. `get_purchase_counts`
+was not changed because it needs the member values (purchase amounts) to compute sums and medians.
+
+**Impact:** Feature extraction p95 dropped from ~800ms → ~66ms after this change.
+
+---
+
+### Opt 4: Eliminated sklearn feature-name warning overhead
+
+**File:** `app/decisions/models.py`
+
+**Problem:** `score()` built a plain `np.array` and passed it to `model.predict_proba()`. The model
+was trained on a named pandas DataFrame, so sklearn emitted a `UserWarning` on every single call:
+`X does not have valid feature names`. Python's warning machinery involves string formatting and
+stack inspection on every call — measurable overhead at high RPS.
+
+**Fix:** Changed line 78 from `np.array([...])` to `pd.DataFrame([row], columns=_features)`.
+The model receives named columns, recognises them, skips validation. Warning eliminated.
+Inference time: 13.9ms → 12.78ms per call.
+
+**Trade-off:** Adds pandas as a runtime dependency of `models.py`. pandas was already a test/training
+dependency; making it a runtime dep is acceptable given the marginal overhead.
+
+---
+
 ### Infrastructure: Missing Docker mount for 004_create_transactions.sql
 
 **File:** `docker-compose.yaml`

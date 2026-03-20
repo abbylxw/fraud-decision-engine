@@ -3,70 +3,148 @@
   "uid": "fraud-engine-v1",
   "schemaVersion": 38,
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "title": "Request Rate (req/sec)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 7 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 7
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(fraud_decisions_total[1m]))",
-          "legendFormat": "req/sec"
+          "expr": "sum(rate(fraud_requests_total[1m]))",
+          "legendFormat": "total req/sec"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+        "defaults": {
+          "unit": "reqps"
+        }
       }
     },
     {
       "id": 2,
-      "title": "Decision Breakdown (allow vs deny)",
+      "title": "Deny Rate (% of processed requests)",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 7 },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 7
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "rate(fraud_decisions_total{decision=\"allow\"}[1m])",
-          "legendFormat": "allow"
-        },
-        {
-          "datasource": "Prometheus",
-          "expr": "rate(fraud_decisions_total{decision=\"deny\"}[1m])",
-          "legendFormat": "deny"
+          "expr": "sum(rate(fraud_decisions_total{decision=\"deny\"}[1m])) / sum(rate(fraud_decisions_total[1m])) * 100",
+          "legendFormat": "deny %"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "allow" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "deny" },  "properties": [{ "id": "color", "value": { "fixedColor": "red",   "mode": "fixed" } }] }
-        ]
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          }
+        }
       }
     },
     {
       "id": 3,
-      "title": "Rule Denials by Rule Name",
+      "title": "Idempotency Hit Rate (% of total requests)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 7, "w": 12, "h": 7 },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 7
+      },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "rate(fraud_rule_denials_total[5m])",
-          "legendFormat": "{{phase}}: {{rule}}"
+          "expr": "rate(fraud_idempotency_hits_total[1m]) / rate(fraud_requests_total[1m]) * 100",
+          "legendFormat": "cache hit %"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
       }
     },
     {
       "id": 4,
-      "title": "Request Latency (p50 / p95 / p99)",
+      "title": "Requests by Country",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 7, "w": 12, "h": 7 },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "topk(15, sum by (country) (rate(fraud_country_requests_total[5m])))",
+          "legendFormat": "{{country}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Deny Rate by Rule (%)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (phase, rule) (rate(fraud_rule_denials_total[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
+          "legendFormat": "{{phase}}: {{rule}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "End-to-End Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -85,14 +163,54 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+        "defaults": {
+          "unit": "s"
+        }
       }
     },
     {
-      "id": 5,
+      "id": 7,
+      "title": "Step Latency Breakdown (p95)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, rate(fraud_step_duration_seconds_bucket{step=\"feature_extraction\"}[5m]))",
+          "legendFormat": "feature extraction"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, rate(fraud_step_duration_seconds_bucket{step=\"model_inference\"}[5m]))",
+          "legendFormat": "model inference"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, rate(fraud_step_duration_seconds_bucket{step=\"db_write\"}[5m]))",
+          "legendFormat": "db write"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 8,
       "title": "Model Score Distribution",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 7 },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 7
+      },
       "targets": [
         {
           "datasource": "Prometheus",
@@ -108,8 +226,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "min": 0, "max": 1,
-          "color": { "mode": "palette-classic" }
+          "min": 0,
+          "max": 1
         }
       }
     }

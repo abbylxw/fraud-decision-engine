@@ -83,28 +83,49 @@ class TestAgeLimit:
 
 
 # ---------------------------------------------------------------------------
-# ip_country_block — deny confirmed non-US; Unknown allowed only for old devices
+# ip_country_block — deny OFAC-sanctioned countries; Unknown + new device
 # ---------------------------------------------------------------------------
 
 class TestIpCountryBlock:
-    def test_deny_non_us(self, sample_transaction, sample_features):
-        sample_features.ip_country = "GB"
+    def test_deny_russia(self, sample_transaction, sample_features):
+        sample_features.ip_country = "Russia"
+        assert ip_country_block(sample_transaction, sample_features) == "deny"
+
+    def test_deny_iran(self, sample_transaction, sample_features):
+        sample_features.ip_country = "Iran"
+        assert ip_country_block(sample_transaction, sample_features) == "deny"
+
+    def test_deny_north_korea(self, sample_transaction, sample_features):
+        sample_features.ip_country = "North Korea"
+        assert ip_country_block(sample_transaction, sample_features) == "deny"
+
+    def test_deny_cuba(self, sample_transaction, sample_features):
+        sample_features.ip_country = "Cuba"
+        assert ip_country_block(sample_transaction, sample_features) == "deny"
+
+    def test_deny_syria(self, sample_transaction, sample_features):
+        sample_features.ip_country = "Syria"
         assert ip_country_block(sample_transaction, sample_features) == "deny"
 
     def test_deny_unknown_with_new_device(self, sample_transaction, sample_features):
-        # Unknown country + new device (≤ 90d) — two unknowns together = deny
+        # Unknown country + new device (≤ 90d) — deny
         sample_features.ip_country = "Unknown"
         sample_features.did_uid_days_on_file = 30
         assert ip_country_block(sample_transaction, sample_features) == "deny"
 
     def test_allow_unknown_with_established_device(self, sample_transaction, sample_features):
-        # Unknown country but device has been around > 90d — established device offsets unknown IP
+        # Unknown country but device older than 90d — allow
         sample_features.ip_country = "Unknown"
         sample_features.did_uid_days_on_file = 91
         assert ip_country_block(sample_transaction, sample_features) == "allow"
 
     def test_allow_us(self, sample_transaction, sample_features):
         sample_features.ip_country = "United States"
+        assert ip_country_block(sample_transaction, sample_features) == "allow"
+
+    def test_allow_non_ofac_country(self, sample_transaction, sample_features):
+        # France, Japan, Sweden etc. are not OFAC-blocked — allow
+        sample_features.ip_country = "France"
         assert ip_country_block(sample_transaction, sample_features) == "allow"
 
 
@@ -114,13 +135,13 @@ class TestIpCountryBlock:
 
 class TestModelScoreThreshold:
     def test_deny_at_threshold(self):
-        assert model_score_threshold(0.5) == "deny"
+        assert model_score_threshold(0.7) == "deny"
 
     def test_deny_above_threshold(self):
         assert model_score_threshold(0.99) == "deny"
 
     def test_allow_just_below_threshold(self):
-        assert model_score_threshold(0.499) == "allow"
+        assert model_score_threshold(0.699) == "allow"
 
     def test_allow_zero(self):
         assert model_score_threshold(0.0) == "allow"
