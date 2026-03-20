@@ -4,6 +4,7 @@ from fastapi import FastAPI, Header, Depends
 import asyncio
 import json
 import logging
+from prometheus_client import Counter, Histogram, make_asgi_app
 from sqlalchemy import text
 from app.data.data_models import DBWrite, Transaction, DecisionResponse
 from app.config import settings
@@ -59,6 +60,27 @@ logger = logging.getLogger("fraud_engine")
 
 
 # ---------------------------------------------------------------------------
+# Prometheus metrics
+# ---------------------------------------------------------------------------
+
+DECISIONS_TOTAL = Counter(
+    "fraud_decisions_total", "Total fraud decisions", ["decision"])
+RULE_DENIALS_TOTAL = Counter(
+    "fraud_rule_denials_total", "Denials by rule name", ["phase", "rule"])
+REQUEST_LATENCY = Histogram(
+    "fraud_request_duration_seconds", "End-to-end latency for POST /api/transactions",
+    buckets=[.01, .025, .05, .1, .25, .5, 1.0, 2.5])
+MODEL_LATENCY = Histogram(
+    "fraud_model_score_duration_seconds", "Time spent in ML inference",
+    buckets=[.001, .005, .01, .025, .05, .1, .25])
+MODEL_SCORE = Histogram(
+    "fraud_model_score_value", "Distribution of raw fraud probability scores",
+    buckets=[.0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1.0])
+IDEMPOTENCY_HITS = Counter(
+    "fraud_idempotency_hits_total", "Requests served from idempotency cache")
+
+
+# ---------------------------------------------------------------------------
 # Database engine
 # ---------------------------------------------------------------------------
 
@@ -75,6 +97,7 @@ async def lifespan(app: FastAPI):
  
 
 app = FastAPI(lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())
 
 
 # --- Dependency providers ---
@@ -105,6 +128,7 @@ async def run_process(transaction: Transaction,
     hard_decision, hard_rule = execute_hard_rules(transaction, features)
     if hard_decision == 'deny':
         fraud_decision = 'deny'
+        RULE_DENIALS_TOTAL.labels(phase="hard", rule=hard_rule).inc()
         logger.info("hard_rule.deny", extra={
             "user_id": transaction.user_id,
             "rule": hard_rule,
@@ -115,15 +139,20 @@ async def run_process(transaction: Transaction,
         })
     else:
         loop = asyncio.get_running_loop()
-        prob = await loop.run_in_executor(executor, model_score, features)
+        with MODEL_LATENCY.time():
+            prob = await loop.run_in_executor(executor, model_score, features)
+        MODEL_SCORE.observe(prob)
         soft_decision, soft_rule = execute_soft_rules(transaction, features, prob)
         fraud_decision = soft_decision
+        if soft_decision == 'deny' and soft_rule:
+            RULE_DENIALS_TOTAL.labels(phase="soft", rule=soft_rule).inc()
         logger.info("model.scored", extra={
             "user_id": transaction.user_id,
             "prob": round(prob, 4),
             "decision": fraud_decision,
             "rule": soft_rule,
         })
+    DECISIONS_TOTAL.labels(decision=fraud_decision).inc()
     response = DecisionResponse(
         transaction_id=uuid4(),
         fraud_decision=fraud_decision,
@@ -180,9 +209,12 @@ async def process_transaction(
 ) -> DecisionResponse:
     cached = await redis.getex(f"idem:{idempotency_key}", ex=600) # Check cache with 10 minutes expiration
     if cached:
+        IDEMPOTENCY_HITS.inc()
         logger.info("idempotency.hit", extra={"idempotency_key": idempotency_key})
         return DecisionResponse.model_validate_json(cached)
 
+    _t0 = asyncio.get_event_loop().time()
     response = await run_process(transaction, db, redis, executor)
+    REQUEST_LATENCY.observe(asyncio.get_event_loop().time() - _t0)
     await redis.set(f"idem:{idempotency_key}", response.model_dump_json(), nx=True, ex=600)  # Cache for 10 minutes
     return response

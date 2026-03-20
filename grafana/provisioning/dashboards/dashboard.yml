@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: fraud_engine
+    folder: Fraud Engine
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

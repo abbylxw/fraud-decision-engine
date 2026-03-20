@@ -17,6 +17,8 @@ tqdm
 torch
 joblib
 
+prometheus-client
+
 # Dev / CI
 pytest
 pytest-asyncio
