@@ -28,7 +28,6 @@ def make_transaction(**overrides) -> Transaction:
         signup_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
         purchase_time=datetime(2025, 1, 1, tzinfo=timezone.utc),
         purchase_value=50.0,
-        fraud_class=0,
     )
     defaults.update(overrides)
     return Transaction(**defaults)

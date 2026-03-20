@@ -29,7 +29,7 @@ class TransactionRecord(Base):
     sex: Mapped[Optional[str]] = mapped_column(nullable=True)
     age: Mapped[Optional[int]] = mapped_column(nullable=True)
     ip_address: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    fraud_class: Mapped[int] = mapped_column(name='fraud_class')
+    fraud_class: Mapped[Optional[int]] = mapped_column(nullable=True)  # backfilled retroactively from chargebacks
 
     # from Features
     days_since_signup: Mapped[int] = mapped_column(default=0)

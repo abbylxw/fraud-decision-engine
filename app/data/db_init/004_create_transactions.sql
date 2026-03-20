@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     sex               text,
     age               int,
     ip_address        bigint,
-    fraud_class       int         NOT NULL,
+    fraud_class       int,
     days_since_signup             int   NOT NULL DEFAULT 0,
     days_since_signup_group       text  NOT NULL DEFAULT '0-7d',
     ip_country                    text  NOT NULL DEFAULT 'Unknown',

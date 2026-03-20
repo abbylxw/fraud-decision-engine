@@ -14,12 +14,11 @@ def load_csv():
         return list(reader)
 
 def preprocess(row):
-    """CSV rows are all strings. Fix the two fields Pydantic won't coerce automatically."""
+    """CSV rows are all strings. Fix fields Pydantic won't coerce automatically."""
     out = dict(row)
     if out.get("ip_address"):
         out["ip_address"] = int(float(out["ip_address"]))  # "3987484328.51882" → 3987484328
-    if "class" in out:
-        out["class"] = int(out["class"])                   # "0" → 0  (Literal[0,1] is strict)
+    out.pop("class", None)  # training label — not part of the live request schema
     return out
 
 async def send(client, row, url, idempotency_key):

@@ -1,5 +1,4 @@
-from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from uuid import UUID
 
@@ -12,10 +11,9 @@ class Transaction(BaseModel):
     device_id: str | None = None
     source: str | None = None
     browser: str | None = None
-    sex:str | None = None
+    sex: str | None = None
     age: int | None = None
     ip_address: int | None = None
-    fraud_class: Literal[0, 1] = Field(alias='class')
 
 class DecisionResponse(BaseModel):
     transaction_id: UUID

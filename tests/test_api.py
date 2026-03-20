@@ -69,7 +69,6 @@ _TXN_PAYLOAD = {
     "sex": "M",
     "age": 30,
     "ip_address": 1234567890,
-    "class": 0,
 }
 
 # Features that build_features will return in tests that reach the model
@@ -77,7 +76,6 @@ _CLEAN_FEATURES = Features(
     user_id="user_001",
     purchase_time=datetime(2025, 3, 14, 12, 0, tzinfo=timezone.utc),
     purchase_value=100.0,
-    fraud_class=0,
     ip_country="United States",
     days_since_signup=438,
     days_since_signup_group="361-720d",
