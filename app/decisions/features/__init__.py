@@ -1,6 +1,9 @@
-import asyncio
+import logging
+import time
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
+
+logger = logging.getLogger("fraud_engine")
 from app.data.data_models import Transaction, Features
 from .request import (
     get_days_since_signup, get_days_since_signup_group, get_age_account_gap,
@@ -8,53 +11,142 @@ from .request import (
 )
 from .db import get_ip_country, get_did_days_on_file
 from .velocity import (
-    get_did_uid_counts, get_uid_did_counts, get_ip_uid_counts,
-    get_purchase_counts, get_did_txn_counts, get_uid_last_txn_time,
-    get_country_txn_counts, update_velocity_counters,
+    update_velocity_counters,
+    _purchase_counts_from_db,
 )
 
 
-async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Features:
-    # Check Redis cache for the two DB-backed lookups (parallel)
-    _ip_key  = f"cache:ip:{int(t.ip_address)}"
-    _did_key = f"cache:did:{t.device_id}:{t.user_id}"
-    ip_cached, did_cached = await asyncio.gather(
-        redis.get(_ip_key),
-        redis.get(_did_key),
-    )
+def _parse_purchase_entries(all_entries, suc_entries, windows):
+    """Compute purchase count/amount dict from 90d ZRANGE WITHSCORES results.
 
-    # Cache hit: skip DB entirely. Cache miss: query DB and populate cache.
+    all_entries / suc_entries: [(member_str, timestamp_float), ...]
+      where member_str = "{uuid}:{purchase_value}".
+    windows: {"5min": since_ts, ...} — entry is in a window if ts >= since_ts.
+    """
+    out = {}
+    for w in windows:
+        out[f"cnt_{w}"] = 0;       out[f"amt_{w}"] = 0.0
+        out[f"success_cnt_{w}"] = 0; out[f"success_amt_{w}"] = 0.0
+
+    amounts_90d = []
+    for member, ts in all_entries:
+        amount = float(member.rsplit(":", 1)[1])
+        amounts_90d.append(amount)
+        for w_name, since in windows.items():
+            if ts >= since:
+                out[f"cnt_{w_name}"] += 1
+                out[f"amt_{w_name}"] += amount
+
+    for member, ts in suc_entries:
+        amount = float(member.rsplit(":", 1)[1])
+        for w_name, since in windows.items():
+            if ts >= since:
+                out[f"success_cnt_{w_name}"] += 1
+                out[f"success_amt_{w_name}"] += amount
+
+    if amounts_90d:
+        amounts_90d.sort()
+        n, mid = len(amounts_90d), len(amounts_90d) // 2
+        out["median_amt_90d"] = amounts_90d[mid] if n % 2 else (amounts_90d[mid - 1] + amounts_90d[mid]) / 2
+    else:
+        out["median_amt_90d"] = 0.0
+
+    return out
+
+
+async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Features:
+    ct = time.time()
+    ip_int = int(t.ip_address)
+
+    # --- Phase 1: cache check for ip_country and did_days_on_file ---
+    # Two GETs sent in one pipeline — avoids two separate round-trips.
+    _ip_key  = f"cache:ip:{ip_int}"
+    _did_key = f"cache:did:{t.device_id}:{t.user_id}"
+    cache_pipe = redis.pipeline(transaction=False)
+    cache_pipe.getex(_ip_key, ex=86400)   # refresh 24h TTL on every hit
+    cache_pipe.getex(_did_key, ex=3600)   # refresh 1h TTL on every hit
+    ip_cached, did_cached = await cache_pipe.execute()
+
     if ip_cached is not None:
         ip_country = ip_cached
     else:
+        logger.warning("cache.miss", extra={"key": _ip_key, "fallback": "db"})
         ip_country = await get_ip_country(t.ip_address, db)
-        await redis.set(_ip_key, ip_country, ex=86400)   # IP→country is static; 24h TTL
+        await redis.set(_ip_key, ip_country, ex=86400)
 
     if did_cached is not None:
         did_days_on_file = int(did_cached)
     else:
+        logger.warning("cache.miss", extra={"key": _did_key, "fallback": "db"})
         did_days_on_file = await get_did_days_on_file(t.device_id, t.user_id, db)
-        await redis.set(_did_key, str(did_days_on_file), ex=3600)  # device age; 1h TTL
+        await redis.set(_did_key, str(did_days_on_file), ex=3600)
 
-    # Velocity + country lookups are Redis-first; gather fires all in parallel
-    (
-        did_uid, uid_did, ip_uid, purchase, did_txn, last_txn_time, country_txn,
-    ) = await asyncio.gather(
-        get_did_uid_counts(t.device_id, redis, db),
-        get_uid_did_counts(t.user_id, redis, db),
-        get_ip_uid_counts(t.ip_address, redis, db),
-        get_purchase_counts(t.user_id, redis, db),
-        get_did_txn_counts(t.device_id, redis, db),
-        get_uid_last_txn_time(t.user_id, redis, db),
-        get_country_txn_counts(ip_country, redis, db),
-    )
+    # --- Phase 2: ALL 38 velocity commands in ONE pipeline ---
+    # One TCP write → one TCP read → one event-loop yield for all commands.
+    # Replaces asyncio.gather of 38 individual coroutines (which each acquired
+    # their own connection and created separate event-loop wake-ups).
+    ninety_days_ago = ct - 90 * 86400
+    _5m  = ct - 300;   _10m = ct - 600
+    _1h  = ct - 3600;  _2h  = ct - 7200
+    _24h = ct - 86400; _7d  = ct - 604800
+    _30d = ct - 2592000
 
+    pipe = redis.pipeline(transaction=False)
+
+    # [0-7]   did:uid — distinct users seen on this device (8 windows)
+    for since in (_5m, _10m, _1h, _2h, _24h, _7d, _30d, ninety_days_ago):
+        pipe.zcount(f"did:uid:{t.device_id}", since, ct)
+    # [8-15]  uid:did — distinct devices seen for this user (8 windows)
+    for since in (_5m, _10m, _1h, _2h, _24h, _7d, _30d, ninety_days_ago):
+        pipe.zcount(f"uid:did:{t.user_id}", since, ct)
+    # [16-21] ip:uid — distinct users seen from this IP (6 windows)
+    for since in (_5m, _10m, _1h, _2h, _24h, _7d):
+        pipe.zcount(f"ip:uid:{ip_int}", since, ct)
+    # [22]    purchase:all 90d — (member="{uuid}:{amount}", score=timestamp)
+    pipe.zrange(f"purchase:all:{t.user_id}", ninety_days_ago, ct, byscore=True, withscores=True)
+    # [23]    purchase:success 90d
+    pipe.zrange(f"purchase:success:{t.user_id}", ninety_days_ago, ct, byscore=True, withscores=True)
+    # [24]    uid:last_txn — timestamp of user's last transaction
+    pipe.get(f"uid:last_txn:{t.user_id}")
+    # [25-31] did:txn — total transactions on this device (7 windows)
+    for since in (_5m, _10m, _1h, _2h, _24h, _7d, _30d):
+        pipe.zcount(f"did:txn:{t.device_id}", since, ct)
+    # [32-37] country:txn — total transactions from this country (6 windows)
+    for since in (_5m, _10m, _1h, _24h, _7d, _30d):
+        pipe.zcount(f"country:txn:{ip_country}", since, ct)
+
+    r = await pipe.execute()
+
+    # --- Parse results by index ---
+    _w8  = ("5min", "10min", "1h", "2h", "24h", "7d", "30d", "90d")
+    _w6  = ("5min", "10min", "1h", "2h", "24h", "7d")
+    _w7  = ("5min", "10min", "1h", "2h", "24h", "7d", "30d")
+    _w6c = ("5min", "10min", "1h", "24h", "7d", "30d")
+
+    did_uid      = dict(zip(_w8,  r[0:8]))
+    uid_did      = dict(zip(_w8,  r[8:16]))
+    ip_uid       = dict(zip(_w6,  r[16:22]))
+    all_entries  = r[22]
+    suc_entries  = r[23]
+    last_txn_val = r[24]
+    did_txn      = dict(zip(_w7,  r[25:32]))
+    country_txn  = dict(zip(_w6c, r[32:38]))
+
+    if all_entries:
+        pur_windows = {
+            "5min": _5m, "10min": _10m, "1h": _1h, "24h": _24h,
+            "7d": _7d, "30d": _30d, "90d": ninety_days_ago,
+        }
+        purchase = _parse_purchase_entries(all_entries, suc_entries, pur_windows)
+    else:
+        purchase = await _purchase_counts_from_db(t.user_id, db)
+
+    last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else 0.0
+
+    # --- Derived features ---
     days_since_signup = get_days_since_signup(t)
-
-    # Derived features — computed from already-fetched Redis values + transaction fields
     _user_avg_30d = purchase['amt_30d'] / max(purchase['cnt_30d'], 1)
     amount_vs_user_avg_30d = t.purchase_value / max(_user_avg_30d, 1.0)
-
     high_amount_vs_hist = int(
         purchase['median_amt_90d'] > 0 and
         t.purchase_value > 2 * purchase['median_amt_90d']

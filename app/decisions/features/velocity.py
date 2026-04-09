@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import statistics
 import time
 from uuid import UUID
+
+logger = logging.getLogger("fraud_engine")
 
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -12,57 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # DB fallback helpers — called on Redis cache miss (key absent entirely)
 # Each runs a single SQL query with COUNT(CASE WHEN ...) per time window.
 # ---------------------------------------------------------------------------
-
-async def _did_uid_from_db(device_id: str, db: AsyncSession) -> dict:
-    row = (await db.execute(text("""
-        SELECT
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '5 minutes'  THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '10 minutes' THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '1 hour'     THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '2 hours'    THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '24 hours'   THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '7 days'     THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '30 days'    THEN user_id END),
-          COUNT(DISTINCT user_id)
-        FROM transactions
-        WHERE device_id = :device_id AND purchase_time >= NOW() - INTERVAL '90 days'
-    """), {"device_id": device_id})).one()
-    keys = ["5min", "10min", "1h", "2h", "24h", "7d", "30d", "90d"]
-    return {k: int(v or 0) for k, v in zip(keys, row)}
-
-
-async def _uid_did_from_db(user_id: str, db: AsyncSession) -> dict:
-    row = (await db.execute(text("""
-        SELECT
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '5 minutes'  THEN device_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '10 minutes' THEN device_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '1 hour'     THEN device_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '2 hours'    THEN device_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '24 hours'   THEN device_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '7 days'     THEN device_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '30 days'    THEN device_id END),
-          COUNT(DISTINCT device_id)
-        FROM transactions
-        WHERE user_id = :user_id AND purchase_time >= NOW() - INTERVAL '90 days'
-    """), {"user_id": user_id})).one()
-    keys = ["5min", "10min", "1h", "2h", "24h", "7d", "30d", "90d"]
-    return {k: int(v or 0) for k, v in zip(keys, row)}
-
-
-async def _ip_uid_from_db(ip: float, db: AsyncSession) -> dict:
-    row = (await db.execute(text("""
-        SELECT
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '5 minutes'  THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '10 minutes' THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '1 hour'     THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '2 hours'    THEN user_id END),
-          COUNT(DISTINCT CASE WHEN purchase_time >= NOW() - INTERVAL '24 hours'   THEN user_id END),
-          COUNT(DISTINCT user_id)
-        FROM transactions
-        WHERE ip_address = :ip AND purchase_time >= NOW() - INTERVAL '7 days'
-    """), {"ip": ip})).one()
-    keys = ["5min", "10min", "1h", "2h", "24h", "7d"]
-    return {k: int(v or 0) for k, v in zip(keys, row)}
 
 
 async def _purchase_counts_from_db(user_id: str, db: AsyncSession) -> dict:
@@ -129,38 +81,6 @@ async def _uid_last_txn_from_db(user_id: str, db: AsyncSession) -> float:
     return max(0.0, float(val)) if val is not None else 0.0
 
 
-async def _did_txn_from_db(device_id: str, db: AsyncSession) -> dict:
-    row = (await db.execute(text("""
-        SELECT
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '5 minutes'  THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '10 minutes' THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '1 hour'     THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '2 hours'    THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '24 hours'   THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '7 days'     THEN 1 END),
-          COUNT(1)
-        FROM transactions
-        WHERE device_id = :device_id AND purchase_time >= NOW() - INTERVAL '30 days'
-    """), {"device_id": device_id})).one()
-    keys = ["5min", "10min", "1h", "2h", "24h", "7d", "30d"]
-    return {k: int(v or 0) for k, v in zip(keys, row)}
-
-
-async def _country_txn_from_db(ip_country: str, db: AsyncSession) -> dict:
-    row = (await db.execute(text("""
-        SELECT
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '5 minutes'  THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '10 minutes' THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '1 hour'     THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '24 hours'   THEN 1 END),
-          COUNT(CASE WHEN purchase_time >= NOW() - INTERVAL '7 days'     THEN 1 END),
-          COUNT(1)
-        FROM transactions
-        WHERE ip_country = :ip_country AND purchase_time >= NOW() - INTERVAL '30 days'
-    """), {"ip_country": ip_country})).one()
-    keys = ["5min", "10min", "1h", "24h", "7d", "30d"]
-    return {k: int(v or 0) for k, v in zip(keys, row)}
-
 
 # ---------------------------------------------------------------------------
 # Public get_* functions — try Redis first, fall back to DB on cache miss
@@ -169,8 +89,7 @@ async def _country_txn_from_db(ip_country: str, db: AsyncSession) -> dict:
 async def get_did_uid_counts(device_id: str, redis: Redis, db: AsyncSession) -> dict:
     # Returns counts of distinct user IDs seen on this device_id
     # Keys: '5min', '10min', '1h', '2h', '24h', '7d', '30d', '90d'
-    if not await redis.exists(f"did:uid:{device_id}"):
-        return await _did_uid_from_db(device_id, db)
+    # ZCOUNT returns 0 for missing keys, which is correct for new devices.
     current_time = time.time()
     windows = {
         "5min":  current_time - (5  * 60),
@@ -182,16 +101,16 @@ async def get_did_uid_counts(device_id: str, redis: Redis, db: AsyncSession) -> 
         "30d":   current_time - (30 * 86400),
         "90d":   current_time - (90 * 86400),
     }
-    results = await asyncio.gather(*[redis.zcount(f"did:uid:{device_id}", since, current_time)
-                                     for since in windows.values()])
+    results = await asyncio.gather(*[
+        redis.zcount(f"did:uid:{device_id}", since, current_time)
+        for since in windows.values()
+    ])
     return dict(zip(windows, results))
 
 
 async def get_uid_did_counts(user_id: str, redis: Redis, db: AsyncSession) -> dict:
     # Returns counts of distinct device IDs seen for this user_id
     # Keys: '5min', '10min', '1h', '2h', '24h', '7d', '30d', '90d'
-    if not await redis.exists(f"uid:did:{user_id}"):
-        return await _uid_did_from_db(user_id, db)
     current_time = time.time()
     windows = {
         "5min":  current_time - (5  * 60),
@@ -203,16 +122,16 @@ async def get_uid_did_counts(user_id: str, redis: Redis, db: AsyncSession) -> di
         "30d":   current_time - (30 * 86400),
         "90d":   current_time - (90 * 86400),
     }
-    results = await asyncio.gather(*[redis.zcount(f"uid:did:{user_id}", since, current_time)
-                                     for since in windows.values()])
+    results = await asyncio.gather(*[
+        redis.zcount(f"uid:did:{user_id}", since, current_time)
+        for since in windows.values()
+    ])
     return dict(zip(windows, results))
 
 
 async def get_ip_uid_counts(ip: float, redis: Redis, db: AsyncSession) -> dict:
     # Returns counts of distinct user IDs seen from this IP
     # Keys: '5min', '10min', '1h', '2h', '24h', '7d'
-    if not await redis.exists(f"ip:uid:{ip}"):
-        return await _ip_uid_from_db(ip, db)
     current_time = time.time()
     windows = {
         "5min":  current_time - (5  * 60),
@@ -222,14 +141,17 @@ async def get_ip_uid_counts(ip: float, redis: Redis, db: AsyncSession) -> dict:
         "24h":   current_time - (24 * 3600),
         "7d":    current_time - (7  * 86400),
     }
-    results = await asyncio.gather(*[redis.zcount(f"ip:uid:{ip}", since, current_time)
-                                     for since in windows.values()])
+    results = await asyncio.gather(*[
+        redis.zcount(f"ip:uid:{ip}", since, current_time)
+        for since in windows.values()
+    ])
     return dict(zip(windows, results))
 
 
 async def get_purchase_counts(user_id: str, redis: Redis, db: AsyncSession) -> dict:
-    if not await redis.exists(f"purchase:all:{user_id}"):
-        return await _purchase_counts_from_db(user_id, db)
+    # Fetch the full 90d window once for each set (2 calls total), then compute
+    # all sub-windows in Python. Replaces 14 zrangebyscore calls with 2.
+    # WITHSCORES returns (member, timestamp) pairs so we can filter by window in Python.
     current_time = time.time()
     windows = {
         "5min":  current_time - 5  * 60,
@@ -240,33 +162,44 @@ async def get_purchase_counts(user_id: str, redis: Redis, db: AsyncSession) -> d
         "30d":   current_time - 30 * 86400,
         "90d":   current_time - 90 * 86400,
     }
-    all_results, success_results = await asyncio.gather(
-        asyncio.gather(*[
-            redis.zrangebyscore(f"purchase:all:{user_id}", since, current_time)
-            for since in windows.values()
-        ]),
-        asyncio.gather(*[
-            redis.zrangebyscore(f"purchase:success:{user_id}", since, current_time)
-            for since in windows.values()
-        ]),
+    ninety_days_ago = windows["90d"]
+    all_entries, success_entries = await asyncio.gather(
+        redis.zrange(f"purchase:all:{user_id}", ninety_days_ago, current_time,
+                     byscore=True, withscores=True),
+        redis.zrange(f"purchase:success:{user_id}", ninety_days_ago, current_time,
+                     byscore=True, withscores=True),
     )
-    out = {}
-    for key, members in zip(windows, all_results):
-        out[f"cnt_{key}"] = len(members)
-        out[f"amt_{key}"] = sum(float(m.rsplit(":", 1)[1]) for m in members)
-    for key, members in zip(windows, success_results):
-        out[f"success_cnt_{key}"] = len(members)
-        out[f"success_amt_{key}"] = sum(float(m.rsplit(":", 1)[1]) for m in members)
+    if not all_entries:
+        logger.warning("cache.miss", extra={"key": f"purchase:all:{user_id}", "fallback": "db"})
+        return await _purchase_counts_from_db(user_id, db)
 
-    # Median purchase amount in the 90d window — reuses already-fetched all_results[-1]
-    amounts_90d = sorted(float(m.rsplit(":", 1)[1]) for m in all_results[-1])
-    if amounts_90d:
-        n, mid = len(amounts_90d), len(amounts_90d) // 2
-        out["median_amt_90d"] = (
-            amounts_90d[mid] if n % 2 else (amounts_90d[mid - 1] + amounts_90d[mid]) / 2
-        )
-    else:
-        out["median_amt_90d"] = 0.0
+    out = {}
+    for w in windows:
+        out[f"cnt_{w}"] = 0
+        out[f"amt_{w}"] = 0.0
+        out[f"success_cnt_{w}"] = 0
+        out[f"success_amt_{w}"] = 0.0
+
+    amounts_90d = []
+    for member, ts in all_entries:
+        amount = float(member.rsplit(":", 1)[1])
+        amounts_90d.append(amount)
+        for w_name, since in windows.items():
+            if ts >= since:
+                out[f"cnt_{w_name}"] += 1
+                out[f"amt_{w_name}"] += amount
+
+    for member, ts in success_entries:
+        amount = float(member.rsplit(":", 1)[1])
+        for w_name, since in windows.items():
+            if ts >= since:
+                out[f"success_cnt_{w_name}"] += 1
+                out[f"success_amt_{w_name}"] += amount
+
+    amounts_90d.sort()
+    n = len(amounts_90d)
+    mid = n // 2
+    out["median_amt_90d"] = amounts_90d[mid] if n % 2 else (amounts_90d[mid - 1] + amounts_90d[mid]) / 2
 
     return out
 
@@ -275,6 +208,7 @@ async def get_uid_last_txn_time(user_id: str, redis: Redis, db: AsyncSession) ->
     """Seconds since this user's last transaction. 0.0 if no prior transaction."""
     val = await redis.get(f"uid:last_txn:{user_id}")
     if val is None:
+        logger.warning("cache.miss", extra={"key": f"uid:last_txn:{user_id}", "fallback": "db"})
         return await _uid_last_txn_from_db(user_id, db)
     return max(0.0, time.time() - float(val))
 
@@ -282,8 +216,6 @@ async def get_uid_last_txn_time(user_id: str, redis: Redis, db: AsyncSession) ->
 async def get_did_txn_counts(device_id: str, redis: Redis, db: AsyncSession) -> dict:
     """Count of all transactions on this device per time window (no user dedup).
     Keys: '5min', '10min', '1h', '2h', '24h', '7d', '30d'"""
-    if not await redis.exists(f"did:txn:{device_id}"):
-        return await _did_txn_from_db(device_id, db)
     current_time = time.time()
     windows = {
         "5min":  current_time - (5  * 60),
@@ -304,8 +236,6 @@ async def get_did_txn_counts(device_id: str, redis: Redis, db: AsyncSession) -> 
 async def get_country_txn_counts(ip_country: str, redis: Redis, db: AsyncSession) -> dict:
     """Count of all transactions from this country per time window.
     Keys: '5min', '10min', '1h', '24h', '7d', '30d'"""
-    if not await redis.exists(f"country:txn:{ip_country}"):
-        return await _country_txn_from_db(ip_country, db)
     current_time = time.time()
     windows = {
         "5min":  current_time - (5  * 60),

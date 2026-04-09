@@ -44,4 +44,10 @@ def rate_limiter_control(transaction: Transaction, feature: Features, score: flo
         return 'deny'
     if feature.purchase_cnt_90d >= 20 and feature.purchase_amt_90d >= 1000000:
         return 'deny'
+    # Combined: moderate model score + elevated 24h purchase velocity
+    if score >= 0.5 and feature.purchase_cnt_24h >= 5:
+        return 'deny'
+    # Combined: moderate model score + multiple devices today (account takeover signal)
+    if score >= 0.5 and feature.uid_did_24h >= 3:
+        return 'deny'
     return 'allow'
