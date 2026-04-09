@@ -90,7 +90,7 @@ IDEMPOTENCY_HITS = Counter(
 # Database engine
 # ---------------------------------------------------------------------------
 
-engine = create_async_engine(settings.database_url, pool_size=20, max_overflow=77)
+engine = create_async_engine(settings.database_url, pool_size=5, max_overflow=6)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
