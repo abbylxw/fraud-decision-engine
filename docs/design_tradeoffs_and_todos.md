@@ -234,15 +234,15 @@ borderline cases; soft rules receive the score.
 - [x] `velocity.py` — read-through DB fallback added to every `get_*` function;
       `redis.exists(key)` used for miss detection; single `COUNT(CASE WHEN ...)` SQL
       query per function reconstructs all time-window counts in one round-trip
-- [ ] Add `GETEX` TTL refresh on every Redis cache hit (keep hot keys alive longer)
-- [ ] Add cache miss warning log to every DB fallback path in `velocity.py`
+- [x] Add `GETEX` TTL refresh on every Redis cache hit (keep hot keys alive longer)
+- [x] Add cache miss warning log to every DB fallback path in `velocity.py`
 
 ### `app/decisions/rules.py`
 
 - [x] All rules use Pydantic attribute access (`transaction.purchase_value`, not dict access)
 - [x] Rules expanded: `transaction_limit`, `age_limit`, `ip_country_block`, `rate_limiter_control`,
       `model_score_threshold` — split into hard and soft rule sets
-- [ ] Expand `rate_limiter_control` to use `score` parameter for combined velocity+model conditions
+- [x] Expand `rate_limiter_control` to use `score` parameter for combined velocity+model conditions
 - [ ] Add more rules (country block list, device-age heuristics, etc.)
 
 ### `app/decisions/models.py`
@@ -648,6 +648,70 @@ Inference time: 13.9ms → 12.78ms per call.
 
 **Trade-off:** Adds pandas as a runtime dependency of `models.py`. pandas was already a test/training
 dependency; making it a runtime dep is acceptable given the marginal overhead.
+
+---
+
+### Opt 5: Single pipeline for all velocity Redis commands
+
+**File:** `app/decisions/features/__init__.py`
+
+**Problem:** `build_features()` used `asyncio.gather` to fire 7 velocity functions concurrently.
+Each function internally issued its own `asyncio.gather` over 6–8 `ZCOUNT` calls. At 20 RPS with
+~300ms latency, there were ~8 concurrent requests each holding 38 outstanding Redis coroutines
+simultaneously — 304 coroutines all competing for the event loop. Python's event loop processes
+one callback at a time; 304 pending callbacks added ~400ms of scheduling overhead per request.
+
+**Fix:** Replaced the nested `asyncio.gather` tree with a single `redis.pipeline(transaction=False)`
+containing all 38 Redis commands. Commands are queued synchronously (no `await`), sent in one TCP
+write, and responses received in one TCP read. The event loop yields only once (`await pipe.execute()`).
+
+**Trade-off:** `pipeline.execute()` blocks the event loop for the duration of one Redis RTT (~1ms).
+At 20 RPS this means ~8ms/s of blocking — negligible. At 1000+ RPS the blocking would compete
+with other requests' pipeline calls. Acceptable trade-off for the expected load range.
+
+**Impact:** Feature extraction p95 dropped from ~800ms → ~300ms.
+
+---
+
+### Opt 6: Dropped redundant redis.exists() check from velocity functions
+
+**File:** `app/decisions/features/velocity.py`
+
+**Problem:** Every `get_*_counts` velocity function called `await redis.exists(key)` before the
+`ZCOUNT` batch. This added a sequential round-trip before every function's main work — doubling
+the Redis RTTs needed per function.
+
+**Fix:** Removed the `exists` check from all count-only velocity functions. `ZCOUNT` on a
+non-existent key returns `0`, which is the correct value for a new user/device with no history.
+The DB fallback was dropped from these functions because returning 0 is semantically identical
+to what the DB would return for a genuinely new entity.
+
+**Retained:** The DB fallback in `get_purchase_counts` (needs real amounts, not just 0) and in
+the `ip_country` / `did_days_on_file` lookups (where 0 would be wrong).
+
+**Trade-off:** If Redis is cold (e.g. after a restart without reseeding) and a returning user
+transacts, their velocity counts show 0 instead of historical values. Acceptable for this
+project; production systems would warm the cache on startup.
+
+---
+
+### Opt 7: Single ZRANGE WITHSCORES fetch replaces 14 ZRANGEBYSCORE calls for purchase counts
+
+**File:** `app/decisions/features/velocity.py`
+
+**Problem:** `get_purchase_counts` called `ZRANGEBYSCORE` 14 times (7 windows × 2 sets: all and
+success) to get purchase amounts per window. Each call transferred all matching member strings.
+With 7 concurrent windows, Redis had to serialize and send the full list 14 times.
+
+**Fix:** Replaced with 2 `ZRANGE … BYSCORE WITHSCORES` calls — one for the 90-day all-purchases
+set and one for success-only. Both return `(member, score)` tuples where `member = "{uuid}:{amount}"`.
+Sub-window filtering (`ts >= since`) happens in Python using the returned timestamps.
+
+This turns 14 Redis calls into 2. Combined with the single pipeline (Opt 5), these 2 calls are
+part of the same pipeline execution.
+
+**Trade-off:** Python-side filtering is O(entries × windows). With ~12 entries/user and 7 windows
+= 84 comparisons — negligible. Would only matter at thousands of purchases per user per 90 days.
 
 ---
 

@@ -84,7 +84,7 @@ curl http://localhost:8000/health
 ## Load Testing
 
 ```bash
-python app/data/client_mimic.py   # 50 RPS for 120s, cycles through Fraud_Data.csv
+python app/data/client_mimic.py   # 400 RPS for 120s, cycles through Fraud_Data.csv
 ```
 
 ## Running Tests
@@ -100,7 +100,9 @@ No blocking calls on the event loop. ML model inference (CPU-bound) runs in a `T
 via `loop.run_in_executor`, keeping latency predictable under concurrent load.
 
 **Sliding-window velocity counters** — Redis sorted sets keyed by `(user_id, device_id)` etc.,
-scored by Unix timestamp. Each window query is a `ZRANGEBYSCORE` between `now - window` and `now`.
+scored by Unix timestamp. Count-only windows use `ZCOUNT` (returns an integer, not the full member
+list). Purchase windows use `ZRANGE WITHSCORES` to fetch amounts for sum/median calculation.
+All 38 Redis commands per request are batched into a single pipeline — one TCP round-trip.
 90-day pruning keeps memory bounded. Counters are updated fire-and-forget after the response
 is returned, so they don't add to request latency.
 
@@ -115,7 +117,13 @@ velocity counts from PostgreSQL `COUNT`/`SUM` queries and continues without erro
 Soft rules (velocity anomalies, model threshold) run after. This avoids model overhead for
 clear-cut cases and keeps rule logic separated from model logic.
 
+**Multi-worker scaling** — 8 uvicorn workers, each with its own async event loop. The per-worker
+ceiling is ~65 RPS (event loop callback queue saturation). Total ceiling: ~520 RPS on a 10-core
+machine. DB connection pool sized at `pool_size=5, max_overflow=6` per worker (88 total
+connections, within Postgres's default `max_connections=100`).
+
 See [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md) for full trade-off notes.
+See [docs/performance_investigation.md](docs/performance_investigation.md) for load test methodology and findings.
 
 ## Project Structure
 
@@ -126,7 +134,7 @@ app/
   data/
     data_models.py     # Pydantic models: Transaction → Features → DBWrite
     orm_models.py      # SQLAlchemy ORM: TransactionRecord
-    client_mimic.py    # Load test client (50 RPS)
+    client_mimic.py    # Load test client (400 RPS)
     db_init/           # SQL init scripts (auto-run by postgres on first start)
   decisions/
     rules.py           # Rule functions (hard + soft)
