@@ -1,247 +1,122 @@
 """
-Tests that velocity functions fall back to PostgreSQL when Redis has no data.
+build_features() against Redis: the cache-hit path, and the Postgres fallback.
 
-Background: each get_*_counts function first checks redis.exists(key). If the
-key is absent (0), the function skips Redis entirely and runs a SQL query instead.
-This happens on cold start or after TTL expiry.
+The real code reads every velocity counter in one Redis pipeline. The only DB fallback
+left is purchase history: when Redis has no purchase entries for a user (cold start,
+eviction), build_features() asks Postgres instead - and must ask "as of the
+transaction's time", not the server's NOW().
 
-These tests verify that fallback path works correctly by:
-  - mocking redis.exists() to return 0 (cache miss)
-  - mocking db.execute() to return known values
-  - asserting the result matches those DB values (not Redis)
+Redis is an in-memory fake (fakeredis); Postgres is a mock that records its queries.
 """
-import pytest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-from app.decisions.features.velocity import (
-    get_did_uid_counts,
-    get_uid_did_counts,
-    get_did_txn_counts,
-    get_uid_last_txn_time,
-    get_ip_uid_counts,
-)
+import pytest
+from fakeredis import aioredis as fake_aioredis
+
+from app.data.data_models import Transaction
+from app.decisions.features import build_features, event_ts, update_velocity_counters
+
+PURCHASE_TIME = datetime(2015, 6, 1, 12, 0, 0)   # naive, like the client sends
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _mock_redis(cache_hit: bool = False):
-    """Redis mock that either has the key (cache_hit=True) or doesn't."""
-    redis = AsyncMock()
-    redis.exists = AsyncMock(return_value=1 if cache_hit else 0)
-    return redis
+def _txn(**overrides) -> Transaction:
+    base = dict(
+        user_id="user_1", signup_time=datetime(2015, 1, 1), purchase_time=PURCHASE_TIME,
+        purchase_value=40.0, device_id="device_1", source="SEO", browser="Chrome",
+        sex="M", age=30, ip_address=1234567890,
+    )
+    return Transaction(**(base | overrides))
 
 
-def _mock_db(row):
-    """
-    DB mock whose execute() returns a single row.
-    row should be a tuple matching the SQL SELECT column order.
-    """
-    result = MagicMock()
-    result.one.return_value = row
+def _mock_db(purchase_row=None, amounts=()):
+    """Postgres mock for the purchase-history fallback: first execute() returns the
+    aggregate row, the second returns the raw 90-day amounts (for the median)."""
+    agg = MagicMock()
+    agg.one.return_value = purchase_row if purchase_row is not None else (0,) * 28
+    raw = MagicMock()
+    raw.all.return_value = [(a,) for a in amounts]
     db = AsyncMock()
-    db.execute = AsyncMock(return_value=result)
+    db.execute = AsyncMock(side_effect=[agg, raw])
     return db
 
 
-def _mock_db_multi(*rows):
-    """DB mock that returns different rows on successive execute() calls."""
-    results = []
-    for row in rows:
-        r = MagicMock()
-        r.one.return_value = row
-        r.all.return_value = [(v,) for v in row]  # used by _purchase_counts median query
-        results.append(r)
-    db = AsyncMock()
-    db.execute = AsyncMock(side_effect=results)
-    return db
+@pytest.fixture
+async def redis():
+    r = fake_aioredis.FakeRedis(decode_responses=True)
+    # Pre-fill the two lookup caches so the tests exercise only the velocity path.
+    await r.set("cache:ip:1234567890", "United States")
+    for user in ("user_0", "user_1", "user_9"):
+        await r.set(f"cache:did:device_1:{user}", "0")
+    yield r
+    await r.aclose()
 
 
-# ---------------------------------------------------------------------------
-# get_did_uid_counts — counts distinct users per device, per time window
-# ---------------------------------------------------------------------------
-
-class TestDidUidCountsFallback:
-    async def test_cache_miss_reads_from_db(self):
-        # 8 windows: 5min, 10min, 1h, 2h, 24h, 7d, 30d, 90d
-        db_row = (0, 0, 1, 1, 3, 5, 5, 8)
-        redis = _mock_redis(cache_hit=False)
-        db = _mock_db(db_row)
-
-        result = await get_did_uid_counts("device_abc", redis, db)
-
-        # Redis was checked, but no data came from it
-        redis.exists.assert_called_once_with("did:uid:device_abc")
-        db.execute.assert_called_once()
-
-        assert result["5min"] == 0
-        assert result["1h"] == 1
-        assert result["24h"] == 3
-        assert result["90d"] == 8
-
-    async def test_cache_hit_skips_db(self):
-        redis = _mock_redis(cache_hit=True)
-        # Simulate Redis returning members for each window query
-        redis.zrangebyscore = AsyncMock(side_effect=[
-            ["u1"],               # 5min
-            ["u1"],               # 10min
-            ["u1", "u2"],         # 1h
-            ["u1", "u2"],         # 2h
-            ["u1", "u2", "u3"],   # 24h
-            ["u1", "u2", "u3"],   # 7d
-            ["u1", "u2", "u3"],   # 30d
-            ["u1", "u2", "u3"],   # 90d
-        ])
-        db = AsyncMock()
-
-        result = await get_did_uid_counts("device_abc", redis, db)
-
-        db.execute.assert_not_called()
-        assert result["5min"] == 1
-        assert result["1h"] == 2
-        assert result["24h"] == 3
-
-    async def test_all_zeros_on_new_device(self):
-        # Brand-new device — no history in DB either
-        db_row = (0, 0, 0, 0, 0, 0, 0, 0)
-        redis = _mock_redis(cache_hit=False)
-        db = _mock_db(db_row)
-
-        result = await get_did_uid_counts("new_device", redis, db)
-
-        assert all(v == 0 for v in result.values())
+async def _record(redis, t: Transaction, txn_id: str, decision="allow"):
+    await update_velocity_counters(
+        user_id=t.user_id, device_id=t.device_id, ip=t.ip_address,
+        ip_country="United States", transaction_id=txn_id,
+        purchase_value=t.purchase_value, fraud_decision=decision,
+        event_ts=event_ts(t), redis=redis,
+    )
 
 
-# ---------------------------------------------------------------------------
-# get_uid_did_counts — counts distinct devices per user, per time window
-# ---------------------------------------------------------------------------
+class TestPurchaseHistoryFallback:
+    async def test_empty_redis_asks_db_as_of_transaction_time(self, redis):
+        db = _mock_db()
+        await build_features(_txn(), db, redis)
 
-class TestUidDidCountsFallback:
-    async def test_cache_miss_reads_from_db(self):
-        db_row = (0, 0, 0, 1, 2, 2, 3, 3)
-        redis = _mock_redis(cache_hit=False)
-        db = _mock_db(db_row)
+        assert db.execute.await_count == 2
+        params = db.execute.await_args_list[0].args[1]
+        # The window is anchored on purchase_time (read as UTC), not the server clock.
+        assert params["as_of"] == PURCHASE_TIME.replace(tzinfo=timezone.utc)
+        assert params["user_id"] == "user_1"
 
-        result = await get_uid_did_counts("user_xyz", redis, db)
+    async def test_db_values_flow_into_features(self, redis):
+        # cnt/amt pairs for 5min..90d, then success cnt/amt pairs for 5min..90d
+        row = (1, 10.0, 1, 10.0, 1, 10.0, 2, 30.0, 3, 60.0, 4, 100.0, 5, 150.0) * 2
+        db = _mock_db(row, amounts=[10.0, 20.0, 30.0, 40.0, 50.0])
+        f = await build_features(_txn(), db, redis)
 
-        redis.exists.assert_called_once_with("uid:did:user_xyz")
-        db.execute.assert_called_once()
-        assert result["24h"] == 2
-        assert result["90d"] == 3
+        assert f.purchase_cnt_24h == 2
+        assert f.purchase_amt_30d == 100.0
+        assert f.purchase_cnt_90d == 5
+        assert f.pur_median_amt_90d == 30.0
 
-    async def test_cache_hit_skips_db(self):
-        redis = _mock_redis(cache_hit=True)
-        redis.zrangebyscore = AsyncMock(side_effect=[
-            [], [], ["dev1"], ["dev1"], ["dev1", "dev2"],
-            ["dev1", "dev2"], ["dev1", "dev2"], ["dev1", "dev2"],
-        ])
-        db = AsyncMock()
+    async def test_redis_history_skips_db(self, redis):
+        earlier = _txn(purchase_time=datetime(2015, 6, 1, 11, 0, 0), purchase_value=25.0)
+        await _record(redis, earlier, "t1")
+        db = _mock_db()
 
-        result = await get_uid_did_counts("user_xyz", redis, db)
+        f = await build_features(_txn(), db, redis)
 
-        db.execute.assert_not_called()
-        assert result["1h"] == 1
-        assert result["24h"] == 2
-
-
-# ---------------------------------------------------------------------------
-# get_did_txn_counts — total transaction count per device, per time window
-# ---------------------------------------------------------------------------
-
-class TestDidTxnCountsFallback:
-    async def test_cache_miss_reads_from_db(self):
-        # 7 windows: 5min, 10min, 1h, 2h, 24h, 7d, 30d
-        db_row = (0, 0, 2, 4, 10, 50, 100)
-        redis = _mock_redis(cache_hit=False)
-        db = _mock_db(db_row)
-
-        result = await get_did_txn_counts("device_abc", redis, db)
-
-        redis.exists.assert_called_once_with("did:txn:device_abc")
-        db.execute.assert_called_once()
-        assert result["1h"] == 2
-        assert result["24h"] == 10
-        assert result["30d"] == 100
-
-    async def test_cache_hit_skips_db(self):
-        redis = _mock_redis(cache_hit=True)
-        redis.zrangebyscore = AsyncMock(side_effect=[
-            [],                           # 5min
-            [],                           # 10min
-            ["t1", "t2"],                 # 1h
-            ["t1", "t2", "t3"],           # 2h
-            ["t1", "t2", "t3"],           # 24h
-            ["t1", "t2", "t3", "t4"],     # 7d
-            ["t1", "t2", "t3", "t4"],     # 30d
-        ])
-        db = AsyncMock()
-
-        result = await get_did_txn_counts("device_abc", redis, db)
-
-        db.execute.assert_not_called()
-        assert result["5min"] == 0
-        assert result["1h"] == 2
-        assert result["7d"] == 4
+        db.execute.assert_not_awaited()
+        assert f.purchase_cnt_1h == 1        # exactly 1h earlier: inside the window
+        assert f.purchase_amt_24h == 25.0
+        assert f.time_since_last_txn_uid == 3600.0
 
 
-# ---------------------------------------------------------------------------
-# get_uid_last_txn_time — seconds since user's last transaction
-# ---------------------------------------------------------------------------
+class TestVelocityCounters:
+    async def test_new_device_has_zero_counts(self, redis):
+        f = await build_features(_txn(), _mock_db(), redis)
+        assert (f.did_uid_90d, f.did_txn_cnt_30d, f.ip_uid_7d) == (0, 0, 0)
 
-class TestUidLastTxnTimeFallback:
-    async def test_cache_miss_reads_from_db(self):
-        # DB returns 3600 seconds (1 hour ago)
-        redis = _mock_redis()
-        redis.get = AsyncMock(return_value=None)  # cache miss
-        db = _mock_db((3600.0,))
+    async def test_counts_use_event_time_not_server_clock(self, redis):
+        # Two transactions 10 days apart in EVENT time, recorded milliseconds apart in
+        # real time. The 24h window must not see the older one; the 30d window must.
+        old = _txn(user_id="user_0", purchase_time=datetime(2015, 5, 22, 12, 0, 0))
+        await _record(redis, old, "t0")
+        f = await build_features(_txn(), _mock_db(), redis)
 
-        result = await get_uid_last_txn_time("user_xyz", redis, db)
+        assert f.did_uid_24h == 0
+        assert f.did_uid_30d == 1
+        assert f.did_txn_cnt_24h == 0
+        assert f.did_txn_cnt_30d == 1
 
-        redis.get.assert_called_once_with("uid:last_txn:user_xyz")
-        db.execute.assert_called_once()
-        assert result == pytest.approx(3600.0)
-
-    async def test_cache_miss_db_returns_none_gives_zero(self):
-        # User has never transacted — DB returns NULL → 0.0
-        redis = _mock_redis()
-        redis.get = AsyncMock(return_value=None)
-        db = _mock_db((None,))
-
-        result = await get_uid_last_txn_time("new_user", redis, db)
-
-        assert result == 0.0
-
-    async def test_cache_hit_skips_db(self):
-        import time
-        redis = _mock_redis()
-        # Redis stores a timestamp (seconds since epoch)
-        stored_time = str(time.time() - 120)  # 2 minutes ago
-        redis.get = AsyncMock(return_value=stored_time)
-        db = AsyncMock()
-
-        result = await get_uid_last_txn_time("user_xyz", redis, db)
-
-        db.execute.assert_not_called()
-        # Should be approximately 120 seconds (allow ±5s for test execution time)
-        assert 115 <= result <= 125
-
-
-# ---------------------------------------------------------------------------
-# get_ip_uid_counts — counts distinct users per IP, per time window
-# ---------------------------------------------------------------------------
-
-class TestIpUidCountsFallback:
-    async def test_cache_miss_reads_from_db(self):
-        # 6 windows: 5min, 10min, 1h, 2h, 24h, 7d
-        db_row = (0, 0, 1, 1, 5, 20)
-        redis = _mock_redis(cache_hit=False)
-        db = _mock_db(db_row)
-
-        result = await get_ip_uid_counts(3663237372, redis, db)
-
-        redis.exists.assert_called_once_with("ip:uid:3663237372")
-        db.execute.assert_called_once()
-        assert result["1h"] == 1
-        assert result["24h"] == 5
-        assert result["7d"] == 20
+    async def test_future_events_are_not_counted(self, redis):
+        # A transaction recorded with a LATER purchase_time (out-of-order arrival)
+        # must not leak into an earlier transaction's windows.
+        later = _txn(user_id="user_9", purchase_time=datetime(2015, 6, 1, 12, 30, 0))
+        await _record(redis, later, "t9")
+        f = await build_features(_txn(), _mock_db(), redis)
+        assert f.did_uid_1h == 0

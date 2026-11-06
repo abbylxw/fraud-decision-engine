@@ -1,6 +1,8 @@
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py313"
+# Notebooks are exploration records, not app code; lint the Python modules only.
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

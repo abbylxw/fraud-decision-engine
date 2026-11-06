@@ -22,6 +22,9 @@ _meta = json.loads(_meta_path.read_text()) if _meta_path.exists() else {}
 # metadata because a threshold only means something for the model it was tuned on.
 THRESHOLD: float = _meta.get("threshold", 0.7)
 MODEL_VERSION: str = _meta.get("model_version", "legacy-notebook-rf")
+# "Elevated" score for the rate-limiter combos (score + velocity): the riskiest 3% of
+# validation traffic on this model's scale. 0.5 was the old hand-picked value.
+ELEVATED_SCORE: float = _meta.get("elevated_score_threshold", 0.5)
 
 
 def _country_code(ip_country: str) -> int:

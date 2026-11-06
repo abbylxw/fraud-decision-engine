@@ -65,6 +65,12 @@ CANDIDATE_FEATURES = [
 ]
 DROP_ALWAYS = {"month_of_year": "test months never appear in training; memorises January"}
 
+# The soft rate-limiter rules combine "elevated model score" with a velocity signal.
+# "Elevated" is defined on this model's own score scale as the riskiest 3% of validation
+# traffic, instead of a fixed probability: with scale_pos_weight the scores are not
+# calibrated (the shipped XGBoost's median score is ~0.47, so a fixed 0.5 flags ~20%).
+ELEVATED_ALERT_RATE = 0.03
+
 
 def make_candidates(neg_pos_ratio):
     """Two candidates; the better one on validation PR-AUC ships.
@@ -197,6 +203,11 @@ def main():
     threshold = pick_threshold(y[va], val[best]["p_va"], value[va], args.false_decline_cost)
     print(f"  cost-based threshold (validation, false decline=${args.false_decline_cost:.0f}): "
           f"{threshold:.4f}")
+    p_va_best = val[best]["p_va"]
+    elevated = float(np.quantile(p_va_best, 1 - ELEVATED_ALERT_RATE))
+    elevated_prec = float(y[va][p_va_best >= elevated].mean())
+    print(f"  elevated-score level (top {ELEVATED_ALERT_RATE:.0%} of validation): {elevated:.4f} "
+          f"(validation precision {elevated_prec:.1%})")
 
     # --- Score test once, new vs deployed ---------------------------------
     old_features = json.loads((DECISIONS / "model_features.json").read_text())
@@ -219,6 +230,11 @@ def main():
         },
         "deny_nothing_cost": round(float(vt[yt == 1].sum()), 2),
     }
+    elevated_test = p_new >= elevated
+    report["new_model"]["elevated_score_on_test"] = {
+        "share": round(float(elevated_test.mean()), 4),
+        "precision": round(float(yt[elevated_test].mean()), 4),
+    }
 
     # Ship gate: the new model must not be meaningfully worse on test. It removes
     # artefacts rather than adding signal, so "no worse" is the bar, not "better".
@@ -240,6 +256,11 @@ def main():
         "threshold_basis": {"chosen_on": "validation",
                             "false_decline_cost": args.false_decline_cost,
                             "missed_fraud_cost": "purchase_value"},
+        "elevated_score_threshold": round(elevated, 6),
+        "elevated_score_basis": {"chosen_on": "validation",
+                                 "rule": f"top {ELEVATED_ALERT_RATE:.0%} of scores",
+                                 "validation_precision": round(elevated_prec, 4),
+                                 "used_by": "rules.rate_limiter_control (score + velocity combos)"},
         "training_data": {
             "source": "app/data/Fraud_Data.csv",
             "rows": int(fit_rows.sum()),

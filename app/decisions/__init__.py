@@ -1,5 +1,6 @@
+from app.data.data_models import Features, Transaction
+
 from . import rules
-from app.data.data_models import Transaction, Features
 
 
 def execute_hard_rules(t: Transaction, f: Features) -> tuple[str, str | None]:

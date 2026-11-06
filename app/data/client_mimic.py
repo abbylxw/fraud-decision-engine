@@ -1,9 +1,11 @@
+import asyncio
 import csv
-from pathlib import Path
 import itertools
 import time
+from pathlib import Path
+
 import httpx
-import asyncio
+
 
 def load_csv():
     BASE_DIR = Path(__file__).resolve().parent
@@ -26,7 +28,7 @@ async def send(client, row, url, idempotency_key):
         r = await client.post(url, json=preprocess(row), headers={"Idempotency-Key": idempotency_key})
         ms = (time.perf_counter() - t0) * 1000
         return r.status_code, ms
-    except Exception as e:
+    except Exception:
         return 0, 0.0
 
 async def main(rps=500, duration_seconds=30):

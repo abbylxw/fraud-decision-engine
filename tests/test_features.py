@@ -4,18 +4,20 @@ Unit tests for the pure (no DB, no Redis) feature functions in features/request.
 "Pure" means the function only reads from the Transaction object and does math —
 no external calls. These tests are the simplest and fastest in the suite.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 import pytest
+
 from app.data.data_models import Transaction
 from app.decisions.features.request import (
+    event_ts,
+    get_day_of_week,
     get_days_since_signup,
     get_days_since_signup_group,
-    get_hours_to_purchase,
     get_hour_of_day,
-    get_day_of_week,
+    get_hours_to_purchase,
     get_month_of_year,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -135,3 +137,20 @@ class TestTemporalFeatures:
     def test_month_of_year(self):
         t = make_transaction(purchase_time=datetime(2025, 7, 4, 12, 0, tzinfo=timezone.utc))
         assert get_month_of_year(t) == 7
+
+
+# ---------------------------------------------------------------------------
+# event_ts — the clock for every velocity window
+# ---------------------------------------------------------------------------
+
+class TestEventTs:
+    def test_naive_time_is_read_as_utc(self):
+        # The client sends naive datetimes; pandas (training) reads them as UTC.
+        # Python's .timestamp() would use the machine's local timezone instead.
+        t = make_transaction(purchase_time=datetime(2015, 1, 1, 0, 0, 44))
+        assert event_ts(t) == 1420070444.0
+
+    def test_aware_time_is_respected(self):
+        t = make_transaction(
+            purchase_time=datetime(2015, 1, 1, 8, 0, 44, tzinfo=timezone(timedelta(hours=8))))
+        assert event_ts(t) == 1420070444.0

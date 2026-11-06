@@ -24,6 +24,7 @@ services:
       - ./app/data/db_init/002_load_ip_country.sql:/docker-entrypoint-initdb.d/002_load_ip_country.sql:ro
       - ./app/data/db_init/003_create_device_data.sql:/docker-entrypoint-initdb.d/003_create_device_data.sql:ro
       - ./app/data/db_init/004_create_transactions.sql:/docker-entrypoint-initdb.d/004_create_transactions.sql:ro
+      - ./app/data/db_init/005_add_model_audit_columns.sql:/docker-entrypoint-initdb.d/005_add_model_audit_columns.sql:ro
       - ./app/data/IpAddress_to_Country.csv:/data/IpAddress_to_Country.csv:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]

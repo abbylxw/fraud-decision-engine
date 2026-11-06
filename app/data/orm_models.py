@@ -1,11 +1,11 @@
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
-from sqlalchemy import UUID as SAUUID, DateTime, BigInteger
-from sqlalchemy import func
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
+
+from sqlalchemy import UUID as SAUUID
+from sqlalchemy import BigInteger, DateTime, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
 
 class Base(DeclarativeBase):
     pass
@@ -108,4 +108,8 @@ class TransactionRecord(Base):
     hour_of_day:             Mapped[int]   = mapped_column(default=0)
     day_of_week:             Mapped[int]   = mapped_column(default=0)
     month_of_year:           Mapped[int]   = mapped_column(default=1)
+    # Audit: which model decided, its raw score (NULL if a hard rule fired first), which rule denied.
+    model_version: Mapped[Optional[str]] = mapped_column(nullable=True)
+    model_score:   Mapped[Optional[float]] = mapped_column(nullable=True)
+    decision_rule: Mapped[Optional[str]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

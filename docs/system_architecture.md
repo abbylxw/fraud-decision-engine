@@ -40,10 +40,11 @@ with a `fraud_decision` of `allow` or `deny` — all within a single async HTTP 
 POST /api/transactions
         │
         ▼
-1. Idempotency check
-   redis.getex("idem:{key}", ex=600)
-   ├── HIT  → return cached DecisionResponse immediately
-   └── MISS → continue
+1. Idempotency claim (atomic)
+   redis.set("idem:{key}", "__pending__", nx=True, ex=30)
+   ├── claimed            → continue
+   ├── value __pending__  → 409 Conflict, Retry-After: 1 (original still in flight)
+   └── value is JSON      → return stored DecisionResponse
         │
         ▼
 2. build_features(transaction, db, redis)          [sequential awaits]
@@ -61,8 +62,9 @@ POST /api/transactions
 3. Hard rules — short-circuit on any deny (no ML needed)
    execute_hard_rules(transaction, features)
    ├── transaction_limit()  → deny if purchase_value >= 5000
+   ├── signup_burst()       → deny if purchase < 60 s after signup (bot pattern)
    ├── age_limit()          → deny if age invalid, or age >= 80 with new account
-   └── ip_country_block()   → deny if ip_country != 'US'
+   └── ip_country_block()   → deny if OFAC country, or Unknown country + new device
         │
         ├── deny → skip to step 6
         └── allow → continue
@@ -70,24 +72,21 @@ POST /api/transactions
         ▼
 4. ML model inference (non-blocking)
    loop.run_in_executor(executor, model_score, features)
-   → RandomForest predict_proba → float (0.0–1.0)
+   → XGBoost predict_proba (25 features) → float (0.0–1.0)
         │
         ▼
 5. Soft rules — all receive the model score
    execute_soft_rules(transaction, features, prob)
-   ├── rate_limiter_control()      → deny on velocity anomalies
-   └── model_score_threshold()     → deny if prob >= THRESHOLD (0.5)
+   ├── rate_limiter_control()      → deny on velocity anomalies (combos use ELEVATED_SCORE)
+   └── model_score_threshold()     → deny if prob >= THRESHOLD
+   (THRESHOLD and ELEVATED_SCORE are read from model_meta.json, chosen on validation)
         │
         ▼
 6. Write to PostgreSQL
-   INSERT INTO transactions (all DBWrite fields)
+   INSERT INTO transactions (all DBWrite fields + model_version, model_score, decision_rule)
         │
         ▼
-7. Cache idempotency key (atomic)
-   redis.set("idem:{key}", response_json, nx=True, ex=600)
-        │
-        ▼
-8. asyncio.create_task(update_velocity_counters(...))   [fire-and-forget]
+7. spawn_background(update_velocity_counters(...))   [tracked, after commit]
    ├── ZADD uid:did:{user_id}          device_id  → timestamp
    ├── ZADD did:uid:{device_id}        user_id    → timestamp
    ├── ZADD ip:uid:{ip}                user_id    → timestamp
@@ -96,6 +95,10 @@ POST /api/transactions
    ├── ZADD purchase:all:{user_id}     txn:amount → timestamp
    ├── ZADD purchase:success:{user_id} (if not deny)
    └── ZREMRANGEBYSCORE all sets      -inf → 90_days_ago
+        │
+        ▼
+8. Store response under the idempotency key
+   redis.set("idem:{key}", response_json, ex=60)     (on failure: DELETE the key)
         │
         ▼
    Return DecisionResponse to client
@@ -230,9 +233,11 @@ Entries older than 90 days are pruned on every write (`ZREMRANGEBYSCORE`).
 
 | Key pattern         | Value              | TTL       |
 |---------------------|--------------------|-----------|
-| `idem:{key}`        | DecisionResponse JSON | 10 min |
+| `idem:{key}`        | `__pending__` while processing | 30 s |
+| `idem:{key}`        | DecisionResponse JSON | 60 s |
 
-Set atomically with `SET NX EX 600`.
+Claimed with `SET NX EX 30` before processing (duplicates in flight get 409), overwritten
+with the response when done, deleted if processing fails.
 
 ---
 

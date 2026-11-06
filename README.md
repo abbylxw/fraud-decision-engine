@@ -13,7 +13,7 @@ POST /api/transactions
  [Hard Rules]  ←── purchase limit, signup burst (<60s), age check, IP country block
         │  deny → short-circuit (model never runs)
         ▼
- [ML Model]    ←── XGBoost on 25 velocity + derived features (see Model Training)
+ [ML Model]    ←── XGBoost on 25 features: device/IP sharing counters + transaction fields
         │
         ▼
  [Soft Rules]  ←── rate limiter, model threshold
@@ -144,6 +144,16 @@ What the served model does differently from the notebook model, and why:
 - **The threshold is chosen by cost on validation** (missed fraud = purchase value, false decline
   = $10) and stored in `app/decisions/model_meta.json` with the model version, training window
   and evaluation results. The API reads it from there; it is no longer hardcoded.
+- **"Elevated score" for the rate-limiter combos is model-relative.** The soft rules that
+  combine a score with velocity (e.g. score + 5 purchases in 24h) used a fixed 0.5. That value
+  is meaningless for an uncalibrated model (the served XGBoost's median score is ~0.47), so the
+  level is now the top 3% of validation scores (0.615; 24% precision on validation, 23% on
+  test), stored in `model_meta.json`. The velocity cut-offs themselves are expert-set and
+  untested: with one transaction per user, none of those branches can fire on this dataset.
+- **Every decision is auditable.** The `transactions` table records `model_version`,
+  `model_score` (NULL when a hard rule denied first) and `decision_rule`
+  (`app/data/db_init/005_add_model_audit_columns.sql`; idempotent, apply by hand to an
+  existing database).
 - **A ship gate:** `--ship` refuses unless test PR-AUC is at least the previous model's 95% CI
   lower bound.
 
@@ -170,15 +180,31 @@ via `loop.run_in_executor`, keeping latency predictable under concurrent load.
 scored by Unix timestamp. Count-only windows use `ZCOUNT` (returns an integer, not the full member
 list). Purchase windows use `ZRANGE WITHSCORES` to fetch amounts for sum/median calculation.
 All 38 Redis commands per request are batched into a single pipeline — one TCP round-trip.
-90-day pruning keeps memory bounded. Counters are updated fire-and-forget after the response
+90-day pruning keeps memory bounded. Counters are updated fire-and-forget after the DB commit
 is returned, so they don't add to request latency.
 
-**Atomic idempotency** — `SET NX EX 600` ensures only one response is ever stored per
-`Idempotency-Key`, even under concurrent duplicate requests. Avoids the GET→check→SET
-TOCTOU race condition.
+**Atomic idempotency** — the `Idempotency-Key` is reserved with `SET NX` *before* the
+pipeline runs, so concurrent duplicates can't both write an audit row or double-count
+velocity. A duplicate that arrives mid-flight gets `409` + `Retry-After: 1`; one that arrives
+later gets the stored response (60 s TTL); a request that fails releases the key so the
+client can retry. Tested with real concurrency in `tests/test_idempotency.py`.
 
-**Read-through cache** — On a Redis cache miss (cold start, TTL expiry), the app reconstructs
-velocity counts from PostgreSQL `COUNT`/`SUM` queries and continues without error.
+**Tracked background tasks** — the velocity update runs after the DB commit (a failed audit
+write never counts toward velocity), the app holds a reference to each task so it can't be
+garbage-collected, failures are logged and counted in `fraud_background_task_failures_total`,
+and shutdown waits up to 5 s for in-flight updates.
+
+**Read-through cache** — When Redis has no purchase history for a user (cold start, eviction),
+the app rebuilds the purchase counts from PostgreSQL `COUNT`/`SUM` queries and continues without
+error. IP-to-country and device-age lookups are cached in Redis in front of Postgres.
+
+**Training-serving parity test** — Velocity windows count back from the transaction's own
+`purchase_time` (event time), exactly like the training replay, not from the server clock.
+`tests/test_feature_parity.py` sends the same transactions through the live feature code
+(against an in-memory fake Redis) and through `training/build_features.py`, and fails if any
+numeric feature differs. Written before the fix, it failed on about 50 features. It also caught
+two smaller counter bugs: same-second collisions and an off-by-one in the 90-day purge.
+See trade-off #12 in the design doc.
 
 **Two-phase rules pipeline** — Hard rules (no model needed) short-circuit before inference.
 Soft rules (velocity anomalies, model threshold) run after. This avoids model overhead for
@@ -205,12 +231,19 @@ app/
     db_init/           # SQL init scripts (auto-run by postgres on first start)
   decisions/
     rules.py           # Rule functions (hard + soft)
-    models.py          # ML inference (RandomForest, loads model.joblib at startup)
+    models.py          # ML inference (loads model.joblib + model_meta.json at startup)
     features/          # Feature extraction: request.py, db.py, velocity.py
 tests/
   test_rules.py        # Unit tests for each rule function
   test_features.py     # Unit tests for request-based feature calculations
+  test_feature_parity.py   # Live feature code vs training feature code, row by row
+  test_velocity_fallback.py  # Redis counters + Postgres fallback (fake Redis)
+  test_encoding_contract.py  # Category encodings match between training and serving
   test_api.py          # Integration tests for /health and /api/transactions
+training/
+  build_features.py    # Feature replay used for training (shared encodings)
+  train.py             # Retrain, evaluate, ship gate (--ship replaces the served model)
+  evaluate.py          # Model comparison with bootstrap CIs
 docs/
   design_tradeoffs_and_todos.md   # Architecture decisions + known TODOs
   system_architecture.md

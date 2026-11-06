@@ -1,19 +1,30 @@
 import logging
-import time
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone
+
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.data.data_models import Features, Transaction
+
+from .db import get_did_days_on_file, get_ip_country
+from .request import (
+    event_ts,
+    get_age_account_gap,
+    get_day_of_week,
+    get_days_since_signup,
+    get_days_since_signup_group,
+    get_hour_of_day,
+    get_hours_to_purchase,
+    get_month_of_year,
+)
+from .velocity import (
+    _purchase_counts_from_db,
+    update_velocity_counters,
+)
+
+__all__ = ["build_features", "update_velocity_counters", "event_ts"]
 
 logger = logging.getLogger("fraud_engine")
-from app.data.data_models import Transaction, Features
-from .request import (
-    get_days_since_signup, get_days_since_signup_group, get_age_account_gap,
-    get_hours_to_purchase, get_hour_of_day, get_day_of_week, get_month_of_year,
-)
-from .db import get_ip_country, get_did_days_on_file
-from .velocity import (
-    update_velocity_counters,
-    _purchase_counts_from_db,
-)
 
 
 def _parse_purchase_entries(all_entries, suc_entries, windows):
@@ -25,8 +36,10 @@ def _parse_purchase_entries(all_entries, suc_entries, windows):
     """
     out = {}
     for w in windows:
-        out[f"cnt_{w}"] = 0;       out[f"amt_{w}"] = 0.0
-        out[f"success_cnt_{w}"] = 0; out[f"success_amt_{w}"] = 0.0
+        out[f"cnt_{w}"] = 0
+        out[f"amt_{w}"] = 0.0
+        out[f"success_cnt_{w}"] = 0
+        out[f"success_amt_{w}"] = 0.0
 
     amounts_90d = []
     for member, ts in all_entries:
@@ -55,7 +68,9 @@ def _parse_purchase_entries(all_entries, suc_entries, windows):
 
 
 async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Features:
-    ct = time.time()
+    # The clock for every window is the transaction's own time, not the server's.
+    # Training counts back from purchase_time; see tests/test_feature_parity.py.
+    ct = event_ts(t)
     ip_int = int(t.ip_address)
 
     # --- Phase 1: cache check for ip_country and did_days_on_file ---
@@ -78,7 +93,9 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         did_days_on_file = int(did_cached)
     else:
         logger.warning("cache.miss", extra={"key": _did_key, "fallback": "db"})
-        did_days_on_file = await get_did_days_on_file(t.device_id, t.user_id, db)
+        did_days_on_file = await get_did_days_on_file(
+            t.device_id, t.user_id, db,
+            as_of_date=datetime.fromtimestamp(ct, tz=timezone.utc).date())
         await redis.set(_did_key, str(did_days_on_file), ex=3600)
 
     # --- Phase 2: ALL 38 velocity commands in ONE pipeline ---
@@ -86,9 +103,9 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     # Replaces asyncio.gather of 38 individual coroutines (which each acquired
     # their own connection and created separate event-loop wake-ups).
     ninety_days_ago = ct - 90 * 86400
-    _5m  = ct - 300;   _10m = ct - 600
-    _1h  = ct - 3600;  _2h  = ct - 7200
-    _24h = ct - 86400; _7d  = ct - 604800
+    _5m, _10m = ct - 300, ct - 600
+    _1h, _2h = ct - 3600, ct - 7200
+    _24h, _7d = ct - 86400, ct - 604800
     _30d = ct - 2592000
 
     pipe = redis.pipeline(transaction=False)
@@ -139,7 +156,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         }
         purchase = _parse_purchase_entries(all_entries, suc_entries, pur_windows)
     else:
-        purchase = await _purchase_counts_from_db(t.user_id, db)
+        purchase = await _purchase_counts_from_db(t.user_id, db, as_of=ct)
 
     last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else 0.0
 

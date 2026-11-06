@@ -1,5 +1,5 @@
-from app.data.data_models import Transaction, Features
-from app.decisions.models import THRESHOLD
+from app.data.data_models import Features, Transaction
+from app.decisions.models import ELEVATED_SCORE, THRESHOLD
 
 
 def transaction_limit(transaction: Transaction):
@@ -56,6 +56,10 @@ def model_score_threshold(score: float) -> str:
 
 
 def rate_limiter_control(transaction: Transaction, feature: Features, score: float):
+    # The velocity cut-offs below are expert-set and NOT validated: Fraud_Data.csv has one
+    # transaction per user, so every input here except did_uid_90d / ip_uid_7d is always 0
+    # in the replay, and none of these branches fires on the validation or test period.
+    # They need data with repeat users (or production labels) to tune.
     if feature.did_uid_days_on_file <= 90 and feature.did_uid_90d >= 10:
         return 'deny'
     if feature.uid_did_90d >= 20:
@@ -64,10 +68,11 @@ def rate_limiter_control(transaction: Transaction, feature: Features, score: flo
         return 'deny'
     if feature.purchase_cnt_90d >= 20 and feature.purchase_amt_90d >= 1000000:
         return 'deny'
-    # Combined: moderate model score + elevated 24h purchase velocity
-    if score >= 0.5 and feature.purchase_cnt_24h >= 5:
+    # Combined: elevated model score + high 24h purchase velocity.
+    # ELEVATED_SCORE = top 3% of validation scores for the served model (model_meta.json).
+    if score >= ELEVATED_SCORE and feature.purchase_cnt_24h >= 5:
         return 'deny'
-    # Combined: moderate model score + multiple devices today (account takeover signal)
-    if score >= 0.5 and feature.uid_did_24h >= 3:
+    # Combined: elevated model score + multiple devices today (account takeover signal)
+    if score >= ELEVATED_SCORE and feature.uid_did_24h >= 3:
         return 'deny'
     return 'allow'

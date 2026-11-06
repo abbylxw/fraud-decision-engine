@@ -50,6 +50,13 @@
     "false_decline_cost": 10.0,
     "missed_fraud_cost": "purchase_value"
   },
+  "elevated_score_threshold": 0.614808,
+  "elevated_score_basis": {
+    "chosen_on": "validation",
+    "rule": "top 3% of scores",
+    "validation_precision": 0.2401,
+    "used_by": "rules.rate_limiter_control (score + velocity combos)"
+  },
   "training_data": {
     "source": "app/data/Fraud_Data.csv",
     "rows": 113289,
@@ -163,6 +170,10 @@
         "false_declines": 229,
         "fraud_dollars_stopped": 4059.0,
         "total_cost": 49626.0
+      },
+      "elevated_score_on_test": {
+        "share": 0.0268,
+        "precision": 0.2299
       }
     },
     "previous_model": {

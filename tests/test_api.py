@@ -14,12 +14,10 @@ Key concepts used here:
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app, get_db, get_redis
 from app.data.data_models import Features
-
+from app.main import app, get_db, get_redis
 
 # ---------------------------------------------------------------------------
 # Shared mock setup
@@ -38,8 +36,10 @@ def _make_mock_redis(cached=None):
     """AsyncMock that behaves like a Redis client. cached= simulates an idempotency hit."""
     redis = AsyncMock()
     redis.ping = AsyncMock(return_value=True)
-    redis.getex = AsyncMock(return_value=cached)
-    redis.set = AsyncMock(return_value=True)
+    # SET NX fails when a response is already stored under the key
+    redis.set = AsyncMock(return_value=None if cached else True)
+    redis.get = AsyncMock(return_value=cached)
+    redis.delete = AsyncMock(return_value=1)
     return redis
 
 

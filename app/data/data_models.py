@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
 
 class Transaction(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -100,3 +102,8 @@ class Features(Transaction):
 
 class DBWrite(Features, DecisionResponse):
     created_at: datetime
+    # Audit fields: which model made the decision, its raw score, and which rule fired.
+    # model_score is None when a hard rule short-circuited before the model ran.
+    model_version: str
+    model_score: float | None = None
+    decision_rule: str | None = None

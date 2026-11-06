@@ -10,7 +10,7 @@ into a known state, then asserts that the rule returns the expected verdict.
 from datetime import timedelta
 
 from app.decisions import execute_hard_rules
-from app.decisions.models import THRESHOLD
+from app.decisions.models import ELEVATED_SCORE, THRESHOLD
 from app.decisions.rules import (
     SIGNUP_BURST_SECONDS,
     age_limit,
@@ -228,3 +228,20 @@ class TestRateLimiter:
     def test_allow_normal(self, sample_transaction, sample_features):
         # All counters at defaults (0) — no velocity signals
         assert rate_limiter_control(sample_transaction, sample_features, 0.1) == "allow"
+
+    # Score + velocity combos: "elevated" comes from model_meta.json (top 3% of validation).
+    def test_deny_elevated_score_and_purchase_velocity(self, sample_transaction, sample_features):
+        sample_features.purchase_cnt_24h = 5
+        assert rate_limiter_control(sample_transaction, sample_features, ELEVATED_SCORE) == "deny"
+
+    def test_allow_purchase_velocity_below_elevated_score(self, sample_transaction, sample_features):
+        sample_features.purchase_cnt_24h = 5
+        assert rate_limiter_control(sample_transaction, sample_features, ELEVATED_SCORE - 0.001) == "allow"
+
+    def test_deny_elevated_score_and_multiple_devices(self, sample_transaction, sample_features):
+        sample_features.uid_did_24h = 3
+        assert rate_limiter_control(sample_transaction, sample_features, ELEVATED_SCORE) == "deny"
+
+    def test_elevated_score_is_below_deny_threshold(self):
+        # The combo exists to catch cases the model alone would allow.
+        assert 0 < ELEVATED_SCORE < THRESHOLD

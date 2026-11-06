@@ -1,24 +1,24 @@
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-from fastapi import FastAPI, Header, Depends
 import asyncio
 import json
 import logging
-from prometheus_client import Counter, Histogram, make_asgi_app
-from sqlalchemy import text
-from app.data.data_models import DBWrite, Transaction, DecisionResponse
-from app.config import settings
-from app.data.orm_models import TransactionRecord
-from app.decisions.features import build_features, update_velocity_counters
-from app.decisions import execute_hard_rules, execute_soft_rules
-from app.decisions.models import score as model_score
-from uuid import uuid4
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from redis.asyncio import Redis
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from uuid import uuid4
 
+from fastapi import Depends, FastAPI, Header, HTTPException
+from prometheus_client import Counter, Histogram, make_asgi_app
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-
+from app.config import settings
+from app.data.data_models import DBWrite, DecisionResponse, Transaction
+from app.data.orm_models import TransactionRecord
+from app.decisions import execute_hard_rules, execute_soft_rules
+from app.decisions.features import build_features, event_ts, update_velocity_counters
+from app.decisions.models import MODEL_VERSION
+from app.decisions.models import score as model_score
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -84,6 +84,38 @@ MODEL_SCORE = Histogram(
     buckets=[.0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1.0])
 IDEMPOTENCY_HITS = Counter(
     "fraud_idempotency_hits_total", "Requests served from idempotency cache")
+IDEMPOTENCY_CONFLICTS = Counter(
+    "fraud_idempotency_conflicts_total",
+    "Duplicate requests rejected (409) because the original is still being processed")
+BACKGROUND_TASK_FAILURES = Counter(
+    "fraud_background_task_failures_total", "Fire-and-forget tasks that raised", ["task"])
+
+
+# ---------------------------------------------------------------------------
+# Fire-and-forget tasks
+# ---------------------------------------------------------------------------
+# asyncio only keeps a weak reference to tasks, so an unreferenced task can be
+# garbage-collected mid-flight and its exception is never seen. Keep a strong
+# reference until it finishes, and log + count failures.
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _on_background_done(task: asyncio.Task) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        BACKGROUND_TASK_FAILURES.labels(task=task.get_name()).inc()
+        logger.error("background_task.failed", extra={"task": task.get_name()}, exc_info=exc)
+
+
+def spawn_background(coro, name: str) -> asyncio.Task:
+    task = asyncio.create_task(coro, name=name)
+    _background_tasks.add(task)
+    task.add_done_callback(_on_background_done)
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +130,12 @@ async def lifespan(app: FastAPI):
     app.state.redis = Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
     app.state.executor = ThreadPoolExecutor()
     yield
+    # Let in-flight velocity updates finish before the Redis client closes.
+    if _background_tasks:
+        await asyncio.wait(_background_tasks, timeout=5)
     await app.state.redis.aclose()
     app.state.executor.shutdown(wait=False)
- 
+
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/metrics", make_asgi_app())
@@ -133,8 +168,10 @@ async def run_process(transaction: Transaction,
     with STEP_LATENCY.labels(step="feature_extraction").time():
         features = await build_features(transaction, db, redis)
     hard_decision, hard_rule = execute_hard_rules(transaction, features)
+    prob: float | None = None
     if hard_decision == 'deny':
         fraud_decision = 'deny'
+        decision_rule = hard_rule
         RULE_DENIALS_TOTAL.labels(phase="hard", rule=hard_rule).inc()
         logger.info("hard_rule.deny", extra={
             "user_id": transaction.user_id,
@@ -151,6 +188,7 @@ async def run_process(transaction: Transaction,
         MODEL_SCORE.observe(prob)
         soft_decision, soft_rule = execute_soft_rules(transaction, features, prob)
         fraud_decision = soft_decision
+        decision_rule = soft_rule
         if soft_decision == 'deny' and soft_rule:
             RULE_DENIALS_TOTAL.labels(phase="soft", rule=soft_rule).inc()
         logger.info("model.scored", extra={
@@ -166,7 +204,17 @@ async def run_process(transaction: Transaction,
         fraud_decision=fraud_decision,
         response_time=datetime.now(tz=timezone.utc),
     )
-    asyncio.create_task(
+    db_record = DBWrite(
+        **features.model_dump(by_alias=False), **response.model_dump(),
+        created_at=datetime.now(tz=timezone.utc),
+        model_version=MODEL_VERSION, model_score=prob, decision_rule=decision_rule,
+    )
+    db.add(TransactionRecord(**db_record.model_dump()))
+    with STEP_LATENCY.labels(step="db_write").time():
+        await db.commit()
+    # Only after the commit: if the audit write fails, the transaction never happened,
+    # so it must not count toward anyone's velocity windows. Still off the request path.
+    spawn_background(
         update_velocity_counters(
             user_id=str(transaction.user_id),
             device_id=str(transaction.device_id),
@@ -175,13 +223,11 @@ async def run_process(transaction: Transaction,
             transaction_id=response.transaction_id,
             purchase_value=transaction.purchase_value,
             fraud_decision=response.fraud_decision,
+            event_ts=event_ts(transaction),
             redis=redis,
-        )
+        ),
+        name="update_velocity_counters",
     )
-    db_record = DBWrite(**features.model_dump(by_alias=False), **response.model_dump(), created_at=datetime.now(tz=timezone.utc))
-    db.add(TransactionRecord(**db_record.model_dump()))
-    with STEP_LATENCY.labels(step="db_write").time():
-        await db.commit()
     logger.info("decision.written", extra={
         "transaction_id": str(response.transaction_id),
         "fraud_decision": fraud_decision,
@@ -208,6 +254,28 @@ async def health(
     return {"status": status, **checks}
 
 
+# Idempotency: the key is reserved atomically (SET NX) BEFORE processing, so two
+# concurrent requests with the same key can't both run the pipeline, write two audit
+# rows and double-count velocity. States of idem:<key>:
+#   absent          -> claim it and process
+#   _IDEM_PENDING   -> the original is in flight: 409 + Retry-After
+#   response JSON   -> replay the stored response
+IDEMPOTENCY_TTL_SECONDS = 60    # how long a finished response is replayed (was 600;
+                                # cut to 60 in ab0f917 to keep load-test reruns from replaying)
+IDEMPOTENCY_LOCK_SECONDS = 30   # reservation lifetime; far above worst-case request time,
+                                # so a crashed worker can't block the key for long
+_IDEM_PENDING = "__pending__"
+
+
+def _idempotency_conflict() -> HTTPException:
+    IDEMPOTENCY_CONFLICTS.inc()
+    return HTTPException(
+        status_code=409,
+        detail="A request with this Idempotency-Key is still being processed; retry shortly.",
+        headers={"Retry-After": "1"},
+    )
+
+
 @app.post("/api/transactions", status_code=201, response_model = DecisionResponse)
 async def process_transaction(
     transaction: Transaction,
@@ -217,14 +285,29 @@ async def process_transaction(
     executor: ThreadPoolExecutor = Depends(get_executor),
 ) -> DecisionResponse:
     REQUESTS_TOTAL.inc()
-    cached = await redis.getex(f"idem:{idempotency_key}", ex=60) # Check cache with 1 minutes expiration
-    if cached:
+    idem_key = f"idem:{idempotency_key}"
+    claimed = await redis.set(idem_key, _IDEM_PENDING, nx=True, ex=IDEMPOTENCY_LOCK_SECONDS)
+    if not claimed:
+        existing = await redis.get(idem_key)
+        if existing is None or existing == _IDEM_PENDING:
+            # In flight (or the reservation expired between SET and GET): never process twice.
+            logger.info("idempotency.conflict", extra={"idempotency_key": idempotency_key})
+            raise _idempotency_conflict()
         IDEMPOTENCY_HITS.inc()
         logger.info("idempotency.hit", extra={"idempotency_key": idempotency_key})
-        return DecisionResponse.model_validate_json(cached)
+        return DecisionResponse.model_validate_json(existing)
 
     _t0 = asyncio.get_event_loop().time()
-    response = await run_process(transaction, db, redis, executor)
+    try:
+        response = await run_process(transaction, db, redis, executor)
+    except BaseException:
+        # Nothing was committed (the DB write is the last step that can fail), so release
+        # the key and let the client retry instead of getting 409s for 30 seconds.
+        try:
+            await redis.delete(idem_key)
+        except Exception:
+            logger.exception("idempotency.release_failed", extra={"idempotency_key": idempotency_key})
+        raise
     REQUEST_LATENCY.observe(asyncio.get_event_loop().time() - _t0)
-    await redis.set(f"idem:{idempotency_key}", response.model_dump_json(), nx=True, ex=60)  # Cache for 1 minute
+    await redis.set(idem_key, response.model_dump_json(), ex=IDEMPOTENCY_TTL_SECONDS)
     return response

@@ -1,5 +1,22 @@
 import bisect
+from datetime import timezone
+
 from app.data.data_models import Transaction
+
+
+def event_ts(t: Transaction) -> float:
+    """The transaction's own time as a Unix timestamp - the clock for every velocity window.
+
+    Training counts windows back from purchase_time, so serving must too (not the server
+    clock). A naive datetime (no timezone, which is what the client sends) is treated as
+    UTC, because that is what pandas does in training; Python's .timestamp() would
+    otherwise read it as the server's LOCAL time and shift every window by hours.
+    """
+    pt = t.purchase_time
+    if pt.tzinfo is None:
+        pt = pt.replace(tzinfo=timezone.utc)
+    return pt.timestamp()
+
 
 def get_days_since_signup(t: Transaction) -> int:
     if t.signup_time is None:

@@ -4,9 +4,11 @@ Shared fixtures for all tests.
 A "fixture" is a piece of reusable test setup. pytest automatically passes
 fixtures into test functions that name them as parameters — no manual wiring needed.
 """
-import pytest
 from datetime import datetime, timezone
-from app.data.data_models import Transaction, Features
+
+import pytest
+
+from app.data.data_models import Features, Transaction
 
 
 @pytest.fixture

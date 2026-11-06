@@ -84,7 +84,14 @@ polling/retry loop for the losing request, adding latency and complexity.
 **Solution keywords:** `SET NX EX` (atomic), placeholder sentinel value, polling loop,
 `asyncio.sleep`, `HTTPException 503` on timeout, TOCTOU
 
-**Status: ✅ SOLVED** — `redis.set(..., nx=True, ex=600)` + `redis.getex()` for TTL refresh on reads
+**Status: ✅ SOLVED (2026-11-05)** — the earlier "fix" still did GET → process → `SET NX`, so two
+concurrent duplicates both ran the pipeline. Now the key is claimed with
+`SET idem:<key> __pending__ NX EX 30` before processing; a loser sees `__pending__` and gets
+`409` + `Retry-After: 1` (no polling, so no held connections), or the stored response if the
+original finished (`EX 60`). A failed request deletes the key so the client can retry.
+Remaining gap: if the worker dies after the DB commit but before the response is stored, a
+retry after the 30 s lock expires is processed again; closing that needs a unique
+`idempotency_key` column in Postgres. Tests: `tests/test_idempotency.py`.
 
 ---
 
@@ -140,8 +147,12 @@ risks under-counting. Message queue (Kafka) is durable and decoupled but adds in
 **Solution keywords:** `asyncio.create_task` (fire-and-forget), outbox pattern,
 Kafka consumer, at-least-once, idempotent ZADD, post-response hook
 
-**Status: ✅ SOLVED** — `asyncio.create_task(update_velocity_counters(...))` fires after
-response is built; ZADD is idempotent so duplicate writes are safe
+**Status: ✅ SOLVED** — `update_velocity_counters` runs as a tracked background task after
+the DB commit (a failed commit no longer updates counters). `spawn_background()` keeps a strong
+reference (asyncio only holds weak ones), logs + counts failures
+(`fraud_background_task_failures_total`), and shutdown waits up to 5 s for in-flight tasks.
+ZADD is idempotent so duplicate writes are safe. A crash still loses in-flight updates
+(outbox/Kafka would fix that).
 
 ---
 
@@ -201,6 +212,48 @@ was trained.
 
 ---
 
+### 12. Velocity Clock: Event Time vs Server Time
+
+**Problem:** Every velocity feature ("distinct users on this device in the last 90 days")
+needs a "now". Training counts back from each transaction's `purchase_time`. Serving
+counted back from the server clock (`time.time()`, SQL `NOW()`, `CURRENT_DATE`). When
+`client_mimic.py` replays a year of 2015 data in minutes, every window held "everything
+replayed recently", so `did_uid_90d` (the model's top feature) meant something different
+live than in training. A second, hidden trap: the client sends naive datetimes, and
+Python's `.timestamp()` reads those as the server's *local* time while pandas reads them
+as UTC, which shifts every hour-based window by the timezone offset.
+
+**Trade-off:**
+- **Event time** (chosen): serving matches training exactly, and replays are repeatable.
+  The risk is that a client controls `purchase_time`, so an attacker could send an old
+  timestamp to land outside the windows that would flag them.
+- **Server time:** safe from spoofed timestamps, but then training must be rebuilt on
+  ingestion time, and a historical replay can never reproduce training features.
+
+In real production the two are nearly the same (a purchase is scored seconds after it
+happens). The production mitigation is to reject, or clamp to the server clock, any
+`purchase_time` more than a few minutes away from server time. That isn't enabled here,
+because the load test deliberately replays 2015 data.
+
+**Solution keywords:** event time vs processing time, training-serving skew, parity test,
+naive datetime = UTC, exclusive purge bound
+
+**Status: ✅ SOLVED (2026-11-05)**
+- `request.event_ts(t)` is the single clock (naive datetimes are read as UTC).
+- `build_features`, `update_velocity_counters` and both SQL fallbacks use it instead of
+  the server clock.
+- `tests/test_feature_parity.py` replays the same transactions through the real serving
+  path (fake Redis) and through `training/build_features.py`, and requires every numeric
+  feature to match. It runs on synthetic data in CI, and on 5,000 real rows locally.
+- Written before the fix, it failed on ~50 features.
+- It also caught two smaller bugs:
+  - `did:txn` entries keyed by `user:time` collapsed two purchases in the same second;
+    entries now use the transaction id.
+  - The 90-day purge used an inclusive bound, which deleted an entry exactly 90 days
+    old that a same-second transaction still needed; the bound is now exclusive.
+
+---
+
 ## To-Do Items (Current Codebase)
 
 ### Minimum to get a test request through (do these first)
@@ -217,7 +270,7 @@ was trained.
 - [x] Replace `Session` / `SessionLocal` with `AsyncSession` + `create_async_engine`
 - [x] Move Redis into `lifespan` via `asynccontextmanager`; stored on `app.state.redis`; closed on shutdown
 - [x] Add `get_executor` dependency backed by `ThreadPoolExecutor` in `lifespan`; stored on `app.state.executor`
-- [x] Fix idempotency: replaced GET→check→SET with atomic `redis.set(..., nx=True, ex=600)`
+- [x] Fix idempotency: reserve the key with `SET NX` before processing; 409 for in-flight duplicates (2026-11-05)
 - [x] Wire full rule + model pipeline: `execute_hard_rules` → `model_score` in executor → `execute_soft_rules`
 - [x] Call `update_velocity_counters()` via `asyncio.create_task` after response built
 - [x] Fix `db.add()` — now passes `TransactionRecord(**db_record.model_dump())` ORM instance
