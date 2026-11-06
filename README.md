@@ -10,10 +10,10 @@ a fraud decision — all within a single async request.
 POST /api/transactions
         │
         ▼
- [Hard Rules]  ←── purchase limit, age check, IP country block
+ [Hard Rules]  ←── purchase limit, signup burst (<60s), age check, IP country block
         │  deny → short-circuit (model never runs)
         ▼
- [ML Model]    ←── RandomForest on ~100 velocity + derived features
+ [ML Model]    ←── XGBoost on 25 velocity + derived features (see Model Training)
         │
         ▼
  [Soft Rules]  ←── rate limiter, model threshold
@@ -92,6 +92,73 @@ python app/data/client_mimic.py   # 400 RPS for 120s, cycles through Fraud_Data.
 ```bash
 pytest tests/ -v
 ```
+
+## Model Evaluation
+
+```bash
+python -m training.evaluate          # ~30 s; writes results/<timestamp>/metrics.json + charts
+```
+
+Time-based split (train Jan–Aug 5 / validation Aug 5–30 / test Aug 30–Dec 16). Early stopping
+and threshold choice use validation only; the test period is scored once. Full write-up:
+[notebooks/evaluation_report.ipynb](notebooks/evaluation_report.ipynb).
+
+| Model (test period, fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
+|---|---|---|
+| Random guessing | 0.046 | 0.50 |
+| Previous RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
+| **Served XGBoost** (`training/train.py`, 25 features) | **0.092 [0.081, 0.106]** | 0.56 |
+| XGBoost, early-stopped on validation | 0.088 [0.079, 0.101] | 0.56 |
+| Logistic regression | 0.049 [0.046, 0.054] | 0.50 |
+
+**What the evaluation found:**
+- **The previous model barely beat random guessing.** At its hardcoded threshold of 0.7 it
+  flagged 10 of 30,223 test transactions and caught 4 of 1,389 frauds.
+- **25 of the 52 served features never change.** Every user in the dataset has exactly one
+  transaction, so every per-user counter is always 0.
+- **January was a bot attack** (76% fraud; 7,600 purchases within 1 second of signup), and that
+  pattern never appears in the test period. Training without it barely changes the tree models.
+- **`month_of_year` is XGBoost's 3rd most important feature,** but test months (Sep–Dec) never
+  appear in training, so it learns "January = fraud" and nothing that carries forward.
+- **A cost-based threshold** (a $5 review per alert vs. losing the purchase value of missed
+  fraud), chosen on validation, saves $3.1k out of $51.4k of test-period fraud, against $115
+  at the current 0.7.
+
+## Model Training
+
+```bash
+python -m training.train             # ~15 s; train + report to results/train_<timestamp>/
+python -m training.train --ship      # also replace app/decisions/model.joblib + metadata
+```
+
+What the served model does differently from the notebook model, and why:
+
+- **The January bot attack is a rule, not a model feature.** `signup_burst` denies purchases
+  made less than 60 s after signup (all 7,600 such rows are fraud; the fastest legitimate one is
+  137 s). Those rows are excluded from training because the model never scores them in production.
+- **`month_of_year` and the 26 features that are constant on the training rows are dropped**
+  (52 → 25). Nothing measurable is lost on test; the model now relies on device sharing
+  (`did_uid_90d`, `did_uid_30d`) instead of the calendar.
+- **Shallow XGBoost** (depth 3, 146 trees). With the notebook's depth-7 settings, early stopping
+  fired after 3 trees because the signal left after January is weak and deep trees overfit it.
+- **The threshold is chosen by cost on validation** (missed fraud = purchase value, false decline
+  = $10) and stored in `app/decisions/model_meta.json` with the model version, training window
+  and evaluation results. The API reads it from there; it is no longer hardcoded.
+- **A ship gate:** `--ship` refuses unless test PR-AUC is at least the previous model's 95% CI
+  lower bound.
+
+Test period (Aug 30–Dec 16, scored once):
+
+| | Denied | Fraud caught | False declines | Fraud $ stopped | Total cost* |
+|---|---|---|---|---|---|
+| Deny nothing | 0 | 0 / 1,389 | 0 | $0 | $51.4k |
+| Previous model @ 0.7 | 10 | 4 | 6 | $165 | $51.3k |
+| **Served model @ 0.849** | 327 (1.1%) | **98** | 229 | **$4,059** | **$49.6k** |
+
+\* missed-fraud dollars + $10 per false decline. The ranking quality (PR-AUC) is unchanged;
+the gain comes from a threshold chosen for this model by cost instead of a hardcoded 0.7.
+On this dataset the ceiling is the data: after January, fraud is 4.5% and the main
+remaining signal is device sharing.
 
 ## Interesting Engineering Decisions
 

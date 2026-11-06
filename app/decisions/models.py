@@ -13,9 +13,15 @@ _model     = joblib.load(_base / "model.joblib")
 _features  = json.loads((_base / "model_features.json").read_text())
 _countries = json.loads((_base / "ip_country_categories.json").read_text())
 
-# Probability threshold: transactions above this are flagged as fraud.
-# 0.5 is the default decision boundary; tune upward to reduce false positives.
-THRESHOLD = 0.7
+# Written by training/train.py alongside model.joblib: version, the cost-based
+# threshold chosen on validation, training window, and evaluation results.
+_meta_path = _base / "model_meta.json"
+_meta = json.loads(_meta_path.read_text()) if _meta_path.exists() else {}
+
+# Deny when the fraud probability is at or above this. Comes from the model's own
+# metadata because a threshold only means something for the model it was tuned on.
+THRESHOLD: float = _meta.get("threshold", 0.7)
+MODEL_VERSION: str = _meta.get("model_version", "legacy-notebook-rf")
 
 
 def _country_code(ip_country: str) -> int:
@@ -33,7 +39,9 @@ def _country_code(ip_country: str) -> int:
     return -1
 
 
-_SEX_CODES     = {"F": 0, "M": 1}
+# These maps MUST match the encodings used in training (training/build_features.py imports
+# them from here). tests/test_encoding_contract.py fails if the two ever drift apart.
+_SEX_CODES     = {"M": 0, "F": 1}
 _SOURCE_CODES  = {"Ads": 0, "Direct": 1, "SEO": 2}
 _BROWSER_CODES = {"Chrome": 0, "FireFox": 1, "IE": 2, "Opera": 3, "Safari": 4}
 
@@ -49,14 +57,22 @@ def _age_group_code(age: int | None) -> int:
     return bisect.bisect_left(_AGE_EDGES, age)
 
 
+_SIGNUP_LABELS = ['0-7d', '8-14d', '15-30d', '31-90d', '91-180d', '181-360d', '361-720d', '720+d']
+_ENCODED = {"ip_country_code", "days_since_signup_group", "sex", "source", "browser", "age_group"}
+
+# Fail at startup, not silently at request time: every feature the model expects must
+# be either encoded below or a field on Features. Otherwise score() would feed it 0.
+_unserved = [f for f in _features if f not in _ENCODED and f not in Features.model_fields]
+if _unserved:
+    raise RuntimeError(f"model_features.json lists features the API does not produce: {_unserved}")
+
+
 def score(features: Features) -> float:
     """Return the raw fraud probability (0.0–1.0).
 
     Builds a 1-row numpy array in the exact column order the model was trained on
     (from model_features.json) and returns predict_proba for the fraud class.
     """
-    _SIGNUP_LABELS = ['0-7d', '8-14d', '15-30d', '31-90d', '91-180d', '181-360d', '361-720d', '720+d']
-
     row = {name: 0 for name in _features}
     for name in _features:
         if name == "ip_country_code":
@@ -72,7 +88,7 @@ def score(features: Features) -> float:
             row[name] = _BROWSER_CODES.get(features.browser or "", -1)
         elif name == "age_group":
             row[name] = _age_group_code(features.age)
-        elif hasattr(features, name):
+        else:
             row[name] = getattr(features, name)
 
     X = pd.DataFrame([row], columns=_features)
@@ -80,5 +96,5 @@ def score(features: Features) -> float:
 
 
 def predict(features: Features) -> str:
-    """Run the trained RandomForest model and return 'deny' or 'allow'."""
+    """Run the served model and return 'deny' or 'allow'."""
     return 'deny' if score(features) >= THRESHOLD else 'allow'

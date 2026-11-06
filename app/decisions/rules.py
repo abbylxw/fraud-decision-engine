@@ -30,6 +30,26 @@ def ip_country_block(transaction: Transaction, feature: Features):
         return 'deny'   # unresolvable IP + new device — deny
     return 'allow'
 
+# Signup-to-purchase faster than this is scripted, not human.
+# In Fraud_Data.csv all 7,600 purchases within 1s of signup are fraud (a January 2015
+# bot attack), and the fastest legitimate purchase is 137s after signup. 60s leaves
+# headroom for slow bots while staying well clear of real customers.
+SIGNUP_BURST_SECONDS = 60
+
+
+def signup_burst(transaction: Transaction) -> str:
+    """Deny purchases made within SIGNUP_BURST_SECONDS of account signup.
+    Handled as a rule rather than a model feature: the pattern only occurs in
+    January, so a model trained on it learns 'January = fraud' and nothing that
+    carries forward (see training/train.py)."""
+    if transaction.signup_time is None:
+        return 'allow'
+    gap = (transaction.purchase_time - transaction.signup_time).total_seconds()
+    if 0 <= gap < SIGNUP_BURST_SECONDS:
+        return 'deny'
+    return 'allow'
+
+
 def model_score_threshold(score: float) -> str:
     """Deny if the model's fraud probability meets or exceeds the threshold."""
     return 'deny' if score >= THRESHOLD else 'allow'

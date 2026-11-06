@@ -1,0 +1,315 @@
+{
+  "generated_at": "2026-11-04T22:10:22",
+  "splits": {
+    "train": {
+      "rows": 105778,
+      "from": "2015-01-01 00:00:44",
+      "to": "2015-08-05 11:06:39",
+      "fraud_rate": 0.1142
+    },
+    "validation": {
+      "rows": 15111,
+      "from": "2015-08-05 11:07:00",
+      "to": "2015-08-30 15:18:18",
+      "fraud_rate": 0.0453
+    },
+    "test": {
+      "rows": 30223,
+      "from": "2015-08-30 15:18:56",
+      "to": "2015-12-16 02:56:05",
+      "fraud_rate": 0.046
+    }
+  },
+  "diagnostics": {
+    "users_with_more_than_one_txn": 0,
+    "constant_features_in_train": [
+      "uid_did_2h",
+      "uid_did_24h",
+      "uid_did_7d",
+      "uid_did_30d",
+      "uid_did_90d",
+      "purchase_cnt_24h",
+      "purchase_amt_24h",
+      "purchase_cnt_7d",
+      "purchase_amt_7d",
+      "purchase_cnt_30d",
+      "purchase_amt_30d",
+      "purchase_cnt_90d",
+      "purchase_amt_90d",
+      "purchase_success_cnt_24h",
+      "purchase_success_amt_24h",
+      "purchase_success_cnt_7d",
+      "purchase_success_amt_7d",
+      "purchase_success_cnt_30d",
+      "purchase_success_amt_30d",
+      "purchase_success_cnt_90d",
+      "purchase_success_amt_90d",
+      "did_uid_days_on_file",
+      "pur_median_amt_90d",
+      "time_since_last_txn_uid",
+      "high_amount_vs_hist"
+    ],
+    "n_constant_features": 25,
+    "n_served_features": 52,
+    "fraud_rate_by_month": {
+      "1": 0.7649,
+      "2": 0.0451,
+      "3": 0.0451,
+      "4": 0.0447,
+      "5": 0.0476,
+      "6": 0.0445,
+      "7": 0.0461,
+      "8": 0.0446,
+      "9": 0.0462,
+      "10": 0.045,
+      "11": 0.0455,
+      "12": 0.0604
+    },
+    "bot_burst": {
+      "definition": "purchase within 1 second of signup",
+      "rows_total": 7600,
+      "fraud_rate": 1.0,
+      "share_of_train_fraud": 0.6293,
+      "rows_in_test": 0
+    }
+  },
+  "models": {
+    "deployed_model": {
+      "note": "app/decisions/model.joblib as served today; trained on the first 80% (train + validation), so it is scored on test only.",
+      "test": {
+        "pr_auc": 0.0911,
+        "pr_auc_ci95": [
+          0.0804,
+          0.1051
+        ],
+        "roc_auc": 0.5621,
+        "roc_auc_ci95": [
+          0.5436,
+          0.5784
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0612,
+          "precision": 0.2815
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1569,
+          "precision": 0.1443
+        },
+        "precision_at_50pct_recall": 0.0558
+      }
+    },
+    "base_rate": {
+      "test": {
+        "pr_auc": 0.046,
+        "roc_auc": 0.5
+      },
+      "note": "score every transaction the same; PR-AUC = fraud rate"
+    },
+    "logistic_regression/all_train_data": {
+      "train_rows": 105778,
+      "validation_pr_auc": 0.0592,
+      "test": {
+        "pr_auc": 0.0492,
+        "pr_auc_ci95": [
+          0.0458,
+          0.0542
+        ],
+        "roc_auc": 0.4987,
+        "roc_auc_ci95": [
+          0.4835,
+          0.514
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0151,
+          "precision": 0.0695
+        },
+        "at_5pct_alerts": {
+          "recall": 0.0677,
+          "precision": 0.0622
+        },
+        "precision_at_50pct_recall": 0.0464
+      }
+    },
+    "random_forest/all_train_data": {
+      "train_rows": 105778,
+      "validation_pr_auc": 0.0939,
+      "test": {
+        "pr_auc": 0.086,
+        "pr_auc_ci95": [
+          0.0771,
+          0.098
+        ],
+        "roc_auc": 0.5622,
+        "roc_auc_ci95": [
+          0.5441,
+          0.5804
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0533,
+          "precision": 0.245
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1548,
+          "precision": 0.1423
+        },
+        "precision_at_50pct_recall": 0.0542
+      }
+    },
+    "xgboost/all_train_data": {
+      "train_rows": 105778,
+      "validation_pr_auc": 0.0971,
+      "test": {
+        "pr_auc": 0.0884,
+        "pr_auc_ci95": [
+          0.079,
+          0.1011
+        ],
+        "roc_auc": 0.5615,
+        "roc_auc_ci95": [
+          0.5447,
+          0.577
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.067,
+          "precision": 0.3079
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1591,
+          "precision": 0.1463
+        },
+        "precision_at_50pct_recall": 0.0539
+      },
+      "best_iteration": 24,
+      "top_features": {
+        "days_since_signup": 0.3214,
+        "did_uid_7d": 0.1885,
+        "month_of_year": 0.1823,
+        "did_uid_90d": 0.1012,
+        "did_txn_cnt_2h": 0.0642,
+        "did_uid_2h": 0.0456,
+        "ip_uid_2h": 0.0339,
+        "did_uid_30d": 0.0128,
+        "did_txn_cnt_30d": 0.0098,
+        "country_txn_count_30d": 0.0048
+      }
+    },
+    "logistic_regression/without_bot_burst": {
+      "train_rows": 98178,
+      "validation_pr_auc": 0.0862,
+      "test": {
+        "pr_auc": 0.0772,
+        "pr_auc_ci95": [
+          0.0692,
+          0.0888
+        ],
+        "roc_auc": 0.5544,
+        "roc_auc_ci95": [
+          0.5371,
+          0.57
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0497,
+          "precision": 0.2285
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1325,
+          "precision": 0.1218
+        },
+        "precision_at_50pct_recall": 0.0532
+      }
+    },
+    "random_forest/without_bot_burst": {
+      "train_rows": 98178,
+      "validation_pr_auc": 0.0914,
+      "test": {
+        "pr_auc": 0.085,
+        "pr_auc_ci95": [
+          0.0758,
+          0.0969
+        ],
+        "roc_auc": 0.557,
+        "roc_auc_ci95": [
+          0.5405,
+          0.5738
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0547,
+          "precision": 0.2517
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1497,
+          "precision": 0.1377
+        },
+        "precision_at_50pct_recall": 0.0538
+      }
+    },
+    "xgboost/without_bot_burst": {
+      "train_rows": 98178,
+      "validation_pr_auc": 0.0952,
+      "test": {
+        "pr_auc": 0.0884,
+        "pr_auc_ci95": [
+          0.0783,
+          0.1015
+        ],
+        "roc_auc": 0.5619,
+        "roc_auc_ci95": [
+          0.5463,
+          0.5776
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0626,
+          "precision": 0.2881
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1548,
+          "precision": 0.1423
+        },
+        "precision_at_50pct_recall": 0.051
+      },
+      "best_iteration": 0,
+      "top_features": {
+        "did_uid_90d": 0.4308,
+        "did_uid_30d": 0.1151,
+        "did_txn_cnt_30d": 0.0797,
+        "source": 0.0251,
+        "country_txn_count_30d": 0.0242,
+        "age_account_gap": 0.0225,
+        "country_txn_count_7d": 0.0218,
+        "amount_vs_user_avg_30d": 0.0215,
+        "browser": 0.021,
+        "ip_country_code": 0.021
+      }
+    }
+  },
+  "threshold": {
+    "review_cost_per_alert": 5.0,
+    "chosen_on": "validation",
+    "cost_of_alerting_on_nothing": 51395.0,
+    "best_model": "xgboost/all_train_data",
+    "best_model_at_chosen_threshold": {
+      "threshold": 0.4507,
+      "total_cost": 48304.0,
+      "alerts": 790,
+      "fraud_caught": 184,
+      "fraud_total": 1389,
+      "saved_vs_nothing": 3091.0
+    },
+    "best_model_at_served_threshold": {
+      "threshold": 0.7,
+      "total_cost": 51395.0,
+      "alerts": 0,
+      "fraud_caught": 0,
+      "fraud_total": 1389,
+      "saved_vs_nothing": 0.0
+    },
+    "deployed_model_at_served_threshold": {
+      "threshold": 0.7,
+      "total_cost": 51280.0,
+      "alerts": 10,
+      "fraud_caught": 4,
+      "fraud_total": 1389,
+      "saved_vs_nothing": 115.0
+    }
+  }
+}

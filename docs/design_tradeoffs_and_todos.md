@@ -182,6 +182,25 @@ borderline cases; soft rules receive the score.
 
 ---
 
+### 11. Training-Serving Encoding Skew
+
+**Problem:** The model only sees integers, and strings are turned into integers in two
+places: pandas in the training notebook, and plain dicts in `app/decisions/models.py`.
+Training encoded `sex` as `M=0, F=1`; serving used `F=0, M=1`. Every live request fed
+the model the opposite value — no error, just silently worse decisions.
+
+**Trade-off:** Two independent copies of the encoding are easy to write but drift apart.
+One shared definition means training code imports from the serving package.
+
+**Solution keywords:** training-serving skew, single source of truth, contract test
+
+**Status: ✅ SOLVED (2026-11-04)** — `_SEX_CODES` fixed to `{"M": 0, "F": 1}`;
+`training/build_features.py` imports the serving encodings instead of redefining them;
+`tests/test_encoding_contract.py` fails if they ever disagree with how `model.joblib`
+was trained.
+
+---
+
 ## To-Do Items (Current Codebase)
 
 ### Minimum to get a test request through (do these first)

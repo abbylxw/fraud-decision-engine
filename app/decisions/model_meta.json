@@ -1,0 +1,218 @@
+{
+  "model_version": "xgboost-20261105182711-0b5f31d",
+  "trained_at": "2026-11-05T18:27:11",
+  "algorithm": "xgboost",
+  "params": {
+    "objective": "binary:logistic",
+    "base_score": null,
+    "booster": null,
+    "callbacks": null,
+    "colsample_bylevel": null,
+    "colsample_bynode": null,
+    "colsample_bytree": 0.8,
+    "device": null,
+    "early_stopping_rounds": null,
+    "enable_categorical": false,
+    "eval_metric": "aucpr",
+    "feature_types": null,
+    "feature_weights": null,
+    "gamma": null,
+    "grow_policy": null,
+    "importance_type": null,
+    "interaction_constraints": null,
+    "learning_rate": 0.05,
+    "max_bin": null,
+    "max_cat_threshold": null,
+    "max_cat_to_onehot": null,
+    "max_delta_step": null,
+    "max_depth": 3,
+    "max_leaves": null,
+    "min_child_weight": 50,
+    "missing": NaN,
+    "monotone_constraints": null,
+    "multi_strategy": null,
+    "n_estimators": 146,
+    "n_jobs": -1,
+    "num_parallel_tree": null,
+    "random_state": 42,
+    "reg_alpha": null,
+    "reg_lambda": null,
+    "sampling_method": null,
+    "scale_pos_weight": 20.92941702032611,
+    "subsample": 0.8,
+    "tree_method": null,
+    "validate_parameters": null,
+    "verbosity": null
+  },
+  "threshold": 0.84852,
+  "threshold_basis": {
+    "chosen_on": "validation",
+    "false_decline_cost": 10.0,
+    "missed_fraud_cost": "purchase_value"
+  },
+  "training_data": {
+    "source": "app/data/Fraud_Data.csv",
+    "rows": 113289,
+    "window": [
+      "2015-01-01 00:00:44",
+      "2015-08-30 15:18:18"
+    ],
+    "excluded": "7600 bot-burst rows (signup->purchase < 60s; denied by signup_burst rule)"
+  },
+  "features": [
+    "purchase_value",
+    "days_since_signup",
+    "sex",
+    "source",
+    "browser",
+    "ip_country_code",
+    "hour_of_day",
+    "day_of_week",
+    "did_uid_2h",
+    "did_uid_24h",
+    "did_uid_7d",
+    "did_uid_30d",
+    "did_uid_90d",
+    "ip_uid_24h",
+    "ip_uid_7d",
+    "did_txn_cnt_2h",
+    "did_txn_cnt_24h",
+    "did_txn_cnt_7d",
+    "did_txn_cnt_30d",
+    "country_txn_count_24h",
+    "country_txn_count_7d",
+    "country_txn_count_30d",
+    "amount_vs_user_avg_30d",
+    "age_account_gap",
+    "age_group"
+  ],
+  "dropped_features": {
+    "uid_did_2h": "constant on training rows",
+    "uid_did_24h": "constant on training rows",
+    "uid_did_7d": "constant on training rows",
+    "uid_did_30d": "constant on training rows",
+    "uid_did_90d": "constant on training rows",
+    "ip_uid_2h": "constant on training rows",
+    "purchase_cnt_24h": "constant on training rows",
+    "purchase_amt_24h": "constant on training rows",
+    "purchase_cnt_7d": "constant on training rows",
+    "purchase_amt_7d": "constant on training rows",
+    "purchase_cnt_30d": "constant on training rows",
+    "purchase_amt_30d": "constant on training rows",
+    "purchase_cnt_90d": "constant on training rows",
+    "purchase_amt_90d": "constant on training rows",
+    "purchase_success_cnt_24h": "constant on training rows",
+    "purchase_success_amt_24h": "constant on training rows",
+    "purchase_success_cnt_7d": "constant on training rows",
+    "purchase_success_amt_7d": "constant on training rows",
+    "purchase_success_cnt_30d": "constant on training rows",
+    "purchase_success_amt_30d": "constant on training rows",
+    "purchase_success_cnt_90d": "constant on training rows",
+    "purchase_success_amt_90d": "constant on training rows",
+    "did_uid_days_on_file": "constant on training rows",
+    "pur_median_amt_90d": "constant on training rows",
+    "time_since_last_txn_uid": "constant on training rows",
+    "high_amount_vs_hist": "constant on training rows",
+    "month_of_year": "test months never appear in training; memorises January"
+  },
+  "top_features": {
+    "did_uid_90d": 0.394,
+    "did_uid_30d": 0.1534,
+    "age_account_gap": 0.0375,
+    "country_txn_count_30d": 0.037,
+    "country_txn_count_24h": 0.0362,
+    "ip_country_code": 0.0355,
+    "country_txn_count_7d": 0.0329,
+    "purchase_value": 0.0326,
+    "source": 0.0317,
+    "days_since_signup": 0.0317
+  },
+  "validation_pr_auc": {
+    "random_forest": 0.096,
+    "xgboost": 0.1105
+  },
+  "evaluation": {
+    "new_model": {
+      "test": {
+        "pr_auc": 0.092,
+        "pr_auc_ci95": [
+          0.0809,
+          0.1056
+        ],
+        "roc_auc": 0.5572,
+        "roc_auc_ci95": [
+          0.5397,
+          0.5733
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0691,
+          "precision": 0.3179
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1454,
+          "precision": 0.1337
+        },
+        "precision_at_50pct_recall": 0.0548
+      },
+      "at_new_threshold": {
+        "threshold": 0.8485,
+        "denied": 327,
+        "deny_rate": 0.0108,
+        "fraud_caught": 98,
+        "fraud_total": 1389,
+        "false_declines": 229,
+        "fraud_dollars_stopped": 4059.0,
+        "total_cost": 49626.0
+      }
+    },
+    "previous_model": {
+      "test": {
+        "pr_auc": 0.0911,
+        "pr_auc_ci95": [
+          0.0804,
+          0.1051
+        ],
+        "roc_auc": 0.5621,
+        "roc_auc_ci95": [
+          0.5436,
+          0.5784
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0612,
+          "precision": 0.2815
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1569,
+          "precision": 0.1443
+        },
+        "precision_at_50pct_recall": 0.0558
+      },
+      "at_old_threshold": {
+        "threshold": 0.7,
+        "denied": 10,
+        "deny_rate": 0.0003,
+        "fraud_caught": 4,
+        "fraud_total": 1389,
+        "false_declines": 6,
+        "fraud_dollars_stopped": 165.0,
+        "total_cost": 51290.0
+      },
+      "at_new_threshold_rule": {
+        "threshold": 0.2817,
+        "denied": 1530,
+        "deny_rate": 0.0506,
+        "fraud_caught": 218,
+        "fraud_total": 1389,
+        "false_declines": 1312,
+        "fraud_dollars_stopped": 8452.0,
+        "total_cost": 56063.0
+      }
+    },
+    "deny_nothing_cost": 51395.0,
+    "ship_gate": {
+      "rule": "new test PR-AUC >= previous model's 95% CI lower bound",
+      "passed": true
+    }
+  },
+  "seed": 42
+}

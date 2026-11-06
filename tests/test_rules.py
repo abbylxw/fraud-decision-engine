@@ -7,15 +7,19 @@ That makes them fast and deterministic: the only thing under test is the rule lo
 Each test mutates specific fields of the shared fixtures to put the transaction
 into a known state, then asserts that the rule returns the expected verdict.
 """
-import pytest
+from datetime import timedelta
+
+from app.decisions import execute_hard_rules
+from app.decisions.models import THRESHOLD
 from app.decisions.rules import (
-    transaction_limit,
+    SIGNUP_BURST_SECONDS,
     age_limit,
     ip_country_block,
     model_score_threshold,
     rate_limiter_control,
+    signup_burst,
+    transaction_limit,
 )
-
 
 # ---------------------------------------------------------------------------
 # transaction_limit — deny if purchase_value >= 5000
@@ -130,18 +134,59 @@ class TestIpCountryBlock:
 
 
 # ---------------------------------------------------------------------------
-# model_score_threshold — deny if fraud probability >= 0.5
+# signup_burst — deny if purchase is < SIGNUP_BURST_SECONDS after signup
+# ---------------------------------------------------------------------------
+
+class TestSignupBurst:
+    def _at(self, t, seconds):
+        t.purchase_time = t.signup_time + timedelta(seconds=seconds)
+        return t
+
+    def test_deny_same_second(self, sample_transaction):
+        assert signup_burst(self._at(sample_transaction, 0)) == "deny"
+
+    def test_deny_one_second(self, sample_transaction):
+        # The exact pattern of the January 2015 bot attack.
+        assert signup_burst(self._at(sample_transaction, 1)) == "deny"
+
+    def test_deny_just_below_limit(self, sample_transaction):
+        assert signup_burst(self._at(sample_transaction, SIGNUP_BURST_SECONDS - 0.1)) == "deny"
+
+    def test_allow_at_limit(self, sample_transaction):
+        assert signup_burst(self._at(sample_transaction, SIGNUP_BURST_SECONDS)) == "allow"
+
+    def test_allow_fastest_legit_in_data(self, sample_transaction):
+        # Fastest legitimate signup -> purchase in Fraud_Data.csv is 137s.
+        assert signup_burst(self._at(sample_transaction, 137)) == "allow"
+
+    def test_allow_missing_signup_time(self, sample_transaction):
+        sample_transaction.signup_time = None
+        assert signup_burst(sample_transaction) == "allow"
+
+    def test_allow_purchase_before_signup(self, sample_transaction):
+        # Bad data (clock skew), not a bot signal; other rules/model still run.
+        assert signup_burst(self._at(sample_transaction, -5)) == "allow"
+
+    def test_wired_into_hard_rules(self, sample_transaction, sample_features):
+        self._at(sample_transaction, 1)
+        assert execute_hard_rules(sample_transaction, sample_features) == ("deny", "signup_burst")
+
+
+# ---------------------------------------------------------------------------
+# model_score_threshold — deny if fraud probability >= THRESHOLD (from model_meta.json)
 # ---------------------------------------------------------------------------
 
 class TestModelScoreThreshold:
+    # THRESHOLD comes from app/decisions/model_meta.json (chosen on validation by
+    # training/train.py), so test against it rather than a hardcoded number.
     def test_deny_at_threshold(self):
-        assert model_score_threshold(0.7) == "deny"
+        assert model_score_threshold(THRESHOLD) == "deny"
 
     def test_deny_above_threshold(self):
-        assert model_score_threshold(0.99) == "deny"
+        assert model_score_threshold(min(1.0, THRESHOLD + 0.01)) == "deny"
 
     def test_allow_just_below_threshold(self):
-        assert model_score_threshold(0.699) == "allow"
+        assert model_score_threshold(THRESHOLD - 0.001) == "allow"
 
     def test_allow_zero(self):
         assert model_score_threshold(0.0) == "allow"
