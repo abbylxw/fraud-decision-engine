@@ -7,9 +7,13 @@ That makes them fast and deterministic: the only thing under test is the rule lo
 Each test mutates specific fields of the shared fixtures to put the transaction
 into a known state, then asserts that the rule returns the expected verdict.
 """
+import json
+import pathlib
 from datetime import timedelta
 
-from app.decisions import execute_hard_rules
+import pytest
+
+from app.decisions import execute_hard_rules, rules
 from app.decisions.models import ELEVATED_SCORE, THRESHOLD
 from app.decisions.rules import (
     SIGNUP_BURST_SECONDS,
@@ -91,6 +95,22 @@ class TestAgeLimit:
 # ---------------------------------------------------------------------------
 
 class TestIpCountryBlock:
+    # The spellings ip_country actually takes (from IpAddress_to_Country.csv).
+    @pytest.mark.parametrize("country", [
+        "Cuba", "Iran (ISLAMIC Republic Of)", "Russian Federation", "Syrian Arab Republic",
+    ])
+    def test_deny_ip_table_spellings(self, sample_transaction, sample_features, country):
+        sample_features.ip_country = country
+        assert ip_country_block(sample_transaction, sample_features) == "deny"
+
+    def test_every_blocked_name_is_in_ip_table_or_a_known_alias(self):
+        # The short names alone matched nothing in real traffic, so only Cuba was blocked.
+        ip_table = set(json.loads(
+            (pathlib.Path(rules.__file__).parent / "ip_country_categories.json").read_text()))
+        aliases_not_in_table = {"Iran", "Russia", "Syria", "North Korea"}
+        assert rules._OFAC_BLOCKED - aliases_not_in_table <= ip_table
+        assert aliases_not_in_table.isdisjoint(ip_table)
+
     def test_deny_russia(self, sample_transaction, sample_features):
         sample_features.ip_country = "Russia"
         assert ip_country_block(sample_transaction, sample_features) == "deny"

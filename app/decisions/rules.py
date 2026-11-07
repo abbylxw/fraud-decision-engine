@@ -17,9 +17,14 @@ def age_limit(transaction: Transaction, feature: Features):
         return 'deny'
     return 'allow'
 
-# OFAC-sanctioned countries — transactions originating here are denied
+# OFAC-sanctioned countries — transactions originating here are denied.
+# ip_country comes from the IP table (IpAddress_to_Country.csv), which uses its own
+# spellings; the short names never match it. tests/test_rules.py checks every name here
+# against the table so a spelling mismatch fails loudly.
 _OFAC_BLOCKED = frozenset({
-    'Cuba', 'Iran', 'North Korea', 'Russia', 'Syria',
+    'Cuba', 'Iran (ISLAMIC Republic Of)', 'Russian Federation', 'Syrian Arab Republic',
+    # Short aliases, and North Korea, which has no rows in the IP table.
+    'Iran', 'Russia', 'Syria', 'North Korea',
 })
 
 def ip_country_block(transaction: Transaction, feature: Features):
