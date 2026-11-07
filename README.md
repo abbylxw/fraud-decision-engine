@@ -41,9 +41,14 @@ The first start loads ~5M IP→country rows into PostgreSQL automatically. This 
 Requires PostgreSQL and Redis running on localhost.
 
 ```bash
-source .venv/bin/activate
+python3.13 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip          # dependency groups need pip >= 25.1
+pip install --group dev            # API + tests; use --group train for training/notebooks
 uvicorn app.main:app --reload --port 8000
 ```
+
+Dependencies are declared in `pyproject.toml` as three groups: `api` (what the Docker image
+installs), `train` (adds notebooks, torch, dataset download) and `dev` (adds pytest, ruff).
 
 ## Example Request
 

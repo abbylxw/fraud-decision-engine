@@ -1,3 +1,51 @@
+[project]
+name = "fraud-decision-engine"
+version = "0.1.0"
+description = "Real-time fraud decision API: velocity features, rules and an XGBoost model"
+requires-python = ">=3.13"
+
+# Install with `pip install --group <name>` (pip >= 25.1). Groups, not [project].dependencies,
+# so Docker and CI can install dependencies without building the project as a package.
+#   api   - what the running service needs (the Docker image installs only this)
+#   train - api + notebooks, torch, dataset download
+#   dev   - api + tests and lint (what CI installs)
+[dependency-groups]
+# Pinned to the versions model.joblib was trained and tested with (Python 3.13).
+# scikit-learn / xgboost / numpy / pandas pins matter most: a pickled model is only
+# guaranteed to load and score identically on the versions that saved it.
+api = [
+    "fastapi==0.135.1",
+    "uvicorn[standard]==0.41.0",
+    "sqlalchemy[asyncio]==2.0.48",
+    "asyncpg==0.31.0",
+    "redis==7.3.0",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.13.1",
+    "httpx==0.28.1",
+    "prometheus-client==0.24.1",
+    "scikit-learn==1.8.0",
+    "xgboost==3.2.0",
+    "pandas==3.0.1",
+    "numpy==2.4.2",
+    "joblib==1.5.3",
+]
+train = [
+    { include-group = "api" },
+    "matplotlib==3.10.8",
+    "jupyter==1.1.1",
+    "tqdm==4.67.3",
+    "torch==2.10.0",
+    "kaggle==2.2.5",
+    "pyarrow==26.0.0",
+]
+dev = [
+    { include-group = "api" },
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1.post1",
+    "fakeredis==2.40.0",
+    "ruff==0.17.4",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"
@@ -10,4 +58,5 @@ ignore = ["E501"]  # line length enforced by formatter, not linter
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

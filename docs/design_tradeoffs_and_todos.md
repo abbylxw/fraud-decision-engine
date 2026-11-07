@@ -376,9 +376,9 @@ Items added to make the project deployment-ready and portfolio-presentable.
       verifies that on `redis.exists()` → 0, the function calls `db.execute()` and returns
       DB values; also verifies cache hits skip the DB entirely
 
-### `requirements.txt`
+### `requirements.txt` _(replaced by `pyproject.toml` `[dependency-groups]`, 2026-11-06)_
 
-- [x] Add `pytest`, `pytest-asyncio`, `ruff`
+- [x] Add `pytest`, `pytest-asyncio`, `ruff` (now the `dev` group)
 
 ---
 
