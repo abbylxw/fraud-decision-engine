@@ -32,6 +32,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import average_precision_score
 from xgboost import XGBClassifier
 
+from app.decisions.models import COUNTRY_ONEHOT
 from app.decisions.models import THRESHOLD as OLD_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from app.decisions.rules import SIGNUP_BURST_SECONDS
@@ -42,11 +43,13 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 DECISIONS = ROOT / "app" / "decisions"
 
-# The 52 features the original model was trained on. Fixed here (not read from
-# model_features.json) so re-running this script after shipping starts from the
-# same candidate list instead of the already-pruned one.
+# The 52 features the original model was trained on, except that the alphabetical
+# ip_country_code is replaced by the grouped one-hot country columns (2026-11-06).
+# Fixed here (not read from model_features.json) so re-running this script after
+# shipping starts from the same candidate list instead of the already-pruned one.
 CANDIDATE_FEATURES = [
-    "purchase_value", "days_since_signup", "sex", "source", "browser", "ip_country_code",
+    "purchase_value", "days_since_signup", "sex", "source", "browser",
+    *COUNTRY_ONEHOT.values(),
     "hour_of_day", "day_of_week", "month_of_year",
     "did_uid_2h", "did_uid_24h", "did_uid_7d", "did_uid_30d", "did_uid_90d",
     "uid_did_2h", "uid_did_24h", "uid_did_7d", "uid_did_30d", "uid_did_90d",

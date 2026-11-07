@@ -72,7 +72,7 @@ POST /api/transactions
         ▼
 4. ML model inference (non-blocking)
    loop.run_in_executor(executor, model_score, features)
-   → XGBoost predict_proba (25 features) → float (0.0–1.0)
+   → XGBoost predict_proba (41 features, model_features.json) → float (0.0–1.0)
         │
         ▼
 5. Soft rules — all receive the model score

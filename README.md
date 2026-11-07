@@ -13,7 +13,8 @@ POST /api/transactions
  [Hard Rules]  ←── purchase limit, signup burst (<60s), age check, IP country block
         │  deny → short-circuit (model never runs)
         ▼
- [ML Model]    ←── XGBoost on 25 features: device/IP sharing counters + transaction fields
+ [ML Model]    ←── XGBoost on 41 features: device/IP sharing counters, transaction fields,
+        │            grouped IP country (one-hot)
         │
         ▼
  [Soft Rules]  ←── rate limiter, model threshold
@@ -112,7 +113,8 @@ and threshold choice use validation only; the test period is scored once. Full w
 |---|---|---|
 | Random guessing | 0.046 | 0.50 |
 | Previous RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
-| **Served XGBoost** (`training/train.py`, 25 features) | **0.092 [0.081, 0.106]** | 0.56 |
+| XGBoost (`training/train.py`, 25 features, alphabetical country code) | 0.092 [0.081, 0.106] | 0.56 |
+| **Served XGBoost** (41 features, grouped country one-hot) | **0.092 [0.081, 0.107]** | 0.56 |
 | XGBoost, early-stopped on validation | 0.088 [0.079, 0.101] | 0.56 |
 | Logistic regression | 0.049 [0.046, 0.054] | 0.50 |
 
@@ -141,10 +143,19 @@ What the served model does differently from the notebook model, and why:
 - **The January bot attack is a rule, not a model feature.** `signup_burst` denies purchases
   made less than 60 s after signup (all 7,600 such rows are fraud; the fastest legitimate one is
   137 s). Those rows are excluded from training because the model never scores them in production.
-- **`month_of_year` and the 26 features that are constant on the training rows are dropped**
-  (52 → 25). Nothing measurable is lost on test; the model now relies on device sharing
-  (`did_uid_90d`, `did_uid_30d`) instead of the calendar.
-- **Shallow XGBoost** (depth 3, 146 trees). With the notebook's depth-7 settings, early stopping
+- **`month_of_year` and the features that are constant on the training rows are dropped.**
+  Nothing measurable is lost on test; the model relies on device sharing (`did_uid_90d`,
+  `did_txn_cnt_30d`) instead of the calendar.
+- **IP country is grouped and one-hot encoded.** It used to be an alphabetical index over 182
+  countries fed in as a number, so the model saw a fake order (Albania < Zimbabwe). Now: the 10
+  highest-volume countries (~80% of traffic) each get a column, `Unknown` (IP not in the
+  table) gets one, and every other country falls into its continent
+  (`app/decisions/country_groups.json`, 18 groups). One `country_group()` in
+  `app/decisions/models.py` is used by both training and the API, and
+  `tests/test_encoding_contract.py` checks all 182 names. PR-AUC is unchanged (per-country fraud
+  rates are nearly flat, 3.8–5.0%), so the gain is a correct, explainable feature rather than
+  accuracy.
+- **Shallow XGBoost** (depth 3, 203 trees). With the notebook's depth-7 settings, early stopping
   fired after 3 trees because the signal left after January is weak and deep trees overfit it.
 - **The threshold is chosen by cost on validation** (missed fraud = purchase value, false decline
   = $10) and stored in `app/decisions/model_meta.json` with the model version, training window
@@ -152,7 +163,7 @@ What the served model does differently from the notebook model, and why:
 - **"Elevated score" for the rate-limiter combos is model-relative.** The soft rules that
   combine a score with velocity (e.g. score + 5 purchases in 24h) used a fixed 0.5. That value
   is meaningless for an uncalibrated model (the served XGBoost's median score is ~0.47), so the
-  level is now the top 3% of validation scores (0.615; 24% precision on validation, 23% on
+  level is now the top 3% of validation scores (0.591; 24% precision on validation, 23% on
   test), stored in `model_meta.json`. The velocity cut-offs themselves are expert-set and
   untested: with one transaction per user, none of those branches can fire on this dataset.
 - **Every decision is auditable.** The `transactions` table records `model_version`,
@@ -168,10 +179,12 @@ Test period (Aug 30–Dec 16, scored once):
 |---|---|---|---|---|---|
 | Deny nothing | 0 | 0 / 1,389 | 0 | $0 | $51.4k |
 | Previous model @ 0.7 | 10 | 4 | 6 | $165 | $51.3k |
-| **Served model @ 0.849** | 327 (1.1%) | **98** | 229 | **$4,059** | **$49.6k** |
+| 25-feature model @ 0.849 | 327 (1.1%) | 98 | 229 | $4,059 | $49.6k |
+| **Served model @ 0.843** (grouped country) | 365 (1.2%) | **106** | 259 | **$4,271** | **$49.7k** |
 
 \* missed-fraud dollars + $10 per false decline. The ranking quality (PR-AUC) is unchanged;
-the gain comes from a threshold chosen for this model by cost instead of a hardcoded 0.7.
+the gain over 0.7 comes from a threshold chosen for this model by cost. The two cost-tuned
+models are a wash: more fraud caught, more false declines, same total cost.
 On this dataset the ceiling is the data: after January, fraud is 4.5% and the main
 remaining signal is device sharing.
 
@@ -191,7 +204,7 @@ python -m training.compare_datasets      # ~5 min; caches features in results/ca
 
 | Dataset (test period) | Fraud rate | Static features | + Velocity | + Spend spike | Velocity features that vary |
 |---|---|---|---|---|---|
-| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.046, 0.054] | 0.082 [0.072, 0.095] | 0.089 [0.080, 0.102]† | 20 / 54 |
+| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.045, 0.055] | 0.095 [0.084, 0.110] | 0.086 [0.079, 0.098]† | 20 / 54 |
 | **Sparkov** (1.85M txns, 999 cards) | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** | 0.974 [0.967, 0.979] | 54 / 54 |
 
 † All 9 spend-spike features are constant on Fraud_Data, so this move is run-to-run noise

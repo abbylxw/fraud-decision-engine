@@ -1,6 +1,6 @@
 {
-  "model_version": "xgboost-20261105182711-0b5f31d",
-  "trained_at": "2026-11-05T18:27:11",
+  "model_version": "xgboost-20261106205858-316e9fd",
+  "trained_at": "2026-11-06T20:58:58",
   "algorithm": "xgboost",
   "params": {
     "objective": "binary:logistic",
@@ -31,7 +31,7 @@
     "missing": NaN,
     "monotone_constraints": null,
     "multi_strategy": null,
-    "n_estimators": 146,
+    "n_estimators": 203,
     "n_jobs": -1,
     "num_parallel_tree": null,
     "random_state": 42,
@@ -44,17 +44,17 @@
     "validate_parameters": null,
     "verbosity": null
   },
-  "threshold": 0.84852,
+  "threshold": 0.842775,
   "threshold_basis": {
     "chosen_on": "validation",
     "false_decline_cost": 10.0,
     "missed_fraud_cost": "purchase_value"
   },
-  "elevated_score_threshold": 0.614808,
+  "elevated_score_threshold": 0.59148,
   "elevated_score_basis": {
     "chosen_on": "validation",
     "rule": "top 3% of scores",
-    "validation_precision": 0.2401,
+    "validation_precision": 0.2379,
     "used_by": "rules.rate_limiter_control (score + velocity combos)"
   },
   "training_data": {
@@ -72,7 +72,23 @@
     "sex",
     "source",
     "browser",
-    "ip_country_code",
+    "ipc_United_States",
+    "ipc_China",
+    "ipc_Japan",
+    "ipc_United_Kingdom",
+    "ipc_Korea_Republic_of",
+    "ipc_Germany",
+    "ipc_France",
+    "ipc_Canada",
+    "ipc_Brazil",
+    "ipc_Italy",
+    "ipc_Unknown",
+    "ipc_grp_Africa",
+    "ipc_grp_Asia",
+    "ipc_grp_Europe",
+    "ipc_grp_North_America",
+    "ipc_grp_Oceania",
+    "ipc_grp_South_America",
     "hour_of_day",
     "day_of_week",
     "did_uid_2h",
@@ -94,6 +110,7 @@
     "age_group"
   ],
   "dropped_features": {
+    "ipc_grp_Other": "constant on training rows",
     "uid_did_2h": "constant on training rows",
     "uid_did_24h": "constant on training rows",
     "uid_did_7d": "constant on training rows",
@@ -123,23 +140,60 @@
     "month_of_year": "test months never appear in training; memorises January"
   },
   "top_features": {
-    "did_uid_90d": 0.394,
-    "did_uid_30d": 0.1534,
-    "age_account_gap": 0.0375,
-    "country_txn_count_30d": 0.037,
-    "country_txn_count_24h": 0.0362,
-    "ip_country_code": 0.0355,
-    "country_txn_count_7d": 0.0329,
-    "purchase_value": 0.0326,
-    "source": 0.0317,
-    "days_since_signup": 0.0317
+    "did_uid_90d": 0.2377,
+    "did_txn_cnt_30d": 0.134,
+    "did_uid_30d": 0.0383,
+    "ipc_China": 0.0295,
+    "ipc_United_States": 0.0277,
+    "ipc_Italy": 0.0269,
+    "ipc_grp_Asia": 0.0254,
+    "ipc_Korea_Republic_of": 0.0248,
+    "country_txn_count_30d": 0.022,
+    "country_txn_count_24h": 0.0218
   },
   "validation_pr_auc": {
-    "random_forest": 0.096,
-    "xgboost": 0.1105
+    "random_forest": 0.0934,
+    "xgboost": 0.1084
   },
   "evaluation": {
     "new_model": {
+      "test": {
+        "pr_auc": 0.092,
+        "pr_auc_ci95": [
+          0.0814,
+          0.1065
+        ],
+        "roc_auc": 0.5568,
+        "roc_auc_ci95": [
+          0.5393,
+          0.5741
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0634,
+          "precision": 0.2914
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1497,
+          "precision": 0.1377
+        },
+        "precision_at_50pct_recall": 0.0533
+      },
+      "at_new_threshold": {
+        "threshold": 0.8428,
+        "denied": 365,
+        "deny_rate": 0.0121,
+        "fraud_caught": 106,
+        "fraud_total": 1389,
+        "false_declines": 259,
+        "fraud_dollars_stopped": 4271.0,
+        "total_cost": 49714.0
+      },
+      "elevated_score_on_test": {
+        "share": 0.0264,
+        "precision": 0.2318
+      }
+    },
+    "previous_model": {
       "test": {
         "pr_auc": 0.092,
         "pr_auc_ci95": [
@@ -161,7 +215,7 @@
         },
         "precision_at_50pct_recall": 0.0548
       },
-      "at_new_threshold": {
+      "at_old_threshold": {
         "threshold": 0.8485,
         "denied": 327,
         "deny_rate": 0.0108,
@@ -171,52 +225,15 @@
         "fraud_dollars_stopped": 4059.0,
         "total_cost": 49626.0
       },
-      "elevated_score_on_test": {
-        "share": 0.0268,
-        "precision": 0.2299
-      }
-    },
-    "previous_model": {
-      "test": {
-        "pr_auc": 0.0911,
-        "pr_auc_ci95": [
-          0.0804,
-          0.1051
-        ],
-        "roc_auc": 0.5621,
-        "roc_auc_ci95": [
-          0.5436,
-          0.5784
-        ],
-        "at_1pct_alerts": {
-          "recall": 0.0612,
-          "precision": 0.2815
-        },
-        "at_5pct_alerts": {
-          "recall": 0.1569,
-          "precision": 0.1443
-        },
-        "precision_at_50pct_recall": 0.0558
-      },
-      "at_old_threshold": {
-        "threshold": 0.7,
-        "denied": 10,
-        "deny_rate": 0.0003,
-        "fraud_caught": 4,
-        "fraud_total": 1389,
-        "false_declines": 6,
-        "fraud_dollars_stopped": 165.0,
-        "total_cost": 51290.0
-      },
       "at_new_threshold_rule": {
-        "threshold": 0.2817,
-        "denied": 1530,
-        "deny_rate": 0.0506,
-        "fraud_caught": 218,
+        "threshold": 0.8341,
+        "denied": 491,
+        "deny_rate": 0.0162,
+        "fraud_caught": 130,
         "fraud_total": 1389,
-        "false_declines": 1312,
-        "fraud_dollars_stopped": 8452.0,
-        "total_cost": 56063.0
+        "false_declines": 361,
+        "fraud_dollars_stopped": 5211.0,
+        "total_cost": 49794.0
       }
     },
     "deny_nothing_cost": 51395.0,

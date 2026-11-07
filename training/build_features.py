@@ -24,8 +24,10 @@ from app.decisions.models import (
     _BROWSER_CODES,
     _SEX_CODES,
     _SOURCE_CODES,
+    COUNTRY_ONEHOT,
     _age_group_code,
     _country_code,
+    country_group,
 )
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -214,7 +216,10 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         "age_group": df["age"].map(_age_group_code),
         "age_account_gap": df["age"] - days.fillna(-999) / 365,
     })
-    X = pd.concat([raw, velocity_features(df)], axis=1)
+    # Grouped country, one-hot (same country_group() as the API).
+    groups = df["ip_country"].map(country_group)
+    onehot = pd.DataFrame({col: (groups == g).astype(int) for g, col in COUNTRY_ONEHOT.items()})
+    X = pd.concat([raw, onehot, velocity_features(df)], axis=1)
 
     # Derived features (notebook cell 11)
     user_avg_30d = X["purchase_amt_30d"] / X["purchase_cnt_30d"].clip(lower=1)

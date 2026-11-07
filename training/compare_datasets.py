@@ -34,6 +34,7 @@ import time
 import pandas as pd
 from xgboost import XGBClassifier
 
+from app.decisions.models import COUNTRY_ONEHOT
 from app.decisions.rules import SIGNUP_BURST_SECONDS
 from training.build_features import (
     ROOT,
@@ -60,7 +61,7 @@ def _load_fraud_data():
     because in production they still enter the velocity history)."""
     df = load_transactions()
     static_cols = ["purchase_value", "days_since_signup", "sex", "source", "browser",
-                   "ip_country_code", "hour_of_day", "day_of_week", "age_group",
+                   *COUNTRY_ONEHOT.values(), "hour_of_day", "day_of_week", "age_group",
                    "age_account_gap"]
     static = build_feature_frame(df)[static_cols]
     secs = (df["purchase_time"] - df["signup_time"]).dt.total_seconds()

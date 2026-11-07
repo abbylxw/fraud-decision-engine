@@ -1,6 +1,7 @@
 import bisect
 import json
 import pathlib
+import re
 
 import joblib
 import pandas as pd
@@ -60,8 +61,36 @@ def _age_group_code(age: int | None) -> int:
     return bisect.bisect_left(_AGE_EDGES, age)
 
 
+# Grouped country, one-hot: the 10 highest-volume countries keep their own group,
+# "Unknown" (IP not in the table) is its own group, everything else is its continent,
+# and a name missing from country_groups.json is "Other". One 0/1 column per group, so
+# the model sees no fake order between countries (unlike ip_country_code, which numbers
+# them alphabetically and is kept only so older models can still be scored).
+_country_groups = json.loads((_base / "country_groups.json").read_text())
+_TOP_COUNTRIES = frozenset(_country_groups["top_countries"])
+_CONTINENT: dict[str, str] = _country_groups["continent"]
+COUNTRY_GROUPS = [*_country_groups["top_countries"], "Unknown",
+                  *sorted(set(_CONTINENT.values())), "Other"]
+
+
+def country_group(ip_country: str | None) -> str:
+    if ip_country in _TOP_COUNTRIES or ip_country == "Unknown":
+        return ip_country
+    return _CONTINENT.get(ip_country, "Other")
+
+
+def _onehot_column(group: str) -> str:
+    prefix = "ipc_" if group in _TOP_COUNTRIES or group == "Unknown" else "ipc_grp_"
+    return prefix + re.sub(r"\W+", "_", group).strip("_")
+
+
+# group -> column name, e.g. "United States" -> "ipc_United_States", "Asia" -> "ipc_grp_Asia"
+COUNTRY_ONEHOT = {g: _onehot_column(g) for g in COUNTRY_GROUPS}
+
+
 _SIGNUP_LABELS = ['0-7d', '8-14d', '15-30d', '31-90d', '91-180d', '181-360d', '361-720d', '720+d']
-_ENCODED = {"ip_country_code", "days_since_signup_group", "sex", "source", "browser", "age_group"}
+_ENCODED = {"ip_country_code", "days_since_signup_group", "sex", "source", "browser", "age_group",
+            *COUNTRY_ONEHOT.values()}
 
 # Fail at startup, not silently at request time: every feature the model expects must
 # be either encoded below or a field on Features. Otherwise score() would feed it 0.
@@ -77,8 +106,11 @@ def score(features: Features) -> float:
     (from model_features.json) and returns predict_proba for the fraud class.
     """
     row = {name: 0 for name in _features}
+    country_column = COUNTRY_ONEHOT[country_group(features.ip_country)]
     for name in _features:
-        if name == "ip_country_code":
+        if name.startswith("ipc_"):
+            row[name] = int(name == country_column)
+        elif name == "ip_country_code":
             row[name] = _country_code(features.ip_country)
         elif name == "days_since_signup_group":
             label = features.days_since_signup_group
