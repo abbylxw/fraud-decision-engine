@@ -28,3 +28,9 @@ docs/resume_review.md
 
 # Evaluation runs (the committed summary lives in docs/evaluation/)
 results/
+
+# Local Claude Code guidance (not for publishing)
+CLAUDE.md
+
+# External training datasets (IEEE-CIS, Sparkov), downloaded by training/datasets/download.py
+/data/
