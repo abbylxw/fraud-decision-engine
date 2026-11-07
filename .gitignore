@@ -32,5 +32,5 @@ results/
 # Local Claude Code guidance (not for publishing)
 CLAUDE.md
 
-# External training datasets (IEEE-CIS, Sparkov), downloaded by training/datasets/download.py
+# External training datasets (Sparkov), downloaded by training/datasets/download.py
 /data/

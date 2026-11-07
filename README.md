@@ -175,6 +175,43 @@ the gain comes from a threshold chosen for this model by cost instead of a hardc
 On this dataset the ceiling is the data: after January, fraud is 4.5% and the main
 remaining signal is device sharing.
 
+## Does the Velocity Layer Work? (Datasets With Repeat Users)
+
+Fraud_Data.csv can't answer this: every user has exactly one transaction, so per-user
+counters are always 0. `training/compare_datasets.py` runs the **same velocity replay**
+(`training/build_features.velocity_features`, the code the parity test checks against the
+live API) on datasets where users repeat, and trains one fixed XGBoost configuration with and
+without the velocity features. Time split 70/10/20, test scored once, 95% bootstrap CIs.
+
+```bash
+pip install --group train
+python -m training.datasets.download     # needs a Kaggle API token
+python -m training.compare_datasets      # ~5 min; caches features in results/cache/
+```
+
+| Dataset (test period) | Fraud rate | Static features | + Velocity | Velocity features that vary |
+|---|---|---|---|---|
+| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.046, 0.054] | 0.082 [0.072, 0.095] | 20 / 54 |
+| **Sparkov** (1.85M txns, 999 cards) | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** | 54 / 54 |
+
+On Sparkov, at a cost-chosen threshold ($5 per review, missed fraud = purchase value),
+velocity features **halve the alert rate (0.94% → 0.43%) while catching more fraud
+(1,265 → 1,296 of 1,349)**, cutting total cost from $29.3k to $21.4k (−27%). The top features
+shift from amount / hour / category to `purchase_amt_24h`, `high_amount_vs_hist` and
+`purchase_amt_1h`: spending relative to the card's own recent history.
+
+Honest caveats:
+- **Sparkov is simulated.** Static features alone already reach 0.88 PR-AUC; real fraud is
+  harder, so the size of the gain on real traffic is still an open question.
+- **Datasets without devices or IPs use proxies** (Sparkov: merchant as "device", home zip as
+  "IP", merchant category as "country"); mappings are documented in `training/datasets/`.
+- **Label-history features are excluded from the headline numbers.** `purchase_success_*`
+  counts a user's past *non-fraud* purchases, which the replay knows instantly but production
+  only learns weeks later from chargebacks. Adding them lifts Sparkov to 0.992 and makes
+  `purchase_success_cnt_24h` the top feature: an upper bound, not a deployable result.
+
+Full numbers: [docs/evaluation/multi_dataset.json](docs/evaluation/multi_dataset.json).
+
 ## Interesting Engineering Decisions
 
 **Async throughout** — `AsyncSession` + asyncpg for PostgreSQL, `redis.asyncio` for Redis.
@@ -245,10 +282,13 @@ tests/
   test_velocity_fallback.py  # Redis counters + Postgres fallback (fake Redis)
   test_encoding_contract.py  # Category encodings match between training and serving
   test_api.py          # Integration tests for /health and /api/transactions
+  test_datasets.py     # External-dataset loaders: column mapping, no future leakage
 training/
   build_features.py    # Feature replay used for training (shared encodings)
   train.py             # Retrain, evaluate, ship gate (--ship replaces the served model)
   evaluate.py          # Model comparison with bootstrap CIs
+  compare_datasets.py  # Velocity ablation across Fraud_Data and Sparkov
+  datasets/            # Kaggle download + per-dataset loaders (training/eval only)
 docs/
   design_tradeoffs_and_todos.md   # Architecture decisions + known TODOs
   system_architecture.md

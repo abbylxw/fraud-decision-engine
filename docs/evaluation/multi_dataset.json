@@ -1,0 +1,309 @@
+{
+  "datasets": {
+    "fraud_data": {
+      "rows": 143512,
+      "users": 143512,
+      "splits": {
+        "train": {
+          "rows": 100458,
+          "from": "2015-01-01",
+          "to": "2015-08-09",
+          "fraud_rate": 0.0456
+        },
+        "validation": {
+          "rows": 14351,
+          "from": "2015-08-09",
+          "to": "2015-09-02",
+          "fraud_rate": 0.0456
+        },
+        "test": {
+          "rows": 28703,
+          "from": "2015-09-02",
+          "to": "2015-12-16",
+          "fraud_rate": 0.0458
+        }
+      },
+      "n_static_features": 10,
+      "n_velocity_features": 54,
+      "n_velocity_features_non_constant_in_train": 20,
+      "feature_sets": {
+        "static": {
+          "pr_auc": 0.0496,
+          "pr_auc_ci95": [
+            0.0457,
+            0.0538
+          ],
+          "roc_auc": 0.5174,
+          "roc_auc_ci95": [
+            0.5006,
+            0.5328
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.0152,
+            "precision": 0.0697
+          },
+          "at_5pct_alerts": {
+            "recall": 0.0662,
+            "precision": 0.0606
+          },
+          "precision_at_50pct_recall": 0.0482,
+          "cost_threshold": {
+            "threshold": 1.01,
+            "alert_rate": 0.0,
+            "fraud_caught": "0 / 1315",
+            "fraud_dollars_caught_share": 0.0,
+            "total_cost": 48509,
+            "cost_if_no_model": 48509
+          },
+          "top_features": {
+            "s_source": 0.124,
+            "s_hour_of_day": 0.105,
+            "s_age_account_gap": 0.105,
+            "s_purchase_value": 0.104,
+            "s_days_since_signup": 0.102,
+            "s_ip_country_code": 0.1,
+            "s_day_of_week": 0.096,
+            "s_browser": 0.095
+          },
+          "best_iteration": 13
+        },
+        "static+velocity": {
+          "pr_auc": 0.0815,
+          "pr_auc_ci95": [
+            0.0721,
+            0.0945
+          ],
+          "roc_auc": 0.5549,
+          "roc_auc_ci95": [
+            0.5387,
+            0.5724
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.0593,
+            "precision": 0.2718
+          },
+          "at_5pct_alerts": {
+            "recall": 0.1437,
+            "precision": 0.1317
+          },
+          "precision_at_50pct_recall": 0.0506,
+          "cost_threshold": {
+            "threshold": 0.5315,
+            "alert_rate": 0.0245,
+            "fraud_caught": "162 / 1315",
+            "fraud_dollars_caught_share": 0.1264,
+            "total_cost": 45889,
+            "cost_if_no_model": 48509
+          },
+          "top_features": {
+            "did_uid_90d": 0.32,
+            "did_uid_30d": 0.086,
+            "country_txn_count_5min": 0.036,
+            "ip_uid_24h": 0.035,
+            "s_age_group": 0.032,
+            "country_txn_count_30d": 0.032,
+            "s_age_account_gap": 0.031,
+            "country_txn_count_7d": 0.031
+          },
+          "best_iteration": 0
+        },
+        "+label_history": {
+          "pr_auc": 0.0925,
+          "pr_auc_ci95": [
+            0.0821,
+            0.1073
+          ],
+          "roc_auc": 0.5642,
+          "roc_auc_ci95": [
+            0.5503,
+            0.5826
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.0639,
+            "precision": 0.2927
+          },
+          "at_5pct_alerts": {
+            "recall": 0.1544,
+            "precision": 0.1415
+          },
+          "precision_at_50pct_recall": 0.0533,
+          "cost_threshold": {
+            "threshold": 0.5341,
+            "alert_rate": 0.0248,
+            "fraud_caught": "166 / 1315",
+            "fraud_dollars_caught_share": 0.1321,
+            "total_cost": 45668,
+            "cost_if_no_model": 48509
+          },
+          "top_features": {
+            "did_uid_90d": 0.318,
+            "s_age_group": 0.041,
+            "country_txn_count_30d": 0.038,
+            "did_uid_30d": 0.035,
+            "s_age_account_gap": 0.035,
+            "country_txn_count_7d": 0.035,
+            "country_txn_count_1h": 0.035,
+            "country_txn_count_5min": 0.034
+          },
+          "best_iteration": 2
+        }
+      }
+    },
+    "sparkov": {
+      "rows": 1852394,
+      "users": 999,
+      "splits": {
+        "train": {
+          "rows": 1296675,
+          "from": "2019-01-01",
+          "to": "2020-06-21",
+          "fraud_rate": 0.0058
+        },
+        "validation": {
+          "rows": 185240,
+          "from": "2020-06-21",
+          "to": "2020-08-25",
+          "fraud_rate": 0.0043
+        },
+        "test": {
+          "rows": 370479,
+          "from": "2020-08-25",
+          "to": "2020-12-31",
+          "fraud_rate": 0.0036
+        }
+      },
+      "n_static_features": 8,
+      "n_velocity_features": 54,
+      "n_velocity_features_non_constant_in_train": 54,
+      "feature_sets": {
+        "static": {
+          "pr_auc": 0.8776,
+          "pr_auc_ci95": [
+            0.8643,
+            0.8905
+          ],
+          "roc_auc": 0.9973,
+          "roc_auc_ci95": [
+            0.9966,
+            0.998
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.9392,
+            "precision": 0.342
+          },
+          "at_5pct_alerts": {
+            "recall": 0.9874,
+            "precision": 0.0719
+          },
+          "precision_at_50pct_recall": 0.9884,
+          "cost_threshold": {
+            "threshold": 0.6436,
+            "alert_rate": 0.0094,
+            "fraud_caught": "1265 / 1349",
+            "fraud_dollars_caught_share": 0.9838,
+            "total_cost": 29346,
+            "cost_if_no_model": 733912
+          },
+          "top_features": {
+            "s_amount": 0.48,
+            "s_hour_of_day": 0.224,
+            "s_category": 0.162,
+            "s_gender": 0.047,
+            "s_age": 0.044,
+            "s_city_pop": 0.018,
+            "s_day_of_week": 0.013,
+            "s_merchant_distance_km": 0.012
+          },
+          "best_iteration": 224
+        },
+        "static+velocity": {
+          "pr_auc": 0.9737,
+          "pr_auc_ci95": [
+            0.9667,
+            0.9799
+          ],
+          "roc_auc": 0.9994,
+          "roc_auc_ci95": [
+            0.999,
+            0.9997
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.9881,
+            "precision": 0.3598
+          },
+          "at_5pct_alerts": {
+            "recall": 0.997,
+            "precision": 0.0726
+          },
+          "precision_at_50pct_recall": 1.0,
+          "cost_threshold": {
+            "threshold": 0.18,
+            "alert_rate": 0.0043,
+            "fraud_caught": "1296 / 1349",
+            "fraud_dollars_caught_share": 0.9818,
+            "total_cost": 21376,
+            "cost_if_no_model": 733912
+          },
+          "top_features": {
+            "s_amount": 0.274,
+            "purchase_amt_24h": 0.19,
+            "s_category": 0.058,
+            "high_amount_vs_hist": 0.046,
+            "purchase_amt_1h": 0.045,
+            "amount_vs_user_avg_30d": 0.042,
+            "s_hour_of_day": 0.041,
+            "uid_did_24h": 0.038
+          },
+          "best_iteration": 484
+        },
+        "+label_history": {
+          "pr_auc": 0.9919,
+          "pr_auc_ci95": [
+            0.988,
+            0.9953
+          ],
+          "roc_auc": 0.9995,
+          "roc_auc_ci95": [
+            0.9986,
+            0.9999
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.9941,
+            "precision": 0.3619
+          },
+          "at_5pct_alerts": {
+            "recall": 0.9985,
+            "precision": 0.0727
+          },
+          "precision_at_50pct_recall": 1.0,
+          "cost_threshold": {
+            "threshold": 0.0458,
+            "alert_rate": 0.0044,
+            "fraud_caught": "1334 / 1349",
+            "fraud_dollars_caught_share": 0.9934,
+            "total_cost": 12952,
+            "cost_if_no_model": 733912
+          },
+          "top_features": {
+            "purchase_success_cnt_24h": 0.212,
+            "s_amount": 0.176,
+            "purchase_amt_24h": 0.097,
+            "purchase_success_amt_24h": 0.089,
+            "ip_uid_7d": 0.052,
+            "amount_vs_user_avg_30d": 0.044,
+            "uid_did_24h": 0.044,
+            "purchase_cnt_24h": 0.035
+          },
+          "best_iteration": 364
+        }
+      }
+    }
+  },
+  "generated_at": "2026-11-06T20:22:37",
+  "settings": {
+    "split": "70/10/20 by time",
+    "n_boot": 200,
+    "review_cost_per_alert": 5.0,
+    "model": "XGBoost depth 6, lr 0.1, early-stopped on validation"
+  }
+}
