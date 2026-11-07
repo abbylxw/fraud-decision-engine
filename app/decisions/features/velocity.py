@@ -26,43 +26,45 @@ NINETY_DAYS = 90 * 86400
 # DB fallback — called by build_features() when Redis has no purchase history
 # for the user (cold start, eviction). One SQL query with COUNT(CASE WHEN ...)
 # per time window, all relative to :as_of (the transaction's own time).
+# asyncpg sends :as_of untyped, and Postgres would read `:as_of - INTERVAL` as
+# interval - interval, so :as_of is cast to timestamptz explicitly.
 # ---------------------------------------------------------------------------
 
 async def _purchase_counts_from_db(user_id: str, db: AsyncSession, as_of: float) -> dict:
     as_of_dt = datetime.fromtimestamp(as_of, tz=timezone.utc)
     row = (await db.execute(text("""
         SELECT
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '5 minutes'  THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '5 minutes'  THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '10 minutes' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '10 minutes' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '1 hour'    THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '1 hour'    THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '24 hours'  THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '24 hours'  THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '7 days'    THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '7 days'    THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '30 days'   THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '30 days'   THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   THEN purchase_value ELSE 0 END),
           COUNT(1),
           SUM(purchase_value),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '5 minutes'  AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '5 minutes'  AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '10 minutes' AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '10 minutes' AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '1 hour'    AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '1 hour'    AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '24 hours'  AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '24 hours'  AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '7 days'    AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '7 days'    AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= :as_of - INTERVAL '30 days'   AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= :as_of - INTERVAL '30 days'   AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  AND fraud_decision != 'deny' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' AND fraud_decision != 'deny' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    AND fraud_decision != 'deny' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  AND fraud_decision != 'deny' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    AND fraud_decision != 'deny' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
+          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   AND fraud_decision != 'deny' THEN 1 END),
+          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
           COUNT(CASE WHEN fraud_decision != 'deny' THEN 1 END),
           SUM(CASE WHEN fraud_decision != 'deny' THEN purchase_value ELSE 0 END)
         FROM transactions
         WHERE user_id = :user_id
-          AND purchase_time >= :as_of - INTERVAL '90 days'
+          AND purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '90 days'
           AND purchase_time <= :as_of
     """), {"user_id": user_id, "as_of": as_of_dt})).one()
 
@@ -79,7 +81,7 @@ async def _purchase_counts_from_db(user_id: str, db: AsyncSession, as_of: float)
     amounts = [float(r[0]) for r in (await db.execute(text("""
         SELECT purchase_value FROM transactions
         WHERE user_id = :user_id
-          AND purchase_time >= :as_of - INTERVAL '90 days'
+          AND purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '90 days'
           AND purchase_time <= :as_of
     """), {"user_id": user_id, "as_of": as_of_dt})).all()]
     out["median_amt_90d"] = statistics.median(amounts) if amounts else 0.0

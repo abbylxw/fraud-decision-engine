@@ -72,6 +72,17 @@ class TestPurchaseHistoryFallback:
         assert params["as_of"] == PURCHASE_TIME.replace(tzinfo=timezone.utc)
         assert params["user_id"] == "user_1"
 
+    async def test_as_of_is_cast_to_timestamptz(self, redis):
+        # Without the cast, Postgres reads `:as_of - INTERVAL` as interval - interval and
+        # every request 500s on a real database (the mocked DB here can't catch that).
+        db = _mock_db()
+        await build_features(_txn(), db, redis)
+
+        for call in db.execute.await_args_list:
+            sql = str(call.args[0])
+            assert ":as_of - INTERVAL" not in sql
+            assert "CAST(:as_of AS timestamptz) - INTERVAL" in sql
+
     async def test_db_values_flow_into_features(self, redis):
         # cnt/amt pairs for 5min..90d, then success cnt/amt pairs for 5min..90d
         row = (1, 10.0, 1, 10.0, 1, 10.0, 2, 30.0, 3, 60.0, 4, 100.0, 5, 150.0) * 2
