@@ -26,6 +26,21 @@
       "n_static_features": 10,
       "n_velocity_features": 54,
       "n_velocity_features_non_constant_in_train": 20,
+      "n_spend_spike_features": 9,
+      "n_spend_spike_features_non_constant_in_train": 0,
+      "spend_spike_test": {
+        "share_with_30d_baseline": 0.0,
+        "spike_3x_30d": {
+          "share_of_rows": 0.0,
+          "fraud_rate_when_on": null,
+          "fraud_rate_when_off": 0.0458
+        },
+        "spike_5x_30d": {
+          "share_of_rows": 0.0,
+          "fraud_rate_when_on": null,
+          "fraud_rate_when_off": 0.0458
+        }
+      },
       "feature_sets": {
         "static": {
           "pr_auc": 0.0496,
@@ -107,45 +122,85 @@
           },
           "best_iteration": 0
         },
-        "+label_history": {
-          "pr_auc": 0.0925,
+        "+spend_spike": {
+          "pr_auc": 0.0887,
           "pr_auc_ci95": [
-            0.0821,
-            0.1073
+            0.0801,
+            0.1024
           ],
-          "roc_auc": 0.5642,
+          "roc_auc": 0.5612,
           "roc_auc_ci95": [
-            0.5503,
-            0.5826
+            0.5456,
+            0.5811
           ],
           "at_1pct_alerts": {
-            "recall": 0.0639,
-            "precision": 0.2927
+            "recall": 0.0646,
+            "precision": 0.2962
           },
           "at_5pct_alerts": {
-            "recall": 0.1544,
-            "precision": 0.1415
+            "recall": 0.1574,
+            "precision": 0.1443
           },
-          "precision_at_50pct_recall": 0.0533,
+          "precision_at_50pct_recall": 0.0541,
           "cost_threshold": {
-            "threshold": 0.5341,
-            "alert_rate": 0.0248,
-            "fraud_caught": "166 / 1315",
-            "fraud_dollars_caught_share": 0.1321,
-            "total_cost": 45668,
+            "threshold": 0.5502,
+            "alert_rate": 0.0257,
+            "fraud_caught": "171 / 1315",
+            "fraud_dollars_caught_share": 0.135,
+            "total_cost": 45646,
             "cost_if_no_model": 48509
           },
           "top_features": {
-            "did_uid_90d": 0.318,
-            "s_age_group": 0.041,
-            "country_txn_count_30d": 0.038,
-            "did_uid_30d": 0.035,
-            "s_age_account_gap": 0.035,
-            "country_txn_count_7d": 0.035,
-            "country_txn_count_1h": 0.035,
-            "country_txn_count_5min": 0.034
+            "did_txn_cnt_30d": 0.27,
+            "did_uid_90d": 0.237,
+            "country_txn_count_1h": 0.029,
+            "country_txn_count_30d": 0.029,
+            "country_txn_count_5min": 0.028,
+            "country_txn_count_24h": 0.028,
+            "s_age_account_gap": 0.027,
+            "s_purchase_value": 0.027
           },
-          "best_iteration": 2
+          "best_iteration": 6
+        },
+        "+label_history": {
+          "pr_auc": 0.084,
+          "pr_auc_ci95": [
+            0.0748,
+            0.0967
+          ],
+          "roc_auc": 0.5612,
+          "roc_auc_ci95": [
+            0.5465,
+            0.578
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.0624,
+            "precision": 0.2857
+          },
+          "at_5pct_alerts": {
+            "recall": 0.1513,
+            "precision": 0.1387
+          },
+          "precision_at_50pct_recall": 0.0533,
+          "cost_threshold": {
+            "threshold": 0.5308,
+            "alert_rate": 0.0255,
+            "fraud_caught": "171 / 1315",
+            "fraud_dollars_caught_share": 0.1335,
+            "total_cost": 45694,
+            "cost_if_no_model": 48509
+          },
+          "top_features": {
+            "did_uid_90d": 0.313,
+            "did_uid_30d": 0.068,
+            "country_txn_count_5min": 0.037,
+            "country_txn_count_7d": 0.037,
+            "country_txn_count_30d": 0.037,
+            "country_txn_count_10min": 0.037,
+            "s_age_account_gap": 0.036,
+            "country_txn_count_24h": 0.036
+          },
+          "best_iteration": 1
         }
       }
     },
@@ -175,6 +230,21 @@
       "n_static_features": 8,
       "n_velocity_features": 54,
       "n_velocity_features_non_constant_in_train": 54,
+      "n_spend_spike_features": 9,
+      "n_spend_spike_features_non_constant_in_train": 9,
+      "spend_spike_test": {
+        "share_with_30d_baseline": 0.9997,
+        "spike_3x_30d": {
+          "share_of_rows": 0.078,
+          "fraud_rate_when_on": 0.0335,
+          "fraud_rate_when_off": 0.0011
+        },
+        "spike_5x_30d": {
+          "share_of_rows": 0.0257,
+          "fraud_rate_when_on": 0.0864,
+          "fraud_rate_when_off": 0.0015
+        }
+      },
       "feature_sets": {
         "static": {
           "pr_auc": 0.8776,
@@ -256,50 +326,90 @@
           },
           "best_iteration": 484
         },
-        "+label_history": {
-          "pr_auc": 0.9919,
+        "+spend_spike": {
+          "pr_auc": 0.9738,
           "pr_auc_ci95": [
-            0.988,
-            0.9953
+            0.9668,
+            0.979
           ],
-          "roc_auc": 0.9995,
+          "roc_auc": 0.999,
           "roc_auc_ci95": [
-            0.9986,
+            0.9979,
+            0.9997
+          ],
+          "at_1pct_alerts": {
+            "recall": 0.9889,
+            "precision": 0.3601
+          },
+          "at_5pct_alerts": {
+            "recall": 0.9956,
+            "precision": 0.0725
+          },
+          "precision_at_50pct_recall": 1.0,
+          "cost_threshold": {
+            "threshold": 0.3291,
+            "alert_rate": 0.0043,
+            "fraud_caught": "1300 / 1349",
+            "fraud_dollars_caught_share": 0.9851,
+            "total_cost": 18883,
+            "cost_if_no_model": 733912
+          },
+          "top_features": {
+            "purchase_amt_24h": 0.162,
+            "s_amount": 0.16,
+            "spend_spike_3x_90d": 0.153,
+            "spend_ratio_day_vs_median_90d": 0.078,
+            "high_amount_vs_hist": 0.076,
+            "s_category": 0.034,
+            "s_hour_of_day": 0.03,
+            "uid_did_24h": 0.028
+          },
+          "best_iteration": 325
+        },
+        "+label_history": {
+          "pr_auc": 0.9911,
+          "pr_auc_ci95": [
+            0.9871,
+            0.9946
+          ],
+          "roc_auc": 0.9993,
+          "roc_auc_ci95": [
+            0.9981,
             0.9999
           ],
           "at_1pct_alerts": {
-            "recall": 0.9941,
-            "precision": 0.3619
+            "recall": 0.9933,
+            "precision": 0.3617
           },
           "at_5pct_alerts": {
-            "recall": 0.9985,
+            "recall": 0.9978,
             "precision": 0.0727
           },
           "precision_at_50pct_recall": 1.0,
           "cost_threshold": {
-            "threshold": 0.0458,
+            "threshold": 0.0822,
             "alert_rate": 0.0044,
-            "fraud_caught": "1334 / 1349",
+            "fraud_caught": "1333 / 1349",
             "fraud_dollars_caught_share": 0.9934,
-            "total_cost": 12952,
+            "total_cost": 12986,
             "cost_if_no_model": 733912
           },
           "top_features": {
-            "purchase_success_cnt_24h": 0.212,
-            "s_amount": 0.176,
-            "purchase_amt_24h": 0.097,
-            "purchase_success_amt_24h": 0.089,
-            "ip_uid_7d": 0.052,
-            "amount_vs_user_avg_30d": 0.044,
-            "uid_did_24h": 0.044,
-            "purchase_cnt_24h": 0.035
+            "s_amount": 0.232,
+            "purchase_success_cnt_24h": 0.138,
+            "purchase_success_amt_24h": 0.101,
+            "purchase_amt_24h": 0.096,
+            "ip_uid_7d": 0.058,
+            "time_since_last_txn_uid": 0.046,
+            "uid_did_24h": 0.041,
+            "amount_vs_user_avg_30d": 0.03
           },
-          "best_iteration": 364
+          "best_iteration": 241
         }
       }
     }
   },
-  "generated_at": "2026-11-06T20:22:37",
+  "generated_at": "2026-11-06T20:45:56",
   "settings": {
     "split": "70/10/20 by time",
     "n_boot": 200,

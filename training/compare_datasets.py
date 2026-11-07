@@ -11,10 +11,13 @@ Each dataset is mapped onto the canonical columns (see training/datasets/), then
 training/build_features.velocity_features() unchanged: the same replay the parity test
 checks against the live API.
 
-Per dataset, one XGBoost configuration is trained on three feature sets:
+Per dataset, one XGBoost configuration is trained on four feature sets, each adding to
+the previous one:
   static             columns of the transaction itself (amount, category, time of day, ...)
   static+velocity    + backward-looking counters (purchase counts/amounts, distinct
                      users per device/IP, time since last transaction, ...)
+  +spend_spike       + today's spend vs the median active-day spend over 14/30/90 days
+                     (build_features.spend_spike_features; training only, not served)
   +label_history     + purchase_success_*: counts of the user's past NON-fraud purchases.
                      Optimistic: the replay knows each past label instantly, but in
                      production fraud labels arrive weeks later (chargebacks).
@@ -36,6 +39,7 @@ from training.build_features import (
     ROOT,
     build_feature_frame,
     load_transactions,
+    spend_spike_features,
     velocity_features,
 )
 from training.datasets import EXTERNAL_DIR, sparkov
@@ -80,31 +84,36 @@ def add_derived(v: pd.DataFrame, purchase_value: pd.Series) -> pd.DataFrame:
     return v
 
 
-def feature_table(name: str, rebuild: bool) -> tuple[pd.DataFrame, list, list]:
-    """One frame with META + static + velocity columns, cached as parquet (the Python
-    replay takes minutes on the large datasets). Returns (frame, static_cols, velocity_cols)."""
+def feature_table(name: str, rebuild: bool) -> tuple[pd.DataFrame, dict]:
+    """One frame with META + static + velocity + spend-spike columns, cached as parquet
+    (the Python replay takes minutes on the large datasets).
+    Returns (frame, {"static": [...], "velocity": [...], "spend_spike": [...]})."""
     cache = CACHE_DIR / f"{name}.parquet"
     cols_file = CACHE_DIR / f"{name}.columns.json"
     if cache.exists() and cols_file.exists() and not rebuild:
         cols = json.loads(cols_file.read_text())
-        return pd.read_parquet(cache), cols["static"], cols["velocity"]
+        if "spend_spike" in cols:   # caches from before the spend-spike features rebuild
+            return pd.read_parquet(cache), cols
 
     loader, _ = DATASETS[name]
     t0 = time.time()
     canonical, static, keep = loader()
     print(f"  loaded {len(canonical):,} rows; velocity replay...", flush=True)
     velocity = add_derived(velocity_features(canonical), canonical["purchase_value"])
+    spike = spend_spike_features(canonical)
     print(f"  replay done in {time.time() - t0:.0f}s", flush=True)
 
     static = static.add_prefix("s_")   # avoid name clashes (e.g. purchase_value)
-    frame = pd.concat([canonical[META].astype({"user_id": str}), static, velocity], axis=1)
+    frame = pd.concat([canonical[META].astype({"user_id": str}), static, velocity, spike],
+                      axis=1)
     if keep is not None:
         frame = frame[keep].reset_index(drop=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(cache)
-    cols = {"static": list(static.columns), "velocity": list(velocity.columns)}
+    cols = {"static": list(static.columns), "velocity": list(velocity.columns),
+            "spend_spike": list(spike.columns)}
     cols_file.write_text(json.dumps(cols))
-    return frame, cols["static"], cols["velocity"]
+    return frame, cols
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +131,23 @@ def make_model(neg_pos_ratio):
     )
 
 
-def run_dataset(name, frame, static_cols, velocity_cols, n_boot, review_cost):
+def spike_flag_summary(frame, y, rows):
+    """How often a 30-day spike flag fires on test rows, and the fraud rate when it does:
+    a readable check that the feature carries signal, independent of the model."""
+    has_baseline = frame["spend_ratio_day_vs_median_30d"].iloc[rows] >= 0
+    out = {"share_with_30d_baseline": round(float(has_baseline.mean()), 4)}
+    for k in ("3x", "5x"):
+        on = frame[f"spend_spike_{k}_30d"].iloc[rows].to_numpy() == 1
+        out[f"spike_{k}_30d"] = {
+            "share_of_rows": round(float(on.mean()), 4),
+            "fraud_rate_when_on": round(float(y[rows][on].mean()), 4) if on.any() else None,
+            "fraud_rate_when_off": round(float(y[rows][~on].mean()), 4),
+        }
+    return out
+
+
+def run_dataset(name, frame, cols, n_boot, review_cost):
+    static_cols, velocity_cols, spike_cols = cols["static"], cols["velocity"], cols["spend_spike"]
     y = frame["class"].to_numpy()
     value = frame["purchase_value"].to_numpy(dtype=float)
     t = frame["purchase_time"]
@@ -146,16 +171,23 @@ def run_dataset(name, frame, static_cols, velocity_cols, n_boot, review_cost):
         "n_static_features": len(static_cols),
         "n_velocity_features": len(velocity),
         "n_velocity_features_non_constant_in_train": len(live_velocity),
+        "n_spend_spike_features": len(spike_cols),
+        "n_spend_spike_features_non_constant_in_train":
+            sum(frame[c].iloc[tr].nunique() > 1 for c in spike_cols),
+        "spend_spike_test": spike_flag_summary(frame, y, te),
         "feature_sets": {},
     }
     neg_pos = float((y[tr] == 0).sum() / max(1, y[tr].sum()))
     fraud_total = float(value[te][y[te] == 1].sum())
 
-    for setup, cols in [("static", static_cols),
-                        ("static+velocity", static_cols + velocity),
-                        ("+label_history", static_cols + velocity + label_history)]:
+    for setup, feats in [
+        ("static", static_cols),
+        ("static+velocity", static_cols + velocity),
+        ("+spend_spike", static_cols + velocity + spike_cols),
+        ("+label_history", static_cols + velocity + spike_cols + label_history),
+    ]:
         t0 = time.time()
-        X = frame[cols]
+        X = frame[feats]
         model = make_model(neg_pos)
         model.fit(X.iloc[tr], y[tr], eval_set=[(X.iloc[va], y[va])], verbose=False)
         p_va = model.predict_proba(X.iloc[va])[:, 1]
@@ -173,7 +205,7 @@ def run_dataset(name, frame, static_cols, velocity_cols, n_boot, review_cost):
             "total_cost": round(dollar_cost(y[te], p_te, value[te], threshold, review_cost)),
             "cost_if_no_model": round(fraud_total),
         }
-        importance = pd.Series(model.feature_importances_, index=cols).nlargest(8)
+        importance = pd.Series(model.feature_importances_, index=feats).nlargest(8)
         report["top_features"] = {k: round(float(v), 3) for k, v in importance.items()}
         report["best_iteration"] = int(model.best_iteration)
         result["feature_sets"][setup] = report
@@ -201,9 +233,9 @@ def main():
             print(f"{name}: not downloaded, skipping (python -m training.datasets.download)")
             continue
         print(f"{name}:", flush=True)
-        frame, static_cols, velocity_cols = feature_table(name, args.rebuild)
+        frame, cols = feature_table(name, args.rebuild)
         summary["datasets"][name] = run_dataset(
-            name, frame, static_cols, velocity_cols, args.n_boot, args.review_cost)
+            name, frame, cols, args.n_boot, args.review_cost)
 
     summary["generated_at"] = dt.datetime.now().isoformat(timespec="seconds")
     summary["settings"] = {"split": "70/10/20 by time", "n_boot": args.n_boot,

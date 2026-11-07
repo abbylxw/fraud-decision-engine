@@ -189,16 +189,39 @@ python -m training.datasets.download     # needs a Kaggle API token
 python -m training.compare_datasets      # ~5 min; caches features in results/cache/
 ```
 
-| Dataset (test period) | Fraud rate | Static features | + Velocity | Velocity features that vary |
-|---|---|---|---|---|
-| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.046, 0.054] | 0.082 [0.072, 0.095] | 20 / 54 |
-| **Sparkov** (1.85M txns, 999 cards) | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** | 54 / 54 |
+| Dataset (test period) | Fraud rate | Static features | + Velocity | + Spend spike | Velocity features that vary |
+|---|---|---|---|---|---|
+| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.046, 0.054] | 0.082 [0.072, 0.095] | 0.089 [0.080, 0.102]† | 20 / 54 |
+| **Sparkov** (1.85M txns, 999 cards) | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** | 0.974 [0.967, 0.979] | 54 / 54 |
+
+† All 9 spend-spike features are constant on Fraud_Data, so this move is run-to-run noise
+(XGBoost samples columns at random); it shows roughly how large a difference has to be to mean
+anything here.
 
 On Sparkov, at a cost-chosen threshold ($5 per review, missed fraud = purchase value),
 velocity features **halve the alert rate (0.94% → 0.43%) while catching more fraud
 (1,265 → 1,296 of 1,349)**, cutting total cost from $29.3k to $21.4k (−27%). The top features
 shift from amount / hour / category to `purchase_amt_24h`, `high_amount_vs_hist` and
 `purchase_amt_1h`: spending relative to the card's own recent history.
+
+**Spend-spike features** (`build_features.spend_spike_features`, training only): today's
+spend (UTC day, including the current purchase) divided by the median daily total over the
+card's active days in the last 14 / 30 / 90 days (at least 5 active days, else "no
+baseline"), plus 3× and 5× flags: 9 features. On their own they are strong signals on the
+Sparkov test period:
+
+| Flag | Fires on | Fraud rate when on | when off |
+|---|---|---|---|
+| `spend_spike_3x_30d` | 7.8% of transactions | 3.4% | 0.11% |
+| `spend_spike_5x_30d` | 2.6% | 8.6% | 0.15% |
+
+But they **don't improve the model**: PR-AUC stays at 0.974 with the same CI. The model does
+pick them up (`spend_spike_3x_90d` becomes the #3 feature) largely in place of
+`purchase_amt_24h` and `high_amount_vs_hist`, which already encode "more than usual". Total
+cost at the cost-chosen threshold is lower ($21.4k → $18.9k), but that comes from 4 extra
+frauds caught at one threshold and has no CI, so it isn't evidence of a gain. Verdict: not
+worth porting to the live API (it would need a daily-totals structure in Redis) unless it helps
+on real data, though the flags are a readable basis for a rule or a decline reason.
 
 Honest caveats:
 - **Sparkov is simulated.** Static features alone already reach 0.88 PR-AUC; real fraud is
@@ -207,8 +230,8 @@ Honest caveats:
   "IP", merchant category as "country"); mappings are documented in `training/datasets/`.
 - **Label-history features are excluded from the headline numbers.** `purchase_success_*`
   counts a user's past *non-fraud* purchases, which the replay knows instantly but production
-  only learns weeks later from chargebacks. Adding them lifts Sparkov to 0.992 and makes
-  `purchase_success_cnt_24h` the top feature: an upper bound, not a deployable result.
+  only learns weeks later from chargebacks. Adding them lifts Sparkov to 0.991 and makes
+  `purchase_success_cnt_24h` one of the top features: an upper bound, not a deployable result.
 
 Full numbers: [docs/evaluation/multi_dataset.json](docs/evaluation/multi_dataset.json).
 
@@ -283,6 +306,7 @@ tests/
   test_encoding_contract.py  # Category encodings match between training and serving
   test_api.py          # Integration tests for /health and /api/transactions
   test_datasets.py     # External-dataset loaders: column mapping, no future leakage
+  test_spend_spike.py  # Today's spend vs median daily spend: windows, day boundary, baseline
 training/
   build_features.py    # Feature replay used for training (shared encodings)
   train.py             # Retrain, evaluate, ship gate (--ship replaces the served model)

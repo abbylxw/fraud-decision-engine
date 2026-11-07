@@ -14,6 +14,7 @@ to the history AFTER its own features are computed, so it never "sees itself".
 import bisect
 import json
 import pathlib
+import statistics
 from collections import defaultdict
 
 import numpy as np
@@ -142,6 +143,57 @@ def velocity_features(df: pd.DataFrame) -> pd.DataFrame:
             suc_t[uid].append(ts)
             suc_v[uid].append(val)
 
+    return pd.DataFrame(rows)
+
+
+# Spend spike: is today's spend a multiple of the user's typical daily spend?
+SPIKE_WINDOWS_DAYS = (14, 30, 90)
+SPIKE_MULTIPLIERS = (3, 5)
+MIN_ACTIVE_DAYS = 5   # fewer active days than this in the window = no baseline
+
+
+def spend_spike_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Today's spend vs the median daily spend on the user's active days.
+
+    TRAINING ONLY: not computed by the live API and not used by the served model
+    (measured in training/compare_datasets.py). Redis keeps 90 days of per-user purchases,
+    so a live version is possible for these windows later.
+
+    Per row, with days in UTC:
+      today_spend   = the user's earlier purchases today + this purchase (its amount is
+                      known at decision time, so this is not leakage)
+      baseline (Wd) = median of the user's daily totals over days WITH purchases in
+                      [today - W, today - 1]; today itself is excluded
+      spend_ratio_day_vs_median_Wd = today_spend / baseline, or -1 with fewer than
+                      MIN_ACTIVE_DAYS active days
+      spend_spike_Kx_Wd = 1 if the ratio >= K
+    Like velocity_features(), rows must be sorted by purchase_time and each row is added
+    to the history only after its own features are computed.
+    """
+    days_of, totals_of = defaultdict(list), defaultdict(list)   # per user, oldest day first
+    rows = []
+    for uid, t, val in zip(df["user_id"].astype(str), df["purchase_time"], df["purchase_value"]):
+        today = int(t.timestamp() // 86400)
+        days, totals = days_of[uid], totals_of[uid]
+        has_today = bool(days) and days[-1] == today
+        today_spend = (totals[-1] if has_today else 0.0) + val
+        end = len(days) - 1 if has_today else len(days)   # baseline stops before today
+
+        f = {}
+        for w in SPIKE_WINDOWS_DAYS:
+            past = totals[bisect.bisect_left(days, today - w, 0, end):end]
+            median = statistics.median(past) if len(past) >= MIN_ACTIVE_DAYS else 0.0
+            ratio = today_spend / median if median > 0 else -1.0
+            f[f"spend_ratio_day_vs_median_{w}d"] = ratio
+            for k in SPIKE_MULTIPLIERS:
+                f[f"spend_spike_{k}x_{w}d"] = int(ratio >= k)
+        rows.append(f)
+
+        if has_today:
+            totals[-1] += val
+        else:
+            days.append(today)
+            totals.append(val)
     return pd.DataFrame(rows)
 
 
