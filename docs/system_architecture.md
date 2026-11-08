@@ -61,10 +61,9 @@ POST /api/transactions
         ▼
 3. Hard rules — short-circuit on any deny (no ML needed)
    execute_hard_rules(transaction, features)
-   ├── transaction_limit()  → deny if purchase_value >= 5000
    ├── signup_burst()       → deny if purchase < 60 s after signup (bot pattern)
-   ├── age_limit()          → deny if age invalid, or age >= 80 with new account
-   └── ip_country_block()   → deny if OFAC country, or Unknown country + new device
+   ├── age_limit()          → deny if age < 0 or >= 110 (data check; missing age is allowed)
+   └── ip_country_block()   → deny if OFAC-sanctioned country
         │
         ├── deny → skip to step 6
         └── allow → continue
@@ -75,10 +74,13 @@ POST /api/transactions
    → XGBoost predict_proba (41 features, model_features.json) → float (0.0–1.0)
         │
         ▼
-5. Soft rules — all receive the model score
+5. Soft rules — receive the model score
    execute_soft_rules(transaction, features, prob)
-   ├── rate_limiter_control()      → deny on velocity anomalies (combos use ELEVATED_SCORE)
    └── model_score_threshold()     → deny if prob >= THRESHOLD
+   execute_shadow_rules(transaction, features, prob)   [shadow mode: never denies]
+   └── rate_limiter_control()      → velocity branches that WOULD deny are logged
+                                     (shadow_rule.would_deny) and counted
+                                     (fraud_rule_shadow_total{rule})
    (THRESHOLD and ELEVATED_SCORE are read from model_meta.json, chosen on validation)
         │
         ▼
@@ -124,9 +126,9 @@ app/
 │       └── 003_create_device_data.sql  Creates device_data table
 │
 └── decisions/
-    ├── __init__.py            execute_hard_rules() / execute_soft_rules()
-    ├── rules.py               Rule functions: transaction_limit, age_limit,
-    │                          ip_country_block, rate_limiter_control, model_score_threshold
+    ├── __init__.py            execute_hard_rules() / execute_soft_rules() / execute_shadow_rules()
+    ├── rules.py               Rule functions: signup_burst, age_limit, ip_country_block,
+    │                          model_score_threshold; rate_limiter_control (shadow)
     ├── models.py              ML inference — loads model.joblib, model_features.json,
     │                          ip_country_categories.json at import; exports score() + predict()
     └── features/

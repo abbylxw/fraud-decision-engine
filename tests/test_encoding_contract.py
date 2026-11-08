@@ -117,7 +117,10 @@ def test_score_uses_the_one_hot_columns(monkeypatch):
 
     monkeypatch.setattr(models, "_model", Spy())
     monkeypatch.setattr(models, "_features", list(COUNTRY_ONEHOT.values()))
-    models.score(Features(user_id="u", purchase_time="2015-01-01T00:00:00Z",
-                          purchase_value=1.0, ip_country="Netherlands"))
+    models.score(Features(user_id="u", signup_time="2014-12-01T00:00:00Z",
+                          purchase_time="2015-01-01T00:00:00Z",
+                          purchase_value=1.0, device_id="d", source="SEO",
+                          browser="Chrome", sex="M", ip_address=1,
+                          ip_country="Netherlands"))
     assert seen == _serving_row("Netherlands")
     assert seen["ipc_grp_Europe"] == 1

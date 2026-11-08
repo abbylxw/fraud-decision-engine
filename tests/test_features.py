@@ -30,8 +30,17 @@ def make_transaction(**overrides) -> Transaction:
         signup_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
         purchase_time=datetime(2025, 1, 1, tzinfo=timezone.utc),
         purchase_value=50.0,
+        device_id="d1",
+        source="SEO",
+        browser="Chrome",
+        sex="M",
+        ip_address=1234567890,
     )
     defaults.update(overrides)
+    if defaults["signup_time"] is None:
+        # The API now rejects a missing signup_time (422); these tests still cover the
+        # helpers' fallback, so build the object without validation.
+        return Transaction.model_construct(**defaults)
     return Transaction(**defaults)
 
 

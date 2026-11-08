@@ -22,6 +22,11 @@ _TXN = Transaction(
     signup_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
     purchase_time=datetime(2025, 3, 14, 12, 0, tzinfo=timezone.utc),
     purchase_value=100.0,
+    device_id="device_001",
+    source="SEO",
+    browser="Chrome",
+    sex="M",
+    ip_address=1234567890,
 )
 
 

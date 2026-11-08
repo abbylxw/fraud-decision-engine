@@ -14,10 +14,11 @@ Key concepts used here:
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.data.data_models import Features
-from app.main import app, get_db, get_redis
+from app.main import RULE_SHADOW_TOTAL, app, get_db, get_redis
 
 # ---------------------------------------------------------------------------
 # Shared mock setup
@@ -74,8 +75,14 @@ _TXN_PAYLOAD = {
 # Features that build_features will return in tests that reach the model
 _CLEAN_FEATURES = Features(
     user_id="user_001",
+    signup_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
     purchase_time=datetime(2025, 3, 14, 12, 0, tzinfo=timezone.utc),
     purchase_value=100.0,
+    device_id="device_001",
+    source="SEO",
+    browser="Chrome",
+    sex="M",
+    ip_address=1234567890,
     ip_country="United States",
     days_since_signup=438,
     days_since_signup_group="361-720d",
@@ -144,14 +151,14 @@ class TestHealth:
 
 class TestTransactionEndpoint:
     def test_deny_by_hard_rule(self):
-        """A purchase >= $5000 is denied by the transaction_limit hard rule.
-        Because hard rules short-circuit, build_features is still called but
+        """A purchase made in the same second as signup is denied by the signup_burst
+        hard rule. Because hard rules short-circuit, build_features is still called but
         model_score is never called."""
         mock_db = _make_mock_db()
         mock_redis = _make_mock_redis()
         _apply_overrides(mock_db, mock_redis)
 
-        payload = {**_TXN_PAYLOAD, "purchase_value": 9999.0}
+        payload = {**_TXN_PAYLOAD, "signup_time": _TXN_PAYLOAD["purchase_time"]}
 
         with (
             patch("app.main.build_features", new_callable=AsyncMock, return_value=_CLEAN_FEATURES),
@@ -172,6 +179,106 @@ class TestTransactionEndpoint:
         assert data["fraud_decision"] == "deny"
         assert "transaction_id" in data
         assert "response_time" in data
+
+    @pytest.mark.parametrize("field", [
+        "device_id", "ip_address", "signup_time", "source", "browser", "sex",
+    ])
+    def test_missing_required_field_is_422(self, field):
+        """A missing required field is a bad request (422), never a 500 and never a fraud
+        decision. signup_time/source/browser/sex are required because leaving them out
+        switched off signup_burst or cut the model's fraud catches."""
+        mock_db = _make_mock_db()
+        mock_redis = _make_mock_redis()
+        _apply_overrides(mock_db, mock_redis)
+        payload = {k: v for k, v in _TXN_PAYLOAD.items() if k != field}
+        with patch("app.main.build_features", new_callable=AsyncMock) as bf:
+            try:
+                with TestClient(app) as client:
+                    resp = client.post(
+                        "/api/transactions",
+                        json=payload,
+                        headers={"Idempotency-Key": f"missing-{field}"},
+                    )
+            finally:
+                _clear_overrides()
+        assert resp.status_code == 422
+        bf.assert_not_called()
+
+    @pytest.mark.parametrize("override", [{"device_id": ""}, {"ip_address": -1}])
+    def test_invalid_required_value_is_422(self, override):
+        """An empty device id (would share one device across requests) or a negative IP is
+        rejected, not just a missing one."""
+        mock_db = _make_mock_db()
+        mock_redis = _make_mock_redis()
+        _apply_overrides(mock_db, mock_redis)
+        with patch("app.main.build_features", new_callable=AsyncMock) as bf:
+            try:
+                with TestClient(app) as client:
+                    resp = client.post(
+                        "/api/transactions",
+                        json={**_TXN_PAYLOAD, **override},
+                        headers={"Idempotency-Key": f"invalid-{next(iter(override))}"},
+                    )
+            finally:
+                _clear_overrides()
+        assert resp.status_code == 422
+        bf.assert_not_called()
+
+    def test_missing_age_is_decided(self):
+        """age stays optional: a missing one still gets a normal decision."""
+        mock_db = _make_mock_db()
+        mock_redis = _make_mock_redis()
+        _apply_overrides(mock_db, mock_redis)
+        field = "age"
+        payload = {k: v for k, v in _TXN_PAYLOAD.items() if k != field}
+        with (
+            patch("app.main.build_features", new_callable=AsyncMock, return_value=_CLEAN_FEATURES),
+            patch("app.main.model_score", return_value=0.05),
+            patch("app.main.update_velocity_counters", new_callable=AsyncMock),
+        ):
+            try:
+                with TestClient(app) as client:
+                    resp = client.post(
+                        "/api/transactions",
+                        json=payload,
+                        headers={"Idempotency-Key": f"optional-{field}"},
+                    )
+            finally:
+                _clear_overrides()
+        assert resp.status_code == 201
+        assert resp.json()["fraud_decision"] == "allow"
+
+    def _post_with_shadow(self, key, **shadow_patch):
+        mock_db = _make_mock_db()
+        mock_redis = _make_mock_redis()
+        _apply_overrides(mock_db, mock_redis)
+        with (
+            patch("app.main.build_features", new_callable=AsyncMock, return_value=_CLEAN_FEATURES),
+            patch("app.main.model_score", return_value=0.05),
+            patch("app.main.update_velocity_counters", new_callable=AsyncMock),
+            patch("app.main.execute_shadow_rules", **shadow_patch),
+        ):
+            try:
+                with TestClient(app) as client:
+                    return client.post("/api/transactions", json=_TXN_PAYLOAD,
+                                       headers={"Idempotency-Key": key})
+            finally:
+                _clear_overrides()
+
+    def test_shadow_hit_counts_but_does_not_deny(self):
+        """A shadow branch that would deny is counted, and the decision stays 'allow'."""
+        counter = RULE_SHADOW_TOTAL.labels(rule="device_many_users_90d")
+        before = counter._value.get()
+        resp = self._post_with_shadow("shadow-hit", return_value=["device_many_users_90d"])
+        assert resp.status_code == 201
+        assert resp.json()["fraud_decision"] == "allow"
+        assert counter._value.get() == before + 1
+
+    def test_shadow_error_does_not_fail_request(self):
+        """A bug in shadow code is logged, never turned into a 500."""
+        resp = self._post_with_shadow("shadow-error", side_effect=RuntimeError("boom"))
+        assert resp.status_code == 201
+        assert resp.json()["fraud_decision"] == "allow"
 
     def test_allow_legitimate_transaction(self):
         """A clean transaction (US, normal amount, low model score) is approved."""

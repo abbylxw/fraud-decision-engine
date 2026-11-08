@@ -2,18 +2,12 @@ from app.data.data_models import Features, Transaction
 from app.decisions.models import ELEVATED_SCORE, THRESHOLD
 
 
-def transaction_limit(transaction: Transaction):
-    if transaction.purchase_value >= 5000:
-        return 'deny'
-    return 'allow'
-
 def age_limit(transaction: Transaction, feature: Features):
+    """Data check only: deny an age that can't be real. A missing age is not a deny
+    (age is optional; the model decides). The old 'age >= 80 + new account' clause was
+    removed (rule-logic-review): it had no supporting data and denied by age alone."""
     age = transaction.age
-    # Invalid or missing age
-    if age is None or age < 0 or age >= 110:
-        return 'deny'
-    # Elderly customers with very new accounts are high-risk
-    if age >= 80 and feature.days_since_signup <= 90:
+    if age is not None and (age < 0 or age >= 110):
         return 'deny'
     return 'allow'
 
@@ -31,8 +25,8 @@ def ip_country_block(transaction: Transaction, feature: Features):
     country = feature.ip_country
     if country in _OFAC_BLOCKED:
         return 'deny'
-    if country == 'Unknown' and feature.did_uid_days_on_file <= 90:
-        return 'deny'   # unresolvable IP + new device — deny
+    # No 'Unknown IP + new device' branch (removed in rule-logic-review): it denied ~15% of
+    # traffic with no fraud lift. ipc_Unknown is still a model input.
     return 'allow'
 
 # Signup-to-purchase faster than this is scripted, not human.
@@ -60,24 +54,30 @@ def model_score_threshold(score: float) -> str:
     return 'deny' if score >= THRESHOLD else 'allow'
 
 
-def rate_limiter_control(transaction: Transaction, feature: Features, score: float):
-    # The velocity cut-offs below are expert-set and NOT validated: Fraud_Data.csv has one
-    # transaction per user, so every input here except did_uid_90d / ip_uid_7d is always 0
-    # in the replay, and none of these branches fires on the validation or test period.
-    # They need data with repeat users (or production labels) to tune.
+def rate_limiter_control(transaction: Transaction, feature: Features, score: float) -> list[str]:
+    """SHADOW MODE: never denies. Returns the names of the branches that WOULD deny, so the
+    caller can log and count them (fraud_rule_shadow_total{rule}).
+
+    The velocity cut-offs below are expert-set and NOT validated: Fraud_Data.csv has one
+    transaction per user, so every input here except did_uid_90d / ip_uid_7d is always 0
+    in the replay, and none of these branches fires on the validation or test period.
+    They need data with repeat users (or production labels) to tune. The old
+    'purchase_cnt_90d >= 20 and purchase_amt_90d >= $1M' branch was removed (dead on both
+    datasets)."""
+    would_deny = []
+    # did_uid_days_on_file is the age of the (device, user) PAIR, not of the device.
+    # Pair seen <= 90 d and 10+ distinct users on this device in 90 d.
     if feature.did_uid_days_on_file <= 90 and feature.did_uid_90d >= 10:
-        return 'deny'
+        would_deny.append('device_many_users_90d')
     if feature.uid_did_90d >= 20:
-        return 'deny'
+        would_deny.append('user_many_devices_90d')
     if feature.ip_uid_7d >= 50:       # ip_uid only tracked to 7d window
-        return 'deny'
-    if feature.purchase_cnt_90d >= 20 and feature.purchase_amt_90d >= 1000000:
-        return 'deny'
+        would_deny.append('ip_many_users_7d')
     # Combined: elevated model score + high 24h purchase velocity.
     # ELEVATED_SCORE = top 3% of validation scores for the served model (model_meta.json).
     if score >= ELEVATED_SCORE and feature.purchase_cnt_24h >= 5:
-        return 'deny'
+        would_deny.append('elevated_score_purchases_24h')
     # Combined: elevated model score + multiple devices today (account takeover signal)
     if score >= ELEVATED_SCORE and feature.uid_did_24h >= 3:
-        return 'deny'
-    return 'allow'
+        would_deny.append('elevated_score_devices_24h')
+    return would_deny

@@ -1,21 +1,29 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Transaction(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     user_id: str
-    signup_time: datetime | None = None
+    # Required (HTTP 422 if missing): without it signup_burst can't run, and the model sees
+    # days_since_signup = -999, a value it never trained on and scores as low risk.
+    signup_time: datetime
     purchase_time: datetime
     purchase_value: float
-    device_id: str | None = None
-    source: str | None = None
-    browser: str | None = None
-    sex: str | None = None
+    # Required: the device and IP lookups can't run without them, so a missing value is a
+    # bad request (HTTP 422), not a crash and not a fraud decision. An empty device id would
+    # put every such request on one shared device.
+    device_id: str = Field(min_length=1)
+    # Required model inputs: leaving them out let ~60% of model-caught fraud through
+    # (rule-logic-review code_critique.md).
+    source: str
+    browser: str
+    sex: str
+    # Optional: a missing age changes few model decisions (2 of 104 in the critic's probe).
     age: int | None = None
-    ip_address: int | None = None
+    ip_address: int = Field(ge=0)
 
 class DecisionResponse(BaseModel):
     transaction_id: UUID

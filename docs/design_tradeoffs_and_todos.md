@@ -315,6 +315,8 @@ naive datetime = UTC, exclusive purge bound
 - [x] Rules expanded: `transaction_limit`, `age_limit`, `ip_country_block`, `rate_limiter_control`,
       `model_score_threshold` — split into hard and soft rule sets
 - [x] Expand `rate_limiter_control` to use `score` parameter for combined velocity+model conditions
+- [x] Rule review (2026-11): `transaction_limit` and the Unknown-IP / age >= 80 clauses removed,
+      `rate_limiter_control` moved to shadow mode — see "Rule Logic Review" below
 - [ ] Add more rules (country block list, device-age heuristics, etc.)
 
 ### `app/decisions/models.py`
@@ -325,10 +327,12 @@ naive datetime = UTC, exclusive purge bound
 
 ### `app/decisions/__init__.py`
 
-- [x] `execute_hard_rules(t, f)` — chains transaction_limit, age_limit, ip_country_block;
+- [x] `execute_hard_rules(t, f)` — chains signup_burst, age_limit, ip_country_block;
       returns `(decision, rule_name | None)` so the triggering rule can be logged
-- [x] `execute_soft_rules(t, f, score)` — chains rate_limiter_control + model_score_threshold;
-      returns `(decision, rule_name | None)`; all rules receive the model score
+- [x] `execute_soft_rules(t, f, score)` — model_score_threshold;
+      returns `(decision, rule_name | None)`
+- [x] `execute_shadow_rules(t, f, score)` — rate_limiter_control in shadow mode; returns the
+      branch names that would deny (logged and counted, never applied)
 
 ---
 
@@ -587,8 +591,9 @@ requires adding temporary print statements. Named rule logging is essential for 
 
 **Problem:** After fixing rules, `client_mimic.py` still showed all-deny. The script generates
 idempotency keys as `{user_id}-{counter}` where counter resets to 0 on each run. Redis cached
-the old deny decisions (10-minute TTL) from the previous run, so the API returned cached results
-without re-evaluating the new rules.
+the old deny decisions (10-minute TTL at the time) from the previous run, so the API returned cached
+results without re-evaluating the new rules. The TTL is now 60 s (`IDEMPOTENCY_TTL_SECONDS` in
+`app/main.py`, cut in ab0f917), so a cached decision outlives a rule change by at most a minute.
 
 **Fix:** `docker compose exec redis redis-cli FLUSHDB` between test runs.
 
@@ -637,6 +642,48 @@ raw error is visible in the output.
 
 ---
 
+## Rule Logic Review (2026-11)
+
+Evidence: `results/agents/rule-logic-review/` (local, gitignored). Cost = missed fraud $ + $10
+per false decline, on the Fraud_Data test period (30,223 rows).
+
+**Changes**
+- `ip_country_block`: the "Unknown IP + device pair ≤ 90 days" clause is removed. It denied
+  14.6% of test traffic at a fraud rate no better than average (4.0% vs 4.7%), costing
+  ~$36k [34.5k, 37.5k] in false declines. The OFAC branch stays.
+- `transaction_limit` (≥ $5,000) removed: unreachable on Fraud_Data (max $129), and on Sparkov
+  the 153 rows above $5,000 had 0 fraud.
+- `age_limit`: only the invalid-age data check remains. The "age ≥ 80 + account ≤ 90 days" clause
+  had no supporting data and, with a missing signup time (−999), denied by age alone.
+- `rate_limiter_control` moved to **shadow mode**: its velocity cut-offs are expert-set and
+  can't be validated on one-transaction-per-user data. Branches that would deny are logged
+  (`shadow_rule.would_deny`, with `transaction_id`) and counted (`fraud_rule_shadow_total{rule}`);
+  shadow errors are logged, never returned as a 500. The dead "$1M in 90 days" branch was deleted.
+  Shadow hits are not stored in the audit row, but every branch input is, so precision can be
+  measured offline against chargeback labels.
+- Request schema: `device_id`, `ip_address`, `signup_time`, `source`, `browser` and `sex` are
+  required (HTTP 422 if missing; an empty `device_id` or negative `ip_address` is also 422).
+  Leaving out `signup_time` switched off `signup_burst` (0% of bot rows denied vs 100%), and
+  leaving out `source`/`browser`/`sex` let ~60% of model-caught fraud through. `age` stays
+  optional (2 of 104 model denials changed when it was missing).
+
+**Open risks (not fixed here)**
+- [ ] **Heavy device sharing is not caught.** The model scores a device shared with exactly one
+      other user as high risk but ≥ 5 users as low risk (0% denied); with `device_many_users_90d`
+      in shadow mode nothing denies it. Options: monotonic constraint, a review outcome, or a
+      high-cut-off deny.
+- [ ] **No amount guard.** The model scores purchases above ~$120 lower (deny rate 1.3% → 0.46%),
+      so larger baskets are an evasion route. Options: monotonic constraint on amount, or clip
+      amount at serve time.
+- [ ] **Unresolvable IPs skip the OFAC check** (IPv6, or a made-up `ip_address`). Needs the
+      sanctions owner's sign-off on the list and the policy for Unknown.
+- [ ] **`signup_time` is client-supplied.** A client can send a fake old date. Long term it should
+      come from the server's own account store.
+- [ ] **The model threshold assumes $10 per false decline.** At $40 the cost-optimal threshold
+      moves from 0.843 to ~0.897.
+
+---
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.
@@ -680,8 +727,10 @@ via `asyncio.gather`). On cache hit, skip the DB entirely. On miss, call DB and 
 | `cache:did:{device_id}:{user_id}` | 1h | Device age changes by 1 day/day; 1h staleness is acceptable |
 
 **Trade-off:** `did_days_on_file` can be stale by up to 1 hour. A device that crossed the 90-day
-threshold within the last hour might still be treated as "new" and denied by `ip_country_block`.
-Acceptable given the risk model — the alternative (DB on every request) is worse for latency.
+threshold within the last hour might still be treated as "new" (originally by `ip_country_block`'s
+Unknown-IP clause, removed in the 2026-11 rule review; today only the shadow branch
+`device_many_users_90d` reads it). Acceptable — the alternative (DB on every request) is worse
+for latency.
 
 ---
 

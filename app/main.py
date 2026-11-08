@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.config import settings
 from app.data.data_models import DBWrite, DecisionResponse, Transaction
 from app.data.orm_models import TransactionRecord
-from app.decisions import execute_hard_rules, execute_soft_rules
+from app.decisions import execute_hard_rules, execute_shadow_rules, execute_soft_rules
 from app.decisions.features import build_features, event_ts, update_velocity_counters
 from app.decisions.models import MODEL_VERSION
 from app.decisions.models import score as model_score
@@ -69,6 +69,8 @@ DECISIONS_TOTAL = Counter(
     "fraud_decisions_total", "Total fraud decisions", ["decision"])
 RULE_DENIALS_TOTAL = Counter(
     "fraud_rule_denials_total", "Denials by rule name", ["phase", "rule"])
+RULE_SHADOW_TOTAL = Counter(
+    "fraud_rule_shadow_total", "Shadow-mode rule branches that would have denied", ["rule"])
 COUNTRY_REQUESTS = Counter(
     "fraud_country_requests_total", "Requests by ip_country and decision",
     ["country", "decision"])
@@ -160,6 +162,7 @@ async def run_process(transaction: Transaction,
                   redis: Redis,
                   executor: ThreadPoolExecutor,
 ) -> DecisionResponse:
+    transaction_id = uuid4()
     logger.info("request.received", extra={
         "user_id": transaction.user_id,
         "purchase_value": transaction.purchase_value,
@@ -191,6 +194,20 @@ async def run_process(transaction: Transaction,
         decision_rule = soft_rule
         if soft_decision == 'deny' and soft_rule:
             RULE_DENIALS_TOTAL.labels(phase="soft", rule=soft_rule).inc()
+        # Shadow mode: count and log what these branches would do; the decision is unchanged,
+        # and a bug in shadow code must never fail the request.
+        try:
+            for shadow_rule in execute_shadow_rules(transaction, features, prob):
+                RULE_SHADOW_TOTAL.labels(rule=shadow_rule).inc()
+                logger.info("shadow_rule.would_deny", extra={
+                    "transaction_id": str(transaction_id),
+                    "user_id": transaction.user_id,
+                    "rule": shadow_rule,
+                    "prob": round(prob, 4),
+                    "decision": fraud_decision,
+                })
+        except Exception:
+            logger.exception("shadow_rule.failed", extra={"transaction_id": str(transaction_id)})
         logger.info("model.scored", extra={
             "user_id": transaction.user_id,
             "prob": round(prob, 4),
@@ -200,7 +217,7 @@ async def run_process(transaction: Transaction,
     DECISIONS_TOTAL.labels(decision=fraud_decision).inc()
     COUNTRY_REQUESTS.labels(country=features.ip_country, decision=fraud_decision).inc()
     response = DecisionResponse(
-        transaction_id=uuid4(),
+        transaction_id=transaction_id,
         fraud_decision=fraud_decision,
         response_time=datetime.now(tz=timezone.utc),
     )
