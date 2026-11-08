@@ -82,6 +82,7 @@ _CLEAN_FEATURES = Features(
     source="SEO",
     browser="Chrome",
     sex="M",
+    age=30,
     ip_address=1234567890,
     ip_country="United States",
     days_since_signup=438,
@@ -181,7 +182,7 @@ class TestTransactionEndpoint:
         assert "response_time" in data
 
     @pytest.mark.parametrize("field", [
-        "device_id", "ip_address", "signup_time", "source", "browser", "sex",
+        "device_id", "ip_address", "signup_time", "source", "browser", "sex", "age",
     ])
     def test_missing_required_field_is_422(self, field):
         """A missing required field is a bad request (422), never a 500 and never a fraud
@@ -223,30 +224,6 @@ class TestTransactionEndpoint:
                 _clear_overrides()
         assert resp.status_code == 422
         bf.assert_not_called()
-
-    def test_missing_age_is_decided(self):
-        """age stays optional: a missing one still gets a normal decision."""
-        mock_db = _make_mock_db()
-        mock_redis = _make_mock_redis()
-        _apply_overrides(mock_db, mock_redis)
-        field = "age"
-        payload = {k: v for k, v in _TXN_PAYLOAD.items() if k != field}
-        with (
-            patch("app.main.build_features", new_callable=AsyncMock, return_value=_CLEAN_FEATURES),
-            patch("app.main.model_score", return_value=0.05),
-            patch("app.main.update_velocity_counters", new_callable=AsyncMock),
-        ):
-            try:
-                with TestClient(app) as client:
-                    resp = client.post(
-                        "/api/transactions",
-                        json=payload,
-                        headers={"Idempotency-Key": f"optional-{field}"},
-                    )
-            finally:
-                _clear_overrides()
-        assert resp.status_code == 201
-        assert resp.json()["fraud_decision"] == "allow"
 
     def _post_with_shadow(self, key, **shadow_patch):
         mock_db = _make_mock_db()

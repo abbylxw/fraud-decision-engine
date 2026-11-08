@@ -55,8 +55,10 @@ _AGE_EDGES = [b if b is not None else float("inf") for b in _AGE_BINS[1:]]  # ri
 
 
 def _age_group_code(age: int | None) -> int:
-    """Return the pd.cut bin index for an age value, or -1 if unclassifiable."""
-    if age is None:
+    """Return the pd.cut bin index for an age value, or -1 if unclassifiable.
+    NaN (a missing age in the training replay) is -1 too, same as a live None;
+    bisect would otherwise put it in bin 0."""
+    if age is None or age != age:
         return -1
     return bisect.bisect_left(_AGE_EDGES, age)
 

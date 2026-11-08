@@ -214,7 +214,8 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         "day_of_week": df["purchase_time"].dt.dayofweek,
         "month_of_year": df["purchase_time"].dt.month,
         "age_group": df["age"].map(_age_group_code),
-        "age_account_gap": df["age"] - days.fillna(-999) / 365,
+        # Missing age is -1, as in features/request.py get_age_account_gap.
+        "age_account_gap": df["age"].fillna(-1) - days.fillna(-999) / 365,
     })
     # Grouped country, one-hot (same country_group() as the API).
     groups = df["ip_country"].map(country_group)

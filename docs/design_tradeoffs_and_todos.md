@@ -661,11 +661,17 @@ per false decline, on the Fraud_Data test period (30,223 rows).
   shadow errors are logged, never returned as a 500. The dead "$1M in 90 days" branch was deleted.
   Shadow hits are not stored in the audit row, but every branch input is, so precision can be
   measured offline against chargeback labels.
-- Request schema: `device_id`, `ip_address`, `signup_time`, `source`, `browser` and `sex` are
-  required (HTTP 422 if missing; an empty `device_id` or negative `ip_address` is also 422).
+- Request schema: `device_id`, `ip_address`, `signup_time`, `source`, `browser`, `sex` and `age`
+  are required (HTTP 422 if missing; an empty `device_id` or negative `ip_address` is also 422).
   Leaving out `signup_time` switched off `signup_burst` (0% of bot rows denied vs 100%), and
-  leaving out `source`/`browser`/`sex` let ~60% of model-caught fraud through. `age` stays
-  optional (2 of 104 model denials changed when it was missing).
+  leaving out `source`/`browser`/`sex` let ~60% of model-caught fraud through. Leaving out `age`
+  dropped the model's fraud catches on the test period from 106 to 59; no encoding of "missing"
+  fixes that, because the model never saw a missing age in training. (An earlier small probe
+  showed only 2 of 104; the full-test measurement replaces it.)
+- Training/serving parity for a missing age: the replay encoded a NaN age as `age_group` 0 while
+  live gave −1, and `age_account_gap` was NaN in the replay but −1 − days/365 live. Both now use
+  live's −1 for a missing age (`_age_group_code`, `training/build_features.py`), checked in
+  `tests/test_encoding_contract.py`. Training data is unchanged (Fraud_Data has no missing ages).
 
 **Open risks (not fixed here)**
 - [ ] **Heavy device sharing is not caught.** The model scores a device shared with exactly one
@@ -679,6 +685,9 @@ per false decline, on the Fraud_Data test period (30,223 rows).
       sanctions owner's sign-off on the list and the policy for Unknown.
 - [ ] **`signup_time` is client-supplied.** A client can send a fake old date. Long term it should
       come from the server's own account store.
+- [ ] **Evicted Redis user:** `time_since_last_txn_uid` reads 0 live but the real gap in the replay
+      (the Postgres fallback has no last-transaction query, and its counts stop at 90 days). Not a
+      served-model feature today; fix before any model uses it.
 - [ ] **The model threshold assumes $10 per false decline.** At $40 the cost-optimal threshold
       moves from 0.843 to ~0.897.
 

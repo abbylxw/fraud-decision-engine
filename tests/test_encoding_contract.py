@@ -12,18 +12,21 @@ check the serving dicts reproduce them for every value.
 """
 import json
 import pathlib
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from app.data.data_models import Features
 from app.decisions import models
+from app.decisions.features.request import get_age_account_gap
 from app.decisions.models import (
     _BROWSER_CODES,
     _SEX_CODES,
     _SOURCE_CODES,
     COUNTRY_GROUPS,
     COUNTRY_ONEHOT,
+    _age_group_code,
     country_group,
 )
 from training.build_features import build_feature_frame
@@ -63,6 +66,24 @@ def test_sex_matches_training():
 def test_unknown_sex_is_minus_one(missing):
     # Training fills unmapped sex with -1; serving must do the same.
     assert _SEX_CODES.get(missing or "", -1) == -1
+
+
+def test_missing_age_features_match_training():
+    # The API requires age, but the replay can still see NaN ages. Both paths must give the
+    # same age_group and age_account_gap: training sees NaN, serving sees None.
+    assert _age_group_code(None) == _age_group_code(float("nan")) == -1
+    df = pd.DataFrame({
+        "user_id": ["u0", "u1"], "device_id": ["d0", "d1"], "ip_address": [1, 2],
+        "purchase_value": 10.0, "class": 0, "ip_country": "United States",
+        "purchase_time": pd.date_range("2015-01-01", periods=2, freq="h"),
+        "signup_time": pd.Timestamp("2014-01-01"),
+        "sex": "M", "source": "SEO", "browser": "Chrome", "age": [float("nan"), 30.0],
+    })
+    train = build_feature_frame(df)
+    assert train["age_group"].tolist() == [_age_group_code(None), _age_group_code(30)]
+    days = int(train["days_since_signup"].iloc[0])
+    serving = [get_age_account_gap(SimpleNamespace(age=a), days) for a in (None, 30)]
+    assert train["age_account_gap"].tolist() == pytest.approx(serving)
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +141,7 @@ def test_score_uses_the_one_hot_columns(monkeypatch):
     models.score(Features(user_id="u", signup_time="2014-12-01T00:00:00Z",
                           purchase_time="2015-01-01T00:00:00Z",
                           purchase_value=1.0, device_id="d", source="SEO",
-                          browser="Chrome", sex="M", ip_address=1,
+                          browser="Chrome", sex="M", age=30, ip_address=1,
                           ip_country="Netherlands"))
     assert seen == _serving_row("Netherlands")
     assert seen["ipc_grp_Europe"] == 1

@@ -55,11 +55,6 @@ class TestAgeLimit:
         sample_transaction.age = 120
         assert age_limit(sample_transaction, sample_features) == "deny"
 
-    def test_allow_none_age(self, sample_transaction, sample_features):
-        # age is optional: a missing age is never a deny by itself.
-        sample_transaction.age = None
-        assert age_limit(sample_transaction, sample_features) == "allow"
-
     def test_allow_elderly_with_new_account(self, sample_transaction, sample_features):
         # The age >= 80 + new-account clause was removed.
         sample_transaction.age = 80
@@ -221,10 +216,6 @@ class TestDefaultFeatures:
 
     def test_valid_age_and_defaults_not_hard_denied(self, sample_transaction):
         f = self._defaults(sample_transaction, 30)
-        assert execute_hard_rules(sample_transaction, f) == ("allow", None)
-
-    def test_missing_age_and_defaults_not_hard_denied(self, sample_transaction):
-        f = self._defaults(sample_transaction, None)
         assert execute_hard_rules(sample_transaction, f) == ("allow", None)
 
 

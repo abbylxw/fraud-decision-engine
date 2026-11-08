@@ -26,6 +26,7 @@ _TXN = Transaction(
     source="SEO",
     browser="Chrome",
     sex="M",
+    age=30,
     ip_address=1234567890,
 )
 

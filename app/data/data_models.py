@@ -21,8 +21,9 @@ class Transaction(BaseModel):
     source: str
     browser: str
     sex: str
-    # Optional: a missing age changes few model decisions (2 of 104 in the critic's probe).
-    age: int | None = None
+    # Required: the model never saw a missing age in training. With age left out, its fraud
+    # catches on the Fraud_Data test period drop from 106 to 59 (age-flip-check).
+    age: int
     ip_address: int = Field(ge=0)
 
 class DecisionResponse(BaseModel):
