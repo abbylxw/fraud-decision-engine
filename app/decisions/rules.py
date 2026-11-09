@@ -12,14 +12,19 @@ def age_limit(transaction: Transaction, feature: Features):
         return 'deny'
     return 'allow'
 
-# OFAC-sanctioned countries — transactions originating here are denied.
+# Countries under comprehensive OFAC sanctions — transactions originating here are denied.
+# This is a compliance rule, not a fraud rule: it is not tuned on fraud cost.
+# Russia was removed (2026-11): its sanctions are targeted (sectoral / listed parties), not a
+# country-wide embargo, and blocking every Russian IP denied 332 test rows at a 7% fraud rate
+# (+$3.1k cost; training/rule_backtest.py). Syria stays until checked: its program was
+# reported as lifted in 2025, but sources disagree. Confirm the list with the sanctions owner.
 # ip_country comes from the IP table (IpAddress_to_Country.csv), which uses its own
 # spellings; the short names never match it. tests/test_rules.py checks every name here
 # against the table so a spelling mismatch fails loudly.
 _OFAC_BLOCKED = frozenset({
-    'Cuba', 'Iran (ISLAMIC Republic Of)', 'Russian Federation', 'Syrian Arab Republic',
+    'Cuba', 'Iran (ISLAMIC Republic Of)', 'Syrian Arab Republic',
     # Short aliases, and North Korea, which has no rows in the IP table.
-    'Iran', 'Russia', 'Syria', 'North Korea',
+    'Iran', 'Syria', 'North Korea',
 })
 
 def ip_country_block(transaction: Transaction, feature: Features):

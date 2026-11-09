@@ -84,7 +84,7 @@ class TestAgeLimit:
 class TestIpCountryBlock:
     # The spellings ip_country actually takes (from IpAddress_to_Country.csv).
     @pytest.mark.parametrize("country", [
-        "Cuba", "Iran (ISLAMIC Republic Of)", "Russian Federation", "Syrian Arab Republic",
+        "Cuba", "Iran (ISLAMIC Republic Of)", "Syrian Arab Republic",
     ])
     def test_deny_ip_table_spellings(self, sample_transaction, sample_features, country):
         sample_features.ip_country = country
@@ -94,13 +94,15 @@ class TestIpCountryBlock:
         # The short names alone matched nothing in real traffic, so only Cuba was blocked.
         ip_table = set(json.loads(
             (pathlib.Path(rules.__file__).parent / "ip_country_categories.json").read_text()))
-        aliases_not_in_table = {"Iran", "Russia", "Syria", "North Korea"}
+        aliases_not_in_table = {"Iran", "Syria", "North Korea"}
         assert rules._OFAC_BLOCKED - aliases_not_in_table <= ip_table
         assert aliases_not_in_table.isdisjoint(ip_table)
 
-    def test_deny_russia(self, sample_transaction, sample_features):
-        sample_features.ip_country = "Russia"
-        assert ip_country_block(sample_transaction, sample_features) == "deny"
+    @pytest.mark.parametrize("country", ["Russian Federation", "Russia"])
+    def test_allow_russia(self, sample_transaction, sample_features, country):
+        # Targeted sanctions, not a country-wide embargo: no longer blocked by IP (2026-11).
+        sample_features.ip_country = country
+        assert ip_country_block(sample_transaction, sample_features) == "allow"
 
     def test_deny_iran(self, sample_transaction, sample_features):
         sample_features.ip_country = "Iran"

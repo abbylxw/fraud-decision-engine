@@ -695,6 +695,59 @@ per false decline, on the Fraud_Data test period (30,223 rows).
 
 ---
 
+## Model and Rule Review (2026-11)
+
+Reproduce: `python -m training.evaluate` (model) and `python -m training.rule_backtest` (rules,
+segment thresholds). Same 70/10/20 time split as `train.py`; cost = missed fraud $ + $10 per
+false decline; test = 30,223 rows, 1,389 fraud, deny-nothing cost $51,395.
+
+**Model: not retrained.** The served model at its threshold denies 365 test rows and catches 106
+fraud; it saves ~$1.5k [0.7k, 2.4k] vs denying nothing, about 3%. Real but small. A 16-config
+XGBoost re-check (depth 2–6, min_child_weight 10/50, with and without class weighting) scored
+0.104–0.112 validation PR-AUC vs 0.108 today: within noise. The limit is the data (one purchase
+per user, so most behaviour features are constant), not the tuning.
+
+**Threshold depends on the false-decline cost.** Threshold chosen on validation, test savings:
+$5 → $1.9k [0.7k, 3.1k] (4.5% denied); $10 → $1.5k [0.7k, 2.4k] (0.9%); $25 → about $0
+[−0.7k, 0.3k]. At $25 or more per wrongly declined customer the model is not worth running on
+this data, so the $10 assumption is the most important open business input.
+
+**Rules on the test period**
+| Rule | Fires | Precision | Cost change on top of model |
+|---|---|---|---|
+| `signup_burst` | 0 (7,600 on all rows, all fraud, all January) | 100% | works as designed |
+| `age_limit` | 0 | — | data check only |
+| `ip_country_block`, with Russia | 409 | 5.9% [4.0, 8.6] | +$3,133 |
+| `ip_country_block`, without Russia (now) | 77 | 0% [0, 4.8] | +$760 (cost of compliance) |
+| 5 shadow branches | 0 | — | never fire on one-purchase-per-user data |
+
+**Change: Russia removed from `ip_country_block`.** The rule is for comprehensive (country-wide)
+OFAC sanctions. Russia's sanctions are targeted (sectoral, listed parties), so a country-wide IP
+block was broader than the policy. It denied 332 test rows at a 7.2% fraud rate (base 4.6%),
+about twice what the model saves. Russia stays a model input (`ipc_grp_Europe`).
+
+**Segment thresholds (rule condition + model score) don't help here.** "Deny if in segment S and
+score ≥ t" with t below the global threshold, using a model fit on the train period only (the
+served model was refit on train + validation, so its validation scores are optimistic). t is
+chosen on validation; test is scored once:
+- device shared (`did_uid_90d ≥ 1`, 23% fraud): t 0.833 vs 0.843, test +$85 [−358, 536]: noise.
+- OFAC countries: a cut-off that helped on validation (4 fraud) cost +$290 [185, 410] on test,
+  an example of a tiny segment overfitting.
+- Russia, Unknown IP, new account, amount ≥ $100, shared IP: no cut-off helps on validation.
+
+The model already sees country, device sharing and account age, so a segment threshold
+counts the same signal twice. Score + rule combinations are worth it for signals the model
+can't see (true velocity bursts, chargeback history), which is what the `elevated_score_*`
+shadow branches wait for: they need repeat-user data.
+
+**Open**
+- [ ] **Syria:** its sanctions program was reported as lifted in 2025, but sources disagree. It
+      stays blocked until the sanctions owner confirms the list against OFAC's own publications.
+- [ ] **Sub-country sanctions** (Crimea, so-called DNR/LNR) can't be enforced with a
+      country-level IP table.
+
+---
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.
