@@ -91,7 +91,13 @@ curl http://localhost:8000/health
 
 ```bash
 python app/data/client_mimic.py   # 400 RPS for 120s, cycles through Fraud_Data.csv
+python app/data/client_mimic.py --source sparkov   # repeat customers (needs data/external/sparkov/)
 ```
+
+`--source sparkov` replays Sparkov card transactions (~100 purchases per card), so the per-user
+Redis windows fill up the way they would in production. Sparkov has no device, IP, source,
+browser or signup time, so the client makes them up: use it for latency and load, not to judge
+the model's decisions.
 
 ## Running Tests
 

@@ -860,3 +860,21 @@ run manually:
 ```bash
 docker compose exec db psql -U postgres -d fraud -c "$(cat app/data/db_init/004_create_transactions.sql)"
 ```
+
+---
+
+### Load test with repeat customers: `client_mimic.py --source sparkov` (2026-11)
+
+**Problem:** Fraud_Data has one purchase per user, so a load test never grows the per-user Redis
+sets past one entry. The window reads, the 90-day purge and Opt 7's Python-side filtering are
+never exercised at realistic sizes.
+
+**Change:** `--source sparkov` replays the first 100k rows of Sparkov `fraudTrain.csv` (922 cards,
+median 106 purchases per card, Jan-Feb 2019). Sparkov has no device, IP, source, browser or signup
+time, so the client makes them up: one device and one US IP per card, `Direct` / `Chrome`, and
+signup 365 days before the card's first purchase (signup = first purchase would trip
+`signup_burst` on every card; combined-dataset-model summary, recommendation 4).
+
+**Trade-off:** This is for latency and Redis load only. The served model can't score
+Sparkov-shaped traffic (combined-dataset-model, section 3), so the allow/deny decisions from this
+mode are not an evaluation. The data stays in `data/external/` and never enters the Docker image.
