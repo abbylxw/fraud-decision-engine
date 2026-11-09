@@ -92,7 +92,11 @@ curl http://localhost:8000/health
 ```bash
 python app/data/client_mimic.py   # 400 RPS for 120s, cycles through Fraud_Data.csv
 python app/data/client_mimic.py --source sparkov   # repeat customers (needs data/external/sparkov/)
+python app/data/client_mimic.py --rps 50 --duration 60   # choose the rate and length
 ```
+
+The summary prints the target and the achieved RPS (successful responses per second), plus
+p50/p95/p99 latency.
 
 `--source sparkov` replays Sparkov card transactions (~100 purchases per card), so the per-user
 Redis windows fill up the way they would in production. Sparkov has no device, IP, source,
@@ -294,10 +298,13 @@ See trade-off #12 in the design doc.
 Soft rules (velocity anomalies, model threshold) run after. This avoids model overhead for
 clear-cut cases and keeps rule logic separated from model logic.
 
-**Multi-worker scaling** — 8 uvicorn workers, each with its own async event loop. The per-worker
-ceiling is ~65 RPS (event loop callback queue saturation). Total ceiling: ~520 RPS on a 10-core
-machine. DB connection pool sized at `pool_size=5, max_overflow=6` per worker (88 total
-connections, within Postgres's default `max_connections=100`).
+**Multi-worker scaling** — 8 uvicorn workers, each with its own async event loop, and a DB
+connection pool of `pool_size=5, max_overflow=6` per worker (88 total connections, within
+Postgres's default `max_connections=100`). In April this reached ~520 RPS. The November
+re-measurement found ~50 RPS for repeat customers and under 30 RPS for new users. The cause is
+a missing index on the audit table's `user_id`: the Redis-miss fallback scans the whole table,
+and the table grows with every load test. Fix and numbers:
+[docs/performance_2026-11.md](docs/performance_2026-11.md).
 
 See [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md) for full trade-off notes.
 See [docs/performance_investigation.md](docs/performance_investigation.md) for load test methodology and findings.

@@ -1,5 +1,10 @@
 # Performance Investigation — Docker Load Test (2026-04-08)
 
+> **Superseded (2026-11-08):** the ceiling and "400 RPS safe" figures below no longer hold.
+> Re-measured at ~50 RPS (repeat customers) and under 30 RPS (new users), because of a missing
+> index on `transactions.user_id`. See [performance_2026-11.md](performance_2026-11.md).
+> This file is kept as the history of the April investigation.
+
 ## Complete Investigation Summary (2026-04-08/09)
 
 ### Phase 1 — Initial Grafana observations at 150 RPS

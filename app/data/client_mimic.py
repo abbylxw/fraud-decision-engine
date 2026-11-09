@@ -74,10 +74,12 @@ async def send(client, row, url, idempotency_key):
     except Exception:
         return 0, 0.0
 
-async def main(rps=500, duration_seconds=30, source="fraud_data"):
+API_URL = "http://127.0.0.1:8000/api/transactions"
+
+
+async def main(rps=500, duration_seconds=30, source="fraud_data", url=API_URL):
     rows = load_sparkov() if source == "sparkov" else load_csv()
     infinite_rows = itertools.cycle(rows)
-    url = "http://127.0.0.1:8000/api/transactions"
 
     # One request every 1/rps seconds — steady drip, not per-second bursts.
     interval = 1.0 / rps
@@ -162,5 +164,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load test the fraud API.")
     parser.add_argument("--source", choices=["fraud_data", "sparkov"], default="fraud_data",
                         help="sparkov: repeat customers, made-up fields (load test only)")
+    parser.add_argument("--rps", type=int, default=400, help="target requests per second")
+    parser.add_argument("--duration", type=int, default=120, help="send window in seconds")
+    parser.add_argument("--url", default=API_URL,
+                        help="endpoint to load (e.g. a stub server, to find the client's own ceiling)")
     args = parser.parse_args()
-    asyncio.run(main(rps=400, duration_seconds=120, source=args.source))
+    asyncio.run(main(rps=args.rps, duration_seconds=args.duration, source=args.source, url=args.url))
