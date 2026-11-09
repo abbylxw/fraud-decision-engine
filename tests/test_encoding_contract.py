@@ -84,6 +84,19 @@ def test_missing_age_features_match_training():
     days = int(train["days_since_signup"].iloc[0])
     serving = [get_age_account_gap(SimpleNamespace(age=a), days) for a in (None, 30)]
     assert train["age_account_gap"].tolist() == pytest.approx(serving)
+    assert serving[0] == -999          # a sentinel, not a plausible gap
+
+
+def test_missing_signup_age_gap_matches_training():
+    df = pd.DataFrame({
+        "user_id": ["u0"], "device_id": ["d0"], "ip_address": [1],
+        "purchase_value": 10.0, "class": 0, "ip_country": "United States",
+        "purchase_time": [pd.Timestamp("2015-01-01")], "signup_time": [pd.NaT],
+        "sex": "M", "source": "SEO", "browser": "Chrome", "age": [30],
+    })
+    train = build_feature_frame(df)
+    assert train["days_since_signup"].iloc[0] == -999
+    assert train["age_account_gap"].iloc[0] == get_age_account_gap(SimpleNamespace(age=30), -999) == -999
 
 
 # ---------------------------------------------------------------------------

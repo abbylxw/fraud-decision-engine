@@ -38,8 +38,10 @@ def get_days_since_signup_group(days_since_signup: int) -> str:
 
 
 def get_age_account_gap(t: Transaction, days_since_signup: int) -> float:
-    age = t.age if t.age is not None else -1
-    return age - days_since_signup / 365
+    # -999 sentinel when age or signup is missing: any formula value would look like a real gap.
+    if t.age is None or days_since_signup == -999:
+        return -999.0
+    return t.age - days_since_signup / 365
 
 
 def get_hour_of_day(t: Transaction) -> int:

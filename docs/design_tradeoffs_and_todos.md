@@ -669,9 +669,11 @@ per false decline, on the Fraud_Data test period (30,223 rows).
   fixes that, because the model never saw a missing age in training. (An earlier small probe
   showed only 2 of 104; the full-test measurement replaces it.)
 - Training/serving parity for a missing age: the replay encoded a NaN age as `age_group` 0 while
-  live gave −1, and `age_account_gap` was NaN in the replay but −1 − days/365 live. Both now use
-  live's −1 for a missing age (`_age_group_code`, `training/build_features.py`), checked in
-  `tests/test_encoding_contract.py`. Training data is unchanged (Fraud_Data has no missing ages).
+  live gave −1, and `age_account_gap` was NaN in the replay but −1 − days/365 live. Now
+  `age_group` is −1 on both paths, and `age_account_gap` is the sentinel −999 on both whenever age
+  or signup time is missing (a formula value would look like a real gap). Checked in
+  `tests/test_encoding_contract.py`. Training data is unchanged (Fraud_Data has no missing ages or
+  signup times).
 
 **Open risks (not fixed here)**
 - [ ] **Heavy device sharing is not caught.** The model scores a device shared with exactly one
