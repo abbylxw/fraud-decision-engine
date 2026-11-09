@@ -5,7 +5,12 @@ Replaces the "~520 RPS ceiling / 400 RPS safe" numbers from
 
 ## Summary
 
-- **Today's ceiling is about 50 RPS for repeat customers and under 30 RPS for new users**, not 520.
+**Update (2026-11-09):** fixes 1 and 2 below are in. The ceiling is now about **400 RPS for
+repeat customers and 300–400 RPS for new users**, with server time ~4–6 ms per request.
+See [After fixes 1–2](#after-fixes-12-2026-11-09). The rest of this section describes the
+state before the fix.
+
+- **The ceiling before the fix was about 50 RPS for repeat customers and under 30 RPS for new users**, not 520.
 - **Cause: the `transactions` audit table has no index on `user_id`.**
   - For every user Redis has no history for (a new user, or after a Redis flush or eviction),
     `_purchase_counts_from_db` runs two queries filtered by `user_id`.
@@ -86,13 +91,57 @@ card's first.
   buffers. The audit table's only indexes are the primary key and `model_version`.
 - **IP lookup:** `ip_country WHERE ip_range @> ip` uses the GiST index, 0.03 ms. Fine.
 
-## Proposed improvements (ranked; none implemented yet)
+## Proposed improvements (ranked)
 
-| # | Change | Expected effect | Effort |
-|---|---|---|---|
-| 1 | **Index `transactions (user_id, purchase_time)`.** New `db_init/006_*.sql` for fresh databases, plus a one-off `CREATE INDEX CONCURRENTLY` for the existing one | The fallback goes from a ~30 ms full scan to an index lookup under 1 ms. This removes the DB CPU saturation behind both modes' collapse, and the cost stops growing with table size | Small |
-| 2 | **One fallback query instead of two.** Fetch the user's 90-day rows once and compute the counts and median in Python, reusing `_parse_purchase_entries` | Halves the cold-path DB round-trips | Small |
-| 3 | **Benchmark hygiene.** Record the table sizes with every result, and start each sweep from the same database state | Makes runs comparable. Today's numbers depend on how many earlier tests filled the audit table | Small |
-| 4 | **Re-measure, then look at the per-worker event loop.** April found ~65 RPS per worker from event-loop saturation. Velocity updates and ~5 JSON log lines per request run on the loop | Unknown until #1 is in. Only worth doing if the new ceiling is still well below April's 520 | Medium |
+| # | Change | Expected effect | Effort | Status |
+|---|---|---|---|---|
+| 1 | **Index `transactions (user_id, purchase_time)`.** New `db_init/006_*.sql` for fresh databases, plus a one-off `CREATE INDEX CONCURRENTLY` for the existing one | The fallback goes from a ~30 ms full scan to an index lookup under 1 ms. This removes the DB CPU saturation behind both modes' collapse, and the cost stops growing with table size | Small | Done 2026-11-09 |
+| 2 | **One fallback query instead of two.** Fetch the user's 90-day rows once and compute the counts and median in Python, reusing `_parse_purchase_entries` | Halves the cold-path DB round-trips | Small | Done 2026-11-09 |
+| 3 | **Benchmark hygiene.** Record the table sizes with every result, and start each sweep from the same database state | Makes runs comparable. Today's numbers depend on how many earlier tests filled the audit table | Small | Partly: row counts are now recorded per step. The table is not reset between sweeps; with the index, lookup cost barely depends on table size |
+| 4 | **Re-measure, then look at the per-worker event loop.** April found ~65 RPS per worker from event-loop saturation. Velocity updates and ~5 JSON log lines per request run on the loop | Unknown until #1 is in. Only worth doing if the new ceiling is still well below April's 520 | Medium | Open: see below |
 
 Each change gets the same sweep before and after, with the same command lines.
+
+## After fixes 1–2 (2026-11-09)
+
+Same machine, same commands and same procedure as above (Redis `FLUSHALL` and a 60 s run per
+step, 30 s warm-up per mode). The index was built on the live database with
+`CREATE INDEX CONCURRENTLY` (7.8 MB), and the API image was rebuilt with the one-query fallback.
+
+**Query plan:** the purchase-history fallback for one user went from a Parallel Seq Scan at
+46.4 ms (433k rows) to an Index Scan on `idx_transactions_user_time` at 0.22 ms.
+
+**Sweep** (`transactions` row count at the start of each step; it grew from 434,581 to
+583,875 during the sweep, because every request adds an audit row):
+
+| Mode | Target RPS | Achieved RPS | Errors | p50 | p95 | p99 | Server time per request | Rows at start |
+|---|---|---|---|---|---|---|---|---|
+| sparkov | 50 | 50 | 0 | 8 ms | 9 ms | 11 ms | 4.9 ms | 434,581 |
+| | 100 | 100 | 0 | 6 ms | 8 ms | 11 ms | 3.5 ms | 437,580 |
+| | 200 | 200 | 0 | 5 ms | 8 ms | 10 ms | 2.7 ms | 443,577 |
+| | 300 | 293 | 0 | 5 ms | 214 ms | 452 ms | 3.9 ms | 455,570 |
+| | 400 | 400 | 0 | 7 ms | 132 ms | 323 ms | 4.8 ms | 473,181 |
+| | 500 | 382 | 0 | 117 ms | 423 ms | 655 ms | 5.5 ms | 497,167 |
+| fraud_data | 50 | 50 | 0 | 8 ms | 10 ms | 12 ms | 5.6 ms | 521,618 |
+| | 100 | 100 | 0 | 6 ms | 7 ms | 9 ms | 3.8 ms | 524,617 |
+| | 200 | 200 | 0 | 6 ms | 8 ms | 38 ms | 3.9 ms | 530,615 |
+| | 300 | 300 | 0 | 6 ms | 7 ms | 10 ms | 3.8 ms | 542,610 |
+| | 400 | 387 | 0 | 6 ms | 125 ms | 359 ms | 4.5 ms | 560,599 |
+| | 500 | 448 | 0 | 50 ms | 369 ms | 588 ms | 6.6 ms | 583,875 |
+
+"Server time per request" is the `/metrics` request histogram, averaged over the step.
+Per step at 300 RPS: feature_extraction 0.6 ms (sparkov) / 1.2 ms (fraud_data), down from
+33 / 57 ms at 30 RPS before; model_inference ~2 ms; db_write ~0.5–0.8 ms.
+
+**Reading it:**
+- No errors at any rate in either mode (before: up to 864 timeouts per step).
+- Both modes hold p95 under 250 ms up to 400 RPS. New-user traffic (fraud_data) is now as fast as
+  repeat customers, because the cold path no longer scans the table.
+- Sparkov at 300 RPS had a short stall (676 skipped slots, p95 214 ms) while 400 RPS was clean.
+  This looks like a one-off hiccup (for example autovacuum on the growing table), not a ceiling.
+  A repeat run would confirm it.
+- From ~400 RPS, client-side latency rises while server time per request stays at ~4–6 ms.
+  The extra waiting happens outside the measured handler: in the uvicorn/event-loop queue, the
+  fire-and-forget velocity updates and the per-request log lines. The client is not the limit
+  (~800 RPS against the stub). That is improvement #4. The new ceiling (~400) is close to April's
+  520, so #4 is optional, not urgent.

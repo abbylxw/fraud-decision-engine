@@ -301,9 +301,12 @@ clear-cut cases and keeps rule logic separated from model logic.
 **Multi-worker scaling** — 8 uvicorn workers, each with its own async event loop, and a DB
 connection pool of `pool_size=5, max_overflow=6` per worker (88 total connections, within
 Postgres's default `max_connections=100`). In April this reached ~520 RPS. The November
-re-measurement found ~50 RPS for repeat customers and under 30 RPS for new users. The cause is
-a missing index on the audit table's `user_id`: the Redis-miss fallback scans the whole table,
-and the table grows with every load test. Fix and numbers:
+re-measurement found ~50 RPS for repeat customers and under 30 RPS for new users. The cause was
+a missing index on the audit table's `user_id`: the Redis-miss fallback scanned the whole table
+(~46 ms at 433k rows), and the table grows with every load test. With the index
+(`db_init/006`, 0.22 ms per lookup; on an existing database apply it by hand, the command is
+in the script) and a single fallback query, both modes run without errors
+and with p95 under 250 ms up to ~400 RPS, at ~4–6 ms of server time per request. Details:
 [docs/performance_2026-11.md](docs/performance_2026-11.md).
 
 See [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md) for full trade-off notes.

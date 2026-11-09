@@ -9,7 +9,6 @@ Reads happen in build_features() (features/__init__.py) as one Redis pipeline.
 """
 import asyncio
 import logging
-import statistics
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -24,69 +23,37 @@ NINETY_DAYS = 90 * 86400
 
 # ---------------------------------------------------------------------------
 # DB fallback — called by build_features() when Redis has no purchase history
-# for the user (cold start, eviction). One SQL query with COUNT(CASE WHEN ...)
-# per time window, all relative to :as_of (the transaction's own time).
-# asyncpg sends :as_of untyped, and Postgres would read `:as_of - INTERVAL` as
-# interval - interval, so :as_of is cast to timestamptz explicitly.
+# for the user (cold start, eviction). One query fetches the user's last 90 days
+# of rows (an index lookup on idx_transactions_user_time, see db_init/006); the
+# windows, sums and median are then computed by the same parser the Redis path
+# uses, so the two paths cannot disagree. All windows count back from :as_of
+# (the transaction's own time). asyncpg sends :as_of untyped, and Postgres would
+# read `:as_of - INTERVAL` as interval - interval, so it is cast explicitly.
 # ---------------------------------------------------------------------------
 
 async def _purchase_counts_from_db(user_id: str, db: AsyncSession, as_of: float) -> dict:
+    # Imported here: features/__init__.py imports this module at load time.
+    from . import _parse_purchase_entries
+
     as_of_dt = datetime.fromtimestamp(as_of, tz=timezone.utc)
-    row = (await db.execute(text("""
-        SELECT
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   THEN purchase_value ELSE 0 END),
-          COUNT(1),
-          SUM(purchase_value),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '5 minutes'  AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '10 minutes' AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '1 hour'    AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '24 hours'  AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '7 days'    AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   AND fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '30 days'   AND fraud_decision != 'deny' THEN purchase_value ELSE 0 END),
-          COUNT(CASE WHEN fraud_decision != 'deny' THEN 1 END),
-          SUM(CASE WHEN fraud_decision != 'deny' THEN purchase_value ELSE 0 END)
+    rows = (await db.execute(text("""
+        SELECT transaction_id, purchase_value, purchase_time, fraud_decision
         FROM transactions
         WHERE user_id = :user_id
           AND purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '90 days'
           AND purchase_time <= :as_of
-    """), {"user_id": user_id, "as_of": as_of_dt})).one()
+    """), {"user_id": user_id, "as_of": as_of_dt})).all()
 
-    windows = ["5min", "10min", "1h", "24h", "7d", "30d", "90d"]
-    out = {}
-    for i, w in enumerate(windows):
-        out[f"cnt_{w}"]         = int(row[i * 2]     or 0)
-        out[f"amt_{w}"]         = float(row[i * 2 + 1] or 0.0)
-    for i, w in enumerate(windows):
-        out[f"success_cnt_{w}"] = int(row[14 + i * 2]     or 0)
-        out[f"success_amt_{w}"] = float(row[14 + i * 2 + 1] or 0.0)
-
-    # Median: fetch raw 90d amounts for Python-side calculation
-    amounts = [float(r[0]) for r in (await db.execute(text("""
-        SELECT purchase_value FROM transactions
-        WHERE user_id = :user_id
-          AND purchase_time >= CAST(:as_of AS timestamptz) - INTERVAL '90 days'
-          AND purchase_time <= :as_of
-    """), {"user_id": user_id, "as_of": as_of_dt})).all()]
-    out["median_amt_90d"] = statistics.median(amounts) if amounts else 0.0
-
-    return out
+    # Same (member, score) shape as the Redis purchase:all / purchase:success sets.
+    all_entries = [(f"{tid}:{float(value)}", pt.timestamp()) for tid, value, pt, _ in rows]
+    suc_entries = [(f"{tid}:{float(value)}", pt.timestamp())
+                   for tid, value, pt, decision in rows if decision != 'deny']
+    windows = {
+        "5min": as_of - 300, "10min": as_of - 600, "1h": as_of - 3600,
+        "24h": as_of - 86400, "7d": as_of - 604800, "30d": as_of - 2592000,
+        "90d": as_of - NINETY_DAYS,
+    }
+    return _parse_purchase_entries(all_entries, suc_entries, windows)
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ transaction's time", not the server's NOW().
 
 Redis is an in-memory fake (fakeredis); Postgres is a mock that records its queries.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,16 +29,30 @@ def _txn(**overrides) -> Transaction:
     return Transaction(**(base | overrides))
 
 
-def _mock_db(purchase_row=None, amounts=()):
-    """Postgres mock for the purchase-history fallback: first execute() returns the
-    aggregate row, the second returns the raw 90-day amounts (for the median)."""
-    agg = MagicMock()
-    agg.one.return_value = purchase_row if purchase_row is not None else (0,) * 28
-    raw = MagicMock()
-    raw.all.return_value = [(a,) for a in amounts]
+def _mock_db(rows=()):
+    """Postgres mock for the purchase-history fallback: its one execute() returns the
+    user's 90-day rows as (transaction_id, purchase_value, purchase_time, fraud_decision)."""
+    result = MagicMock()
+    result.all.return_value = list(rows)
     db = AsyncMock()
-    db.execute = AsyncMock(side_effect=[agg, raw])
+    db.execute = AsyncMock(return_value=result)
     return db
+
+
+# One user's history before PURCHASE_TIME: (minutes earlier, amount, decision).
+HISTORY = [
+    (3, 10.0, "allow"),             # inside 5min
+    (120, 20.0, "deny"),            # inside 24h, but not a successful purchase
+    (2 * 1440, 30.0, "allow"),      # inside 7d
+    (20 * 1440, 40.0, "allow"),     # inside 30d
+    (60 * 1440, 50.0, "allow"),     # inside 90d only
+]
+
+
+def _history_rows():
+    now = PURCHASE_TIME.replace(tzinfo=timezone.utc)
+    return [(f"h{i}", amount, now - timedelta(minutes=mins), decision)
+            for i, (mins, amount, decision) in enumerate(HISTORY)]
 
 
 @pytest.fixture
@@ -66,7 +80,7 @@ class TestPurchaseHistoryFallback:
         db = _mock_db()
         await build_features(_txn(), db, redis)
 
-        assert db.execute.await_count == 2
+        assert db.execute.await_count == 1   # one query, not one per aggregate
         params = db.execute.await_args_list[0].args[1]
         # The window is anchored on purchase_time (read as UTC), not the server clock.
         assert params["as_of"] == PURCHASE_TIME.replace(tzinfo=timezone.utc)
@@ -83,16 +97,35 @@ class TestPurchaseHistoryFallback:
             assert ":as_of - INTERVAL" not in sql
             assert "CAST(:as_of AS timestamptz) - INTERVAL" in sql
 
-    async def test_db_values_flow_into_features(self, redis):
-        # cnt/amt pairs for 5min..90d, then success cnt/amt pairs for 5min..90d
-        row = (1, 10.0, 1, 10.0, 1, 10.0, 2, 30.0, 3, 60.0, 4, 100.0, 5, 150.0) * 2
-        db = _mock_db(row, amounts=[10.0, 20.0, 30.0, 40.0, 50.0])
-        f = await build_features(_txn(), db, redis)
+    async def test_db_rows_flow_into_features(self, redis):
+        f = await build_features(_txn(), _mock_db(_history_rows()), redis)
 
-        assert f.purchase_cnt_24h == 2
-        assert f.purchase_amt_30d == 100.0
+        assert f.purchase_cnt_5min == 1
+        assert (f.purchase_cnt_24h, f.purchase_amt_24h) == (2, 30.0)
+        assert f.purchase_success_cnt_24h == 1       # the denied purchase is not a success
+        assert (f.purchase_cnt_30d, f.purchase_amt_30d) == (4, 100.0)
         assert f.purchase_cnt_90d == 5
+        assert f.purchase_success_amt_90d == 130.0
         assert f.pur_median_amt_90d == 30.0
+
+    async def test_db_fallback_matches_redis_path(self, redis):
+        # The same history must give the same purchase features whether it is read
+        # from Postgres (cold start) or from Redis (warm path).
+        from_db = await build_features(_txn(), _mock_db(_history_rows()), redis)
+
+        for tid, amount, pt, decision in _history_rows():
+            earlier = _txn(purchase_time=pt.replace(tzinfo=None), purchase_value=amount)
+            await _record(redis, earlier, tid, decision)
+        db = _mock_db()
+        from_redis = await build_features(_txn(), db, redis)
+
+        db.execute.assert_not_awaited()
+        purchase_fields = [k for k in from_db.model_dump()
+                           if k.startswith("purchase_") and k not in ("purchase_value", "purchase_time")]
+        purchase_fields.append("pur_median_amt_90d")
+        assert len(purchase_fields) > 20
+        for k in purchase_fields:
+            assert getattr(from_db, k) == pytest.approx(getattr(from_redis, k)), k
 
     async def test_redis_history_skips_db(self, redis):
         earlier = _txn(purchase_time=datetime(2015, 6, 1, 11, 0, 0), purchase_value=25.0)
