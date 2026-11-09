@@ -98,7 +98,7 @@ card's first.
 | 1 | **Index `transactions (user_id, purchase_time)`.** New `db_init/006_*.sql` for fresh databases, plus a one-off `CREATE INDEX CONCURRENTLY` for the existing one | The fallback goes from a ~30 ms full scan to an index lookup under 1 ms. This removes the DB CPU saturation behind both modes' collapse, and the cost stops growing with table size | Small | Done 2026-11-09 |
 | 2 | **One fallback query instead of two.** Fetch the user's 90-day rows once and compute the counts and median in Python, reusing `_parse_purchase_entries` | Halves the cold-path DB round-trips | Small | Done 2026-11-09 |
 | 3 | **Benchmark hygiene.** Record the table sizes with every result, and start each sweep from the same database state | Makes runs comparable. Today's numbers depend on how many earlier tests filled the audit table | Small | Partly: row counts are now recorded per step. The table is not reset between sweeps; with the index, lookup cost barely depends on table size |
-| 4 | **Re-measure, then look at the per-worker event loop.** April found ~65 RPS per worker from event-loop saturation. Velocity updates and ~5 JSON log lines per request run on the loop | Unknown until #1 is in. Only worth doing if the new ceiling is still well below April's 520 | Medium | Open: see below |
+| 4 | **Re-measure, then look at the per-worker event loop.** April found ~65 RPS per worker from event-loop saturation. Velocity updates and ~5 JSON log lines per request run on the loop | Unknown until #1 is in. Only worth doing if the new ceiling is still well below April's 520 | Medium | Investigated 2026-11-09: logging and velocity updates are <5% of worker time. Fixed instead: XGBoost thread oversubscription (`n_jobs=1` at serving). Above ~500 RPS the laptop setup, not the API, is the limit. See [Fix 4](#fix-4-what-limits-throughput-above-400-rps-2026-11-09) |
 
 Each change gets the same sweep before and after, with the same command lines.
 
@@ -145,3 +145,57 @@ Per step at 300 RPS: feature_extraction 0.6 ms (sparkov) / 1.2 ms (fraud_data), 
   fire-and-forget velocity updates and the per-request log lines. The client is not the limit
   (~800 RPS against the stub). That is improvement #4. The new ceiling (~400) is close to April's
   520, so #4 is optional, not urgent.
+
+## Fix 4: what limits throughput above ~400 RPS (2026-11-09)
+
+**1. The single load client was the limit.** One `client_mimic.py` process at 500 RPS reached
+406 RPS (p95 427 ms). Two processes at 250 each, same total, reached the full 500 (p95 ~35 ms).
+One Python process juggling hundreds of in-flight requests adds its own delay, which shows up as
+latency and skipped send slots. The ~400 RPS "ceiling" in the sweep above is the client's.
+
+Running several clients needs care: the client's idempotency key is `{user_id}-{counter}`, so
+two clients replaying the same file send identical keys and the API correctly answers 409.
+Runs below pair one `fraud_data` client with one `sparkov` client (user ids never overlap).
+
+**2. The API's workers are not CPU-bound.** At 500–800 RPS, per-worker CPU (from
+`/proc/<pid>/stat`) was 0–60% for most workers. It was also uneven: each client keep-alive
+connection stays on the worker that accepted it, so two workers sat near 0% while one hit ~100%.
+Postgres used ~20% of a core and Redis ~16%.
+
+**3. Profile** (`py-spy record` on all 8 workers, 25 s at ~600 RPS, run from a throwaway
+container with `--pid=container:<api>`; share of non-idle samples):
+
+| Where | Share |
+|---|---|
+| uvicorn / uvloop event loop and network I/O | ~47–52% |
+| XGBoost `predict_proba` (incl. `to_numpy`) | ~28% |
+| FastAPI routing and dependencies | 15% |
+| SQLAlchemy/asyncpg and Redis client | ~17% |
+| JSON logging | 4% |
+| Velocity counter updates (background) | 0.4% |
+| Prometheus metrics | 0.3% |
+
+Logging and the velocity updates, the two suspects from April, are too small to be worth changing.
+
+**4. Fixed: XGBoost thread oversubscription.** The model is trained with `n_jobs=-1`, and
+joblib keeps that setting, so every one-row prediction fanned out over all 10 cores, in each of
+8 workers. Benchmark inside the API container, 8 processes predicting at once for 10 s:
+
+| Serving setting | p50 per prediction | p99 | Predictions/s (all 8) |
+|---|---|---|---|
+| `n_jobs=-1` (as trained) | 6.7 ms | 15 ms | 1,125 |
+| `n_jobs=1` | 1.2 ms | 4.6 ms | 4,308 |
+
+`app/decisions/models.py` now sets `n_jobs=1` after loading. Scores are bit-for-bit identical
+(37k rows in batch and 500 single-row calls compared against the model as saved). Training is
+unchanged. At 600 RPS the busiest worker dropped from ~106% to ~80% CPU.
+
+**5. Above ~500 RPS the test machine is the limit.** During a 600 RPS run the Docker Desktop VM
+process used ~630% of host CPU while the containers inside reported ~300–400%. The rest is
+virtualization and host-to-VM port forwarding. The M4 has 4 performance and 6 efficiency cores,
+so beyond ~4 cores the VM partly runs on the slower cores. Identical 600 RPS runs gave anywhere
+from 371 to 599 RPS achieved, and one reached the full 600 at p95 ~40 ms.
+
+**Conclusion:** on this laptop the API sustains ~500 RPS cleanly (two clients, p95 under 50 ms)
+and sometimes 600. A real ceiling needs the load generator on a separate machine (or a Linux
+host without the VM) and a load balancer that spreads connections across workers.

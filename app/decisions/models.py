@@ -11,6 +11,11 @@ from app.data.data_models import Features
 _base = pathlib.Path(__file__).parent
 
 _model     = joblib.load(_base / "model.joblib")
+# Trained with n_jobs=-1 (all cores). Serving scores one row per call from 8 uvicorn workers
+# at once, so all-cores means ~80 threads fighting over 10 CPUs: 6.7 ms vs 1.2 ms per
+# prediction, ~4x lower throughput (docs/performance_2026-11.md). Scores are unchanged.
+if hasattr(_model, "set_params") and "n_jobs" in _model.get_params():
+    _model.set_params(n_jobs=1)
 _features  = json.loads((_base / "model_features.json").read_text())
 _countries = json.loads((_base / "ip_country_categories.json").read_text())
 
