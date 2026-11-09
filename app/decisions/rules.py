@@ -3,9 +3,10 @@ from app.decisions.models import ELEVATED_SCORE, THRESHOLD
 
 
 def age_limit(transaction: Transaction, feature: Features):
-    """Data check only: deny an age that can't be real. A missing age is not a deny
-    (age is optional; the model decides). The old 'age >= 80 + new account' clause was
-    removed (rule-logic-review): it had no supporting data and denied by age alone."""
+    """Data check only: deny an age that can't be real. The request requires age (HTTP 422
+    if missing); the None check only guards callers that build a Transaction without
+    validation. The old 'age >= 80 + new account' clause was removed (rule-logic-review):
+    it had no supporting data and denied by age alone."""
     age = transaction.age
     if age is not None and (age < 0 or age >= 110):
         return 'deny'

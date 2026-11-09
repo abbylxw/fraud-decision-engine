@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from prometheus_client import Counter, Histogram, make_asgi_app
+from prometheus_client import CollectorRegistry, Counter, Histogram, make_asgi_app, multiprocess
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -93,6 +94,23 @@ BACKGROUND_TASK_FAILURES = Counter(
     "fraud_background_task_failures_total", "Fire-and-forget tasks that raised", ["task"])
 
 
+def _metrics_app():
+    """/metrics for one process, or for all uvicorn workers in multiprocess mode.
+    Each worker keeps its own counters, so with --workers 8 a plain make_asgi_app() answers
+    each scrape from one random worker (~1/8 of the traffic). With PROMETHEUS_MULTIPROC_DIR
+    set (docker-compose; the Dockerfile wipes it at start) every worker writes its metrics
+    to files there, and each scrape adds them up. Per the prometheus_client docs the
+    registry is built per request, so this worker's metrics aren't counted twice."""
+    if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
+        return make_asgi_app()
+
+    async def app(scope, receive, send):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        await make_asgi_app(registry)(scope, receive, send)
+    return app
+
+
 # ---------------------------------------------------------------------------
 # Fire-and-forget tasks
 # ---------------------------------------------------------------------------
@@ -140,7 +158,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/metrics", make_asgi_app())
+app.mount("/metrics", _metrics_app())
 
 
 # --- Dependency providers ---

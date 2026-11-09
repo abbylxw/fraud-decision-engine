@@ -5,7 +5,7 @@ values must be stable per card so the Redis windows build real per-user history.
 """
 from datetime import datetime
 
-from app.data.client_mimic import sparkov_request
+from app.data.client_mimic import sparkov_request, summary
 from app.data.data_models import Transaction
 
 
@@ -31,3 +31,11 @@ def test_same_card_gets_same_device_ip_and_signup():
         assert a[field] == b[field]
     assert sparkov_request(_row("2019-01-01 00:00:18"), signup, card_index=8)["ip_address"] \
         != a["ip_address"]
+
+
+def test_summary_reports_achieved_not_target_rps():
+    # Asked for 400/s for 10 s, but only 1,500 came back OK in 12.5 s: achieved is 120/s.
+    out = summary(rps=400, sent=1600, ok=1500, err=100, skipped=2400, elapsed=12.5,
+                  latencies=[float(i) for i in range(1, 101)])
+    assert "target RPS=400" in out and "achieved RPS=120" in out
+    assert "skipped=2400" in out and "p50=51ms" in out

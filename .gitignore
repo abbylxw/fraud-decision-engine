@@ -32,5 +32,14 @@ results/
 # Local Claude Code guidance (not for publishing)
 CLAUDE.md
 
+# Notebook experiments (NN weights from notebooks/train_model.ipynb; never served)
+app/decisions/model_nn.pt
+app/decisions/nn_config.json
+app/decisions/nn_scaler.joblib
+.ipynb_checkpoints/
+
+# Local Claude Code settings
+.claude/
+
 # External training datasets (Sparkov), downloaded by training/datasets/download.py
 /data/

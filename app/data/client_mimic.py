@@ -81,8 +81,10 @@ async def main(rps=500, duration_seconds=30, source="fraud_data"):
 
     # One request every 1/rps seconds — steady drip, not per-second bursts.
     interval = 1.0 / rps
-    end_time = time.time() + duration_seconds
+    start_time = time.time()
+    end_time = start_time + duration_seconds
     total_sent = 0
+    skipped = 0      # send slots dropped because the loop fell > 1 s behind
     ok_total = 0
     err_total = 0
     latencies = []
@@ -108,10 +110,6 @@ async def main(rps=500, duration_seconds=30, source="fraud_data"):
                     if err_total <= 3 or err_total % 200 == 0:
                         print(f"  error: HTTP {status}")
 
-            # Progress line once per second
-            if total_sent > 0 and total_sent % rps == 0:
-                print(f"[{total_sent:>6} sent] ok={ok_total} err={err_total} in-flight={len(pending)}")
-
             # Schedule next request
             now = time.monotonic()
             if time.time() < end_time and now >= next_send:
@@ -123,9 +121,14 @@ async def main(rps=500, duration_seconds=30, source="fraud_data"):
                 )
                 pending.add(task)
                 total_sent += 1
+                # Progress line about once per second (here, so it prints once per send)
+                if total_sent % rps == 0:
+                    print(f"[{total_sent:>6} sent] ok={ok_total} err={err_total} in-flight={len(pending)}")
                 # Skip slots more than 1 s overdue, and yield so the new request actually
                 # starts. Without both, a late loop queued requests back to back without
                 # ever awaiting: none ran, the scan above grew, and the client froze.
+                if now - 1.0 > next_send + interval:
+                    skipped += int((now - 1.0 - next_send) / interval)
                 next_send = max(next_send + interval, now - 1.0)
                 await asyncio.sleep(0)
             else:
@@ -138,11 +141,22 @@ async def main(rps=500, duration_seconds=30, source="fraud_data"):
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
-    latencies.sort()
-    n = len(latencies)
-    print(f"\nRPS={rps} | sent={total_sent} ok={ok_total} err={err_total} ({100*ok_total/max(total_sent,1):.1f}% success)")
+    elapsed = time.time() - start_time
+    print("\n" + summary(rps, total_sent, ok_total, err_total, skipped, elapsed, latencies))
+
+
+def summary(rps, sent, ok, err, skipped, elapsed, latencies):
+    """Result lines. 'achieved' is successful requests per second of wall time (including
+    the drain after the send window), so it shows what the API really kept up with."""
+    lines = [f"target RPS={rps}  achieved RPS={ok / max(elapsed, 1e-9):.0f}  "
+             f"(ok={ok} in {elapsed:.1f}s)",
+             f"  sent={sent} skipped={skipped} err={err} "
+             f"({100 * ok / max(sent, 1):.1f}% success)"]
     if latencies:
-        print(f"  p50={latencies[n//2]:.0f}ms  p95={latencies[int(n*.95)]:.0f}ms  p99={latencies[int(n*.99)]:.0f}ms")
+        lat = sorted(latencies)
+        n = len(lat)
+        lines.append(f"  p50={lat[n//2]:.0f}ms  p95={lat[int(n*.95)]:.0f}ms  p99={lat[int(n*.99)]:.0f}ms")
+    return "\n".join(lines)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load test the fraud API.")

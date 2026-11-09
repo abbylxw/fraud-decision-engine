@@ -4,6 +4,9 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      # Add up /metrics across the 8 uvicorn workers (see _metrics_app in app/main.py)
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
     depends_on:
       db:
         condition: service_healthy
