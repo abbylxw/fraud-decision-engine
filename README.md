@@ -90,13 +90,35 @@ curl http://localhost:8000/health
 ## Load Testing
 
 ```bash
-python app/data/client_mimic.py   # 400 RPS for 120s, cycles through Fraud_Data.csv
+python app/data/client_mimic.py   # rate mode: mean 400 RPS for 120s, cycles through Fraud_Data.csv
 python app/data/client_mimic.py --source sparkov   # repeat customers (needs data/external/sparkov/)
-python app/data/client_mimic.py --rps 50 --duration 60   # choose the rate and length
+python app/data/client_mimic.py --rps 50 --duration 60 --seed 1   # choose the rate; repeatable
+python app/data/client_mimic.py --speedup 1000 --duration 3600    # replay mode: realistic traffic
 ```
 
-The summary prints the target and the achieved RPS (successful responses per second), plus
-p50/p95/p99 latency.
+Two modes, for two different questions:
+
+- **Rate mode (`--rps`)** answers "how much load can the API take?". Arrivals are Poisson
+  (random gaps with mean 1/RPS), because an evenly spaced drip never piles up and so understates
+  tail latency. Rows keep their 2015 timestamps and repeat after one pass through the file, so
+  the velocity features drift (the same user "buys again" at the same second). Use it for
+  throughput and latency, not to judge decisions.
+- **Replay mode (`--speedup K`)** answers "what does the system do under continuous, realistic
+  traffic?". Rows are sorted by `purchase_time` and sent when a virtual clock running K times
+  faster than wall time reaches them. When the file ends, every timestamp (purchase and signup)
+  is shifted forward by the file's span, so time never goes backwards and the second pass is
+  the same customers coming back months later. At `--speedup 1000`, Fraud_Data's 8 months
+  replay in ~6 hours at ~6 req/s, which is this dataset's honest rate: 151k transactions over
+  8 months is 0.006/s, so sending 400/s with realistic timestamps would give country-level
+  velocity counts in the thousands, which the model never saw.
+
+The summary prints the achieved RPS (successful responses per second), the error count by kind
+(`ReadTimeout`, `409`, ...), and p50/p95/p99 latency over every completed request.
+
+One client process tops out around 400–500 RPS. For more load, run several in parallel: each
+adds a random run id to its idempotency keys, so they never collide. Grafana's "Requests per
+Worker" panel shows how the load spreads over the 8 uvicorn workers. Not implemented yet: a
+new/returning user mix, client retries (duplicate keys), and a daily traffic rhythm.
 
 `--source sparkov` replays Sparkov card transactions (~100 purchases per card), so the per-user
 Redis windows fill up the way they would in production. Sparkov has no device, IP, source,
