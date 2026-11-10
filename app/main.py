@@ -92,6 +92,12 @@ IDEMPOTENCY_CONFLICTS = Counter(
     "Duplicate requests rejected (409) because the original is still being processed")
 BACKGROUND_TASK_FAILURES = Counter(
     "fraud_background_task_failures_total", "Fire-and-forget tasks that raised", ["task"])
+# Multiprocess mode sums all workers into one series; this label keeps one series per worker
+# so Grafana can show load imbalance (keep-alive connections stick to one worker). The pid
+# changes when a worker restarts, so cardinality is ~8 plus restarts since container start.
+WORKER_REQUESTS_TOTAL = Counter(
+    "fraud_worker_requests_total", "Requests handled, by uvicorn worker process", ["worker"])
+_WORKER_REQUESTS = WORKER_REQUESTS_TOTAL.labels(worker=str(os.getpid()))
 
 
 def _metrics_app():
@@ -320,6 +326,7 @@ async def process_transaction(
     executor: ThreadPoolExecutor = Depends(get_executor),
 ) -> DecisionResponse:
     REQUESTS_TOTAL.inc()
+    _WORKER_REQUESTS.inc()
     idem_key = f"idem:{idempotency_key}"
     claimed = await redis.set(idem_key, _IDEM_PENDING, nx=True, ex=IDEMPOTENCY_LOCK_SECONDS)
     if not claimed:

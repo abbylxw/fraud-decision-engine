@@ -153,14 +153,18 @@ Per step at 300 RPS: feature_extraction 0.6 ms (sparkov) / 1.2 ms (fraud_data), 
 One Python process juggling hundreds of in-flight requests adds its own delay, which shows up as
 latency and skipped send slots. The ~400 RPS "ceiling" in the sweep above is the client's.
 
-Running several clients needs care: the client's idempotency key is `{user_id}-{counter}`, so
-two clients replaying the same file send identical keys and the API correctly answers 409.
+Running several clients needed care: the client's idempotency key was `{user_id}-{counter}`, so
+two clients replaying the same file sent identical keys and the API correctly answered 409.
 Runs below pair one `fraud_data` client with one `sparkov` client (user ids never overlap).
+Since then each client process adds a random run id to its keys; two `fraud_data` clients at
+250 RPS each sent ~12.3k requests with zero 409s.
 
 **2. The API's workers are not CPU-bound.** At 500–800 RPS, per-worker CPU (from
 `/proc/<pid>/stat`) was 0–60% for most workers. It was also uneven: each client keep-alive
 connection stays on the worker that accepted it, so two workers sat near 0% while one hit ~100%.
-Postgres used ~20% of a core and Redis ~16%.
+Postgres used ~20% of a core and Redis ~16%. The Grafana panel "Requests per Worker" (counter
+`fraud_worker_requests_total{worker=<pid>}`) now shows this imbalance: in one 2 × 250 RPS run
+the busiest worker handled 2,574 requests and the quietest 728.
 
 **3. Profile** (`py-spy record` on all 8 workers, 25 s at ~600 RPS, run from a throwaway
 container with `--pid=container:<api>`; share of non-idle samples):

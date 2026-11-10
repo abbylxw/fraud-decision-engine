@@ -230,6 +230,30 @@
           "max": 1
         }
       }
+    },
+    {
+      "id": 9,
+      "title": "Requests per Worker (req/sec)",
+      "description": "One line per uvicorn worker (label = process id). Uneven lines mean keep-alive connections are piling onto some workers.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (worker) (rate(fraud_worker_requests_total[1m]))",
+          "legendFormat": "pid {{worker}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
     }
   ]
 }
