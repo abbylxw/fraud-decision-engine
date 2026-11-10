@@ -18,6 +18,7 @@ slow API shows up as latency and skipped slots, not as a lower send rate.
 import argparse
 import asyncio
 import csv
+import heapq
 import itertools
 import random
 import time
@@ -92,15 +93,32 @@ def purchase_ts(row) -> float:
     return datetime.strptime(row["purchase_time"], _TIME_FMT).timestamp()
 
 
-def shift_row(row, delta: timedelta):
-    """Copy of row with purchase_time AND signup_time moved by delta, so days_since_signup and
-    hours_to_purchase are unchanged and only "when" the purchase happened moves."""
+def shift_row(row, delta: timedelta, fields=("purchase_time",)):
+    """Copy of row with the given timestamp fields moved by delta. The default moves only
+    purchase_time: a returning customer's signup stays where it was, so their account ages
+    (days_since_signup grows). Pass fields=("purchase_time", "signup_time") to move both, which
+    turns the row into a brand-new signup with the original signup -> purchase gap."""
     out = dict(row)
-    for field in ("purchase_time", "signup_time"):
+    for field in fields:
         if out.get(field):
             t = datetime.strptime(out[field], _TIME_FMT) + delta
             out[field] = t.strftime(_TIME_FMT)
     return out
+
+
+def retry_row(row, rng, gap_seconds=None):
+    """A declined customer trying again: same user, device, IP and signup; a new purchase
+    15 s to 10 min later for a smaller (or equal) amount, as declined buyers tend to do."""
+    gap = rng.uniform(15, 600) if gap_seconds is None else gap_seconds
+    out = shift_row(row, timedelta(seconds=gap))
+    out["purchase_value"] = round(float(row["purchase_value"]) * rng.uniform(0.5, 1.0), 2)
+    return out
+
+
+def plan_retry(decision, attempt, max_attempts, prob, rng) -> bool:
+    """Should this decided request be followed by another attempt? Only after a deny, only
+    while attempts are left, and only with probability prob (not every customer retries)."""
+    return decision == "deny" and attempt < max_attempts and rng.random() < prob
 
 
 # ---------------------------------------------------------------------------
@@ -117,17 +135,28 @@ def rate_schedule(rows, rps, rng, start):
         yield due, row
 
 
-def replay_schedule(rows, speedup, start):
+def replay_schedule(rows, speedup, start, rng=None, new_share=0.0):
     """Rows sorted by purchase_time, due when a virtual clock (speedup x wall time) reaches
     them. After the last row the whole file is shifted forward by its span + 1 day and
-    replayed, so timestamps only ever increase and users return as repeat customers."""
+    replayed, so timestamps only ever increase. On those later passes each row is, with
+    probability new_share, a brand-new signup (fresh user_id/device_id, signup moved with the
+    purchase); otherwise the same customer coming back, with their original signup kept so
+    the account has aged by the span."""
+    rng = rng or random.Random(0)
     ordered = sorted(rows, key=purchase_ts)
     first, last = purchase_ts(ordered[0]), purchase_ts(ordered[-1])
     span = timedelta(seconds=last - first) + timedelta(days=1)
     for cycle in itertools.count():
         offset = span * cycle
         for row in ordered:
-            shifted = shift_row(row, offset) if cycle else row
+            if not cycle:
+                shifted = row
+            elif rng.random() < new_share:
+                shifted = shift_row(row, offset, fields=("purchase_time", "signup_time"))
+                shifted["user_id"] = f"{row['user_id']}-c{cycle}"
+                shifted["device_id"] = f"{row['device_id']}-c{cycle}"
+            else:
+                shifted = shift_row(row, offset)
             yield start + (purchase_ts(shifted) - first) / speedup, shifted
 
 
@@ -146,19 +175,26 @@ def idempotency_key(run_id, user_id, n):
 
 
 async def send(client, row, url, idempotency_key):
-    """Returns (outcome, latency_ms). outcome is the HTTP status, or the exception class name
-    (e.g. 'ReadTimeout') so the summary can say what kind of failure it was."""
+    """Returns (outcome, latency_ms, decision). outcome is the HTTP status, or the exception
+    class name (e.g. 'ReadTimeout') so the summary can say what kind of failure it was.
+    decision is the API's fraud_decision on a 201, else None."""
     t0 = time.perf_counter()
+    decision = None
     try:
         r = await client.post(url, json=preprocess(row), headers={"Idempotency-Key": idempotency_key})
         outcome = r.status_code
+        if outcome == 201:
+            try:
+                decision = r.json().get("fraud_decision")
+            except ValueError:
+                decision = None
     except Exception as e:
         outcome = type(e).__name__
-    return outcome, (time.perf_counter() - t0) * 1000
+    return outcome, (time.perf_counter() - t0) * 1000, decision
 
 
 async def main(rps=500, duration_seconds=30, source="fraud_data", url=API_URL,
-               speedup=None, seed=None):
+               speedup=None, seed=None, new_user_share=0.2, retry_declined=0, retry_prob=0.5):
     rows = load_sparkov() if source == "sparkov" else load_csv()
     run_id = uuid.uuid4().hex[:8]
     seed = random.randrange(1 << 31) if seed is None else seed
@@ -167,35 +203,52 @@ async def main(rps=500, duration_seconds=30, source="fraud_data", url=API_URL,
     start = time.monotonic()
     end = start + duration_seconds
     if speedup:
-        schedule = replay_schedule(rows, speedup, start)
-        print(f"replay mode: virtual clock x{speedup}, rows in purchase_time order (--rps ignored)")
+        schedule = replay_schedule(rows, speedup, start, rng, new_user_share)
+        print(f"replay mode: virtual clock x{speedup}, rows in purchase_time order (--rps ignored), "
+              f"new-user share on later passes={new_user_share}, seed={seed}")
     else:
         schedule = rate_schedule(rows, rps, rng, start)
         print(f"rate mode: Poisson arrivals, mean {rps}/s, seed={seed}")
+    if retry_declined:
+        print(f"declined customers retry with p={retry_prob}, up to {retry_declined} attempts")
 
     total_sent = 0
     skipped = 0      # due slots dropped because the loop fell > 1 s behind
     ok_total = 0
-    errors = Counter()   # outcome -> count, for everything that was not a 201
-    latencies = []       # every completed request, timeouts included
+    errors = Counter()      # outcome -> count, for everything that was not a 201
+    decisions = Counter()   # allow / deny on 201s
+    latencies = []          # every completed request, timeouts included
+    retries_sent = 0
+    retry_allowed = 0       # retry attempts that ended in an allow (the customer got through)
     next_progress = start + 1.0
 
     async with httpx.AsyncClient(
         limits=httpx.Limits(max_connections=1000, max_keepalive_connections=400),
         timeout=30.0,
     ) as client:
-        pending: set[asyncio.Task] = set()
+        pending: dict[asyncio.Task, tuple[dict, int]] = {}   # task -> (row, attempt)
+        followups = []          # heap of (due, seq, row, attempt): retries after a deny
+        seq = itertools.count()
         due, row = next(schedule)
 
         while time.monotonic() < end or pending:
             # Drain finished tasks
-            done = {t for t in pending if t.done()}
-            for t in done:
-                pending.discard(t)
-                outcome, ms = t.result()
+            for t in [t for t in pending if t.done()]:
+                sent_row, attempt = pending.pop(t)
+                outcome, ms, decision = t.result()
                 latencies.append(ms)
                 if outcome == 201:
                     ok_total += 1
+                    decisions[decision] += 1
+                    if attempt and decision == "allow":
+                        retry_allowed += 1
+                    if plan_retry(decision, attempt, retry_declined, retry_prob, rng):
+                        gap = rng.uniform(15, 600)
+                        # Event time moves by gap; wall time by gap/speedup in replay mode, or
+                        # at most 2 s in rate mode so the follow-up lands inside the run.
+                        wall = gap / speedup if speedup else min(gap, 2.0)
+                        heapq.heappush(followups, (time.monotonic() + wall, next(seq),
+                                                  retry_row(sent_row, rng, gap), attempt + 1))
                 else:
                     errors[outcome] += 1
                     if sum(errors.values()) <= 3:
@@ -204,27 +257,38 @@ async def main(rps=500, duration_seconds=30, source="fraud_data", url=API_URL,
             now = time.monotonic()
             if now >= next_progress:
                 print(f"[{total_sent:>6} sent] ok={ok_total} err={sum(errors.values())} "
-                      f"in-flight={len(pending)}")
+                      f"in-flight={len(pending)} retries={retries_sent}")
                 next_progress = now + 1.0
 
-            if now < end and now >= due:
+            # Next request: a queued follow-up if it is due before the schedule's next row.
+            if followups and followups[0][0] <= due:
+                next_due, _, next_row, attempt = followups[0]
+                from_followups = True
+            else:
+                next_due, next_row, attempt, from_followups = due, row, 0, False
+
+            if now < end and now >= next_due:
+                if from_followups:
+                    heapq.heappop(followups)
+                else:
+                    due, row = next(schedule)
                 # Skip slots more than 1 s overdue instead of queueing them, and yield so the
                 # new request actually starts. Without both, a late loop queued requests back
                 # to back without ever awaiting: none ran and the client froze.
-                if due < now - 1.0:
+                if next_due < now - 1.0:
                     skipped += 1
                 else:
-                    key = idempotency_key(run_id, row.get('user_id'), total_sent)
+                    key = idempotency_key(run_id, next_row.get('user_id'), total_sent)
                     task = asyncio.create_task(
-                        send(client, row, url, idempotency_key=key),
+                        send(client, next_row, url, idempotency_key=key),
                         name=f"req-{total_sent}",
                     )
-                    pending.add(task)
+                    pending[task] = (next_row, attempt)
                     total_sent += 1
+                    retries_sent += bool(attempt)
                     await asyncio.sleep(0)
-                due, row = next(schedule)
             else:
-                sleep_for = max(0.0, due - time.monotonic()) if now < end else 0.005
+                sleep_for = max(0.0, next_due - time.monotonic()) if now < end else 0.005
                 await asyncio.sleep(min(sleep_for, 0.005))
 
         # Clean shutdown — cancel tasks still in flight after duration ends
@@ -234,14 +298,21 @@ async def main(rps=500, duration_seconds=30, source="fraud_data", url=API_URL,
             await asyncio.gather(*pending, return_exceptions=True)
 
     elapsed = time.monotonic() - start
+    extra = []
+    if ok_total:
+        extra.append(f"decisions: allow={decisions['allow']} deny={decisions['deny']} "
+                     f"(deny rate={100 * decisions['deny'] / ok_total:.1f}%)")
+    if retry_declined:
+        extra.append(f"retries={retries_sent} (attempts that ended in allow={retry_allowed})")
     print("\n" + summary(rps if not speedup else None, total_sent, ok_total,
-                         sum(errors.values()), skipped, elapsed, latencies, errors=errors))
+                         sum(errors.values()), skipped, elapsed, latencies, errors=errors,
+                         extra=extra))
 
 
-def summary(rps, sent, ok, err, skipped, elapsed, latencies, errors=None):
+def summary(rps, sent, ok, err, skipped, elapsed, latencies, errors=None, extra=()):
     """Result lines. 'achieved' is successful requests per second of wall time (including
     the drain after the send window), so it shows what the API really kept up with.
-    rps=None means replay mode (no target rate)."""
+    rps=None means replay mode (no target rate). extra: more lines to print as given."""
     target = f"target RPS={rps}  " if rps is not None else ""
     lines = [f"{target}achieved RPS={ok / max(elapsed, 1e-9):.0f}  "
              f"(ok={ok} in {elapsed:.1f}s)",
@@ -250,6 +321,7 @@ def summary(rps, sent, ok, err, skipped, elapsed, latencies, errors=None):
     if errors:
         kinds = ", ".join(f"{k}={v}" for k, v in sorted(errors.items(), key=lambda kv: -kv[1]))
         lines.append(f"  errors by kind: {kinds}")
+    lines.extend(f"  {line}" for line in extra)
     if latencies:
         lat = sorted(latencies)
         n = len(lat)
@@ -267,8 +339,18 @@ if __name__ == "__main__":
                              "real time (e.g. 1000). Ignores --rps.")
     parser.add_argument("--seed", type=int, default=None,
                         help="seed for the random arrival gaps; printed at start so a run can be repeated")
+    parser.add_argument("--new-user-share", type=float, default=0.2,
+                        help="replay mode, passes after the first: share of rows sent as brand-new "
+                             "signups (fresh user/device ids); the rest are returning customers")
+    parser.add_argument("--retry-declined", type=int, default=0, metavar="N",
+                        help="declined customers try again (new transaction, same user), up to N "
+                             "attempts, stopping at the first allow. 0 = off")
+    parser.add_argument("--retry-prob", type=float, default=0.5,
+                        help="probability that a declined customer makes another attempt")
     parser.add_argument("--url", default=API_URL,
                         help="endpoint to load (e.g. a stub server, to find the client's own ceiling)")
     args = parser.parse_args()
     asyncio.run(main(rps=args.rps, duration_seconds=args.duration, source=args.source,
-                     url=args.url, speedup=args.speedup, seed=args.seed))
+                     url=args.url, speedup=args.speedup, seed=args.seed,
+                     new_user_share=args.new_user_share, retry_declined=args.retry_declined,
+                     retry_prob=args.retry_prob))
