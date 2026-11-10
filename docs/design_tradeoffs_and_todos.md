@@ -746,6 +746,11 @@ shadow branches wait for: they need repeat-user data.
 - [ ] **Sub-country sanctions** (Crimea, so-called DNR/LNR) can't be enforced with a
       country-level IP table.
 
+**Dropped (2026-11-09):** `country_txn_count_{5min,10min,1h}`. A usage check found no model
+input (`model_features.json`), hard rule, soft rule or shadow rule read them; `24h`/`7d`/`30d`
+stay (model inputs; `24h` and `30d` are top features). Removing them saves 3 Redis `ZCOUNT`s
+per request and 3 audit columns (`db_init/007`). The served model is unchanged, so no retrain.
+
 ---
 
 ## Performance Optimisations (2026-03-19)

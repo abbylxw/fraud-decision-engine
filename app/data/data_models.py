@@ -98,9 +98,6 @@ class Features(Transaction):
     age_account_gap:          float = 0.0
     high_amount_vs_hist:      int   = 0
     time_since_last_txn_uid:  float = 0.0
-    country_txn_count_5min:  int = 0
-    country_txn_count_10min: int = 0
-    country_txn_count_1h:    int = 0
     country_txn_count_24h:   int = 0
     country_txn_count_7d:    int = 0
     country_txn_count_30d:   int = 0

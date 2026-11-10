@@ -125,7 +125,7 @@ def velocity_features(df: pd.DataFrame) -> pd.DataFrame:
         for w in ["5min", "10min", "1h", "2h", "24h", "7d", "30d"]:
             f[f"did_txn_cnt_{w}"] = _count_since(did_txn_t[did], ts - WINDOWS[w])
         f["time_since_last_txn_uid"] = ts - uid_last_ts.get(uid, ts)
-        for w in ["5min", "10min", "1h", "24h", "7d", "30d"]:
+        for w in ["24h", "7d", "30d"]:
             f[f"country_txn_count_{w}"] = _count_since(country_t[r.ip_country], ts - WINDOWS[w])
         rows.append(f)
 

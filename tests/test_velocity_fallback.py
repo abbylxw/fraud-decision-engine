@@ -145,6 +145,12 @@ class TestVelocityCounters:
         f = await build_features(_txn(), _mock_db(), redis)
         assert (f.did_uid_90d, f.did_txn_cnt_30d, f.ip_uid_7d) == (0, 0, 0)
 
+    async def test_country_windows_are_the_three_the_model_uses(self, redis):
+        # 5min/10min/1h were dropped (no model input or rule read them); 24h/7d/30d are inputs.
+        f = await build_features(_txn(), _mock_db(), redis)
+        assert (f.country_txn_count_24h, f.country_txn_count_7d, f.country_txn_count_30d) == (0, 0, 0)
+        assert not hasattr(f, "country_txn_count_5min")
+
     async def test_counts_use_event_time_not_server_clock(self, redis):
         # Two transactions 10 days apart in EVENT time, recorded milliseconds apart in
         # real time. The 24h window must not see the older one; the 30d window must.

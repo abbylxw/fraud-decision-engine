@@ -98,7 +98,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
             as_of_date=datetime.fromtimestamp(ct, tz=timezone.utc).date())
         await redis.set(_did_key, str(did_days_on_file), ex=3600)
 
-    # --- Phase 2: ALL 38 velocity commands in ONE pipeline ---
+    # --- Phase 2: ALL 35 velocity commands in ONE pipeline ---
     # One TCP write → one TCP read → one event-loop yield for all commands.
     # Replaces asyncio.gather of 38 individual coroutines (which each acquired
     # their own connection and created separate event-loop wake-ups).
@@ -128,8 +128,9 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     # [25-31] did:txn — total transactions on this device (7 windows)
     for since in (_5m, _10m, _1h, _2h, _24h, _7d, _30d):
         pipe.zcount(f"did:txn:{t.device_id}", since, ct)
-    # [32-37] country:txn — total transactions from this country (6 windows)
-    for since in (_5m, _10m, _1h, _24h, _7d, _30d):
+    # [32-34] country:txn — total transactions from this country (3 windows; the 5min/10min/1h
+    #         windows were dropped 2026-11-09: no model input or rule used them)
+    for since in (_24h, _7d, _30d):
         pipe.zcount(f"country:txn:{ip_country}", since, ct)
 
     r = await pipe.execute()
@@ -138,7 +139,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     _w8  = ("5min", "10min", "1h", "2h", "24h", "7d", "30d", "90d")
     _w6  = ("5min", "10min", "1h", "2h", "24h", "7d")
     _w7  = ("5min", "10min", "1h", "2h", "24h", "7d", "30d")
-    _w6c = ("5min", "10min", "1h", "24h", "7d", "30d")
+    _w3c = ("24h", "7d", "30d")
 
     did_uid      = dict(zip(_w8,  r[0:8]))
     uid_did      = dict(zip(_w8,  r[8:16]))
@@ -147,7 +148,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     suc_entries  = r[23]
     last_txn_val = r[24]
     did_txn      = dict(zip(_w7,  r[25:32]))
-    country_txn  = dict(zip(_w6c, r[32:38]))
+    country_txn  = dict(zip(_w3c, r[32:35]))
 
     if all_entries:
         pur_windows = {
@@ -241,9 +242,6 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         month_of_year              = get_month_of_year(t),
         high_amount_vs_hist        = high_amount_vs_hist,
         time_since_last_txn_uid    = last_txn_time,
-        country_txn_count_5min     = country_txn['5min'],
-        country_txn_count_10min    = country_txn['10min'],
-        country_txn_count_1h       = country_txn['1h'],
         country_txn_count_24h      = country_txn['24h'],
         country_txn_count_7d       = country_txn['7d'],
         country_txn_count_30d      = country_txn['30d'],

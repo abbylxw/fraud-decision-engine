@@ -56,7 +56,7 @@ POST /api/transactions
    ├── get_purchase_counts(user_id, redis, db)     → ZRANGEBYSCORE, 7 windows × 2 sets
    ├── get_did_txn_counts(device_id, redis, db)    → ZRANGEBYSCORE, 7 windows
    ├── get_uid_last_txn_time(user_id, redis, db)   → last transaction timestamp
-   └── get_country_txn_counts(ip_country, redis, db) → ZRANGEBYSCORE, 6 windows
+   └── get_country_txn_counts(ip_country, redis, db) → ZRANGEBYSCORE, 3 windows (24h/7d/30d)
         │
         ▼
 3. Hard rules — short-circuit on any deny (no ML needed)
@@ -168,7 +168,7 @@ Transaction                         ← raw client input
   │     ├── purchase_{cnt,amt}_{5min,10min,1h,24h,7d,30d,90d}
   │     ├── purchase_success_{cnt,amt}_{5min,10min,1h,24h,7d,30d,90d}
   │     ├── did_txn_cnt_{5min,10min,1h,2h,24h,7d,30d}   (transactions per device)
-  │     ├── country_txn_count_{5min,10min,1h,24h,7d,30d} (transactions per country)
+  │     ├── country_txn_count_{24h,7d,30d}               (transactions per country)
   │     ├── pur_median_amt_90d, amount_vs_user_avg_30d   (derived from purchase history)
   │     ├── age_account_gap, high_amount_vs_hist         (derived)
   │     ├── time_since_last_txn_uid                      (seconds since last user txn)
