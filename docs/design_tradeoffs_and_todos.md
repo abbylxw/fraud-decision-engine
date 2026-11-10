@@ -751,6 +751,92 @@ input (`model_features.json`), hard rule, soft rule or shadow rule read them; `2
 stay (model inputs; `24h` and `30d` are top features). Removing them saves 3 Redis `ZCOUNT`s
 per request and 3 audit columns (`db_init/007`). The served model is unchanged, so no retrain.
 
+## Retry After Decline: set features include the buyer, `device_many_users_1h` (2026-11-09)
+
+Evidence: `results/agents/retry-after-decline/` (local, gitignored), `summary.md` §1–6 and
+`fd-device-users-k1/result.json`. Cost in units: missed fraud = 3, false decline = 1.
+
+**Semantics change: "distinct X" set features include the buyer.** `did_uid_*` (8 windows),
+`uid_did_*` (8) and `ip_uid_*` (6) now mean "distinct members in the window *including* the
+current purchase's member" (old count + 1 if the member was not already in the window). Count
+features stay strictly prior: `did_txn_cnt_*`, `purchase_*`, `purchase_success_*`,
+`country_txn_count_*`, and `amount_vs_user_avg_30d` (excludes the current amount);
+`did_uid_days_on_file` is unchanged. Live: three extra `ZSCORE`s in the same pipeline (the
+buyer's last-seen time in `did:uid`, `uid:did`, `ip:uid`); offline: `_distinct_since_incl` in
+`training/build_features.py`. Why: "users on this device" then reads naturally (the first user
+on a device sees 1, the second sees 2), so the rule is a plain `did_uid_1h >= 2` and denies the
+second distinct user on their *first* attempt, while the same user retrying stays at 1.
+Retrain: the model must be retrained on the new features (on Fraud_Data every user is new, so
+the sets shift by exactly +1 and metrics should be ~unchanged). Retrain result
+(`python -m training.train --ship`, 2026-11-09, `results/train_20261109T211048/`): ship gate
+passed; new model test PR-AUC 0.092 [0.081, 0.107], threshold 0.8428, 365 test rows denied,
+106 fraud caught, 259 false declines — identical to the previous model's recorded numbers, as
+predicted. The *previous* model scored on the new features drops to PR-AUC 0.048 and a 44.6%
+deny rate: that is what shipping the feature change without a retrain would have done, and why
+the two must land in one commit. `results/cache/fraud_data.parquet` (old semantics) was deleted;
+`training/compare_datasets.py` rebuilds it.
+Side effect: `rate_limiter_control` (shadow) cut-offs on `did_uid_90d` / `uid_did_*` /
+`ip_uid_7d` now trip one user earlier; not re-tuned (they were expert-set and never fire here).
+
+**New hard rule: `device_many_users_1h`.** Deny when `did_uid_1h >= 2` (`DEVICE_USERS_1H_LIMIT`
+in `rules.py`), event time. It runs right after `signup_burst`, so bot rows keep the
+`signup_burst` audit label. Audit row: `decision_rule='device_many_users_1h'`, `model_score` NULL.
+Fire rate per rule: Prometheus `fraud_decision_rule_total{decision_rule, decision}`.
+
+**Why.** The January 2015 bot was 760 devices × 10 purchases × 10 different user_ids, the 10 rows
+on a device within a median 9 s. The model does not catch bot rows (median score ≈ 0.52, it never
+saw them on purpose), so `signup_burst` was the only defence, and a bot that waits 61 s after
+signup walks past it. This rule does not look at signup time. Backtest (k1): catches 6,840 of
+7,600 bot rows (9 of 10 per device; the first user on each device is not catchable this way);
+legit rows hit 1 / 1 / 0 in train / validation / test. A 10 min window gives the same catch with
+0 / 0 / 0 legit hits; 1 h was kept for margin against a slower bot.
+
+**Limits and fail-open cases.**
+- No bots in validation/test, so this is insurance against the observed attack and its 61-s
+  variant, not a measured held-out gain. A bot using a new device per purchase evades it.
+- Velocity counters are written in the background *after* the response, so two users hitting
+  the same device within the same few milliseconds can both see 1 and both be allowed.
+- Empty Redis (flush, eviction, cold start): the device looks new, everyone sees 1 -> allow.
+- Out-of-order events: a purchase with an earlier `purchase_time` than one already recorded does
+  not see the later one (event-time windows), so it may be allowed. Related: Redis keeps one
+  last-seen time per member, so a late event for A overwrites A's earlier presence in the window
+  and a request from B in between under-counts (offline would say 2). TODO: `ZADD ... GT` so a
+  late *older* event cannot move a score backwards (critic v2, minor 2).
+- TODO (critic v2): Grafana panel + alert on `fraud_decision_rule_total{decision_rule=
+  "device_many_users_1h"}`; tests for the exact window-boundary score and a buyer score later
+  than `purchase_time` (`results/agents/retry-after-decline/scratch/edge.py` has the cases); the
+  ship gate compared against the previous model *scored on the changed features* (PR-AUC 0.048),
+  so it checked nothing this time — when feature semantics change, gate against the previous
+  model's recorded test metrics instead; `model_meta.json` `evaluation.previous_model` is to be
+  read with that in mind.
+- Load test: `client_mimic.py` replays shared-device rows, so some denies that used to be labelled
+  `signup_burst`/model now show `device_many_users_1h` — a label shift, not a behaviour bug.
+- Fraud_Data has few legit shared devices: watch the deny count on real traffic (households,
+  shared/kiosk devices).
+
+**Rejected**
+- *Sticky `signup_burst` (user-keyed lockout after a deny):* catches nothing on the real attack
+  (each bot user_id bought once) or on the wait-61-s bot (flag never set). It only helps against
+  our own load client's retry pattern. On Sparkov a sticky deny after a model deny costs units at
+  every window (1 h +9, 6 h +133, 24 h +478).
+- *Promoting shadow branches B1 ("had a deny in the last X") / B2 (`purchase_cnt_{1h,24h}`
+  cut-offs):* every B1 cell that fires costs units and raises repeat declines of good cards; 0 of
+  40 B2 cells beats the model. Kept in shadow.
+- *24 h window:* hits 7 legit + 2 fraud rows in train (+1 unit [−10, 10]); not worth it.
+- *`did_uid_24h >= 2 AND signup gap < 10 min`* (a script's automatic pick): the gap condition
+  brings back signup time, which a bot can adapt to.
+
+**Lesson: tune the baseline before judging a rule.** One backtest first showed the sticky flag
+saving 77–487 units. Its coarse threshold grid had picked 0.9969, leaving fraud undenied for the
+rule to "catch". With a fine grid (threshold 0.35, tuned on validation only) the saving vanished.
+A rule only looks good on top of a badly tuned model.
+
+**Open**
+- [ ] **Retry leak after a model deny.** 36–37% of retries after a model deny are allowed (the
+      smaller amount lowers the score) and ~20% of those are fraud, ~4× the base rate: "lower the
+      amount until it passes". Options: a "declined in the last X, now a smaller amount" check, or
+      a floor on how far the score may drop on retry.
+
 ---
 
 ## Performance Optimisations (2026-03-19)

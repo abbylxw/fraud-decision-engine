@@ -70,6 +70,10 @@ DECISIONS_TOTAL = Counter(
     "fraud_decisions_total", "Total fraud decisions", ["decision"])
 RULE_DENIALS_TOTAL = Counter(
     "fraud_rule_denials_total", "Denials by rule name", ["phase", "rule"])
+# Every decision, labelled by its audit decision_rule ("none" when no rule set it, e.g. a
+# model allow), so each rule's fire rate is visible next to the total.
+DECISION_RULE_TOTAL = Counter(
+    "fraud_decision_rule_total", "Decisions by audit decision_rule", ["decision_rule", "decision"])
 RULE_SHADOW_TOTAL = Counter(
     "fraud_rule_shadow_total", "Shadow-mode rule branches that would have denied", ["rule"])
 COUNTRY_REQUESTS = Counter(
@@ -239,6 +243,8 @@ async def run_process(transaction: Transaction,
             "rule": soft_rule,
         })
     DECISIONS_TOTAL.labels(decision=fraud_decision).inc()
+    DECISION_RULE_TOTAL.labels(
+        decision_rule=decision_rule or "none", decision=fraud_decision).inc()
     COUNTRY_REQUESTS.labels(country=features.ip_country, decision=fraud_decision).inc()
     response = DecisionResponse(
         transaction_id=transaction_id,

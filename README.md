@@ -10,7 +10,7 @@ a fraud decision — all within a single async request.
 POST /api/transactions
         │
         ▼
- [Hard Rules]  ←── purchase limit, signup burst (<60s), age check, IP country block
+ [Hard Rules]  ←── purchase limit, signup burst (<60s), 2+ users on a device in 1h, age check, IP country block
         │  deny → short-circuit (model never runs)
         ▼
  [ML Model]    ←── XGBoost on 41 features: device/IP sharing counters, transaction fields,

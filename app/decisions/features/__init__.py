@@ -68,6 +68,13 @@ def _parse_purchase_entries(all_entries, suc_entries, windows):
 
 
 async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Features:
+    """Build the live feature row.
+
+    Convention: the "distinct X" SET features (did_uid_*, uid_did_*, ip_uid_*) include the
+    buyer (the current purchase's member); COUNT features (did_txn_cnt_*, purchase_*,
+    country_txn_count_*, amount_vs_user_avg_30d) are strictly prior. Counters are written
+    after the response, so this request is never in Redis yet.
+    """
     # The clock for every window is the transaction's own time, not the server's.
     # Training counts back from purchase_time; see tests/test_feature_parity.py.
     ct = event_ts(t)
@@ -98,7 +105,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
             as_of_date=datetime.fromtimestamp(ct, tz=timezone.utc).date())
         await redis.set(_did_key, str(did_days_on_file), ex=3600)
 
-    # --- Phase 2: ALL 35 velocity commands in ONE pipeline ---
+    # --- Phase 2: ALL 38 velocity commands in ONE pipeline ---
     # One TCP write → one TCP read → one event-loop yield for all commands.
     # Replaces asyncio.gather of 38 individual coroutines (which each acquired
     # their own connection and created separate event-loop wake-ups).
@@ -132,6 +139,11 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     #         windows were dropped 2026-11-09: no model input or rule used them)
     for since in (_24h, _7d, _30d):
         pipe.zcount(f"country:txn:{ip_country}", since, ct)
+    # [35-37] last-seen time of THIS purchase's member in each set (or None). Used to add the
+    #         buyer to the set features: sets include the current purchase, counts do not.
+    pipe.zscore(f"did:uid:{t.device_id}", t.user_id)
+    pipe.zscore(f"uid:did:{t.user_id}", t.device_id)
+    pipe.zscore(f"ip:uid:{ip_int}", t.user_id)
 
     r = await pipe.execute()
 
@@ -149,6 +161,17 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     last_txn_val = r[24]
     did_txn      = dict(zip(_w7,  r[25:32]))
     country_txn  = dict(zip(_w3c, r[32:35]))
+
+    # Set features include the buyer: +1 when the current member is not already in the window
+    # (same as training/build_features.py::_distinct_since_incl).
+    def _incl(counts, member_ts, sinces):
+        return {w: n + (0 if member_ts is not None and since <= float(member_ts) <= ct else 1)
+                for (w, n), since in zip(counts.items(), sinces)}
+
+    _s8 = (_5m, _10m, _1h, _2h, _24h, _7d, _30d, ninety_days_ago)
+    did_uid = _incl(did_uid, r[35], _s8)
+    uid_did = _incl(uid_did, r[36], _s8)
+    ip_uid  = _incl(ip_uid,  r[37], _s8[:6])
 
     if all_entries:
         pur_windows = {

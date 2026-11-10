@@ -162,9 +162,9 @@ Transaction                         ← raw client input
   ├── Features(Transaction)         ← + all computed features
   │     ├── days_since_signup, days_since_signup_group, ip_country
   │     ├── did_uid_days_on_file
-  │     ├── did_uid_{5min,10min,1h,2h,24h,7d,30d,90d}    (UIDs per device)
-  │     ├── uid_did_{5min,10min,1h,2h,24h,7d,30d,90d}    (DIDs per user)
-  │     ├── ip_uid_{5min,10min,1h,2h,24h,7d}             (UIDs per IP)
+  │     ├── did_uid_{5min,10min,1h,2h,24h,7d,30d,90d}    (UIDs per device, buyer included)
+  │     ├── uid_did_{5min,10min,1h,2h,24h,7d,30d,90d}    (DIDs per user, buyer included)
+  │     ├── ip_uid_{5min,10min,1h,2h,24h,7d}             (UIDs per IP, buyer included)
   │     ├── purchase_{cnt,amt}_{5min,10min,1h,24h,7d,30d,90d}
   │     ├── purchase_success_{cnt,amt}_{5min,10min,1h,24h,7d,30d,90d}
   │     ├── did_txn_cnt_{5min,10min,1h,2h,24h,7d,30d}   (transactions per device)

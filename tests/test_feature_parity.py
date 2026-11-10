@@ -173,3 +173,39 @@ async def test_parity_on_real_data(monkeypatch):
     # The API receives the integer IP (client_mimic.py truncates the CSV float).
     df["ip_address"] = df["ip_address"].astype("int64")
     assert_parity(build_feature_frame(df), await serving_features(df, monkeypatch))
+
+
+# ---------------------------------------------------------------------------
+# Set features include the buyer; count features do not (2026-11-09)
+# ---------------------------------------------------------------------------
+
+def _b_a_a() -> pd.DataFrame:
+    """Users B, A, A on one device and one IP within an hour."""
+    start = dt.datetime(2015, 3, 1, 12, 0, 0)
+    rows = [{"user_id": u, "device_id": "d1", "ip_address": 1_000_001,
+             "purchase_time": start + dt.timedelta(minutes=m)}
+            for u, m in (("B", 0), ("A", 10), ("A", 20))]
+    df = pd.DataFrame(rows)
+    df["signup_time"] = df["purchase_time"] - dt.timedelta(days=30)
+    df["purchase_value"] = 20
+    df["source"], df["browser"], df["sex"], df["age"] = "SEO", "Chrome", "M", 30
+    df["class"] = 0
+    df["ip_country"] = "United States"
+    return df
+
+
+async def test_set_features_include_the_buyer(monkeypatch):
+    df = _b_a_a()
+    train = build_feature_frame(df)
+    serve = await serving_features(df, monkeypatch)
+    for frame in (train, serve):
+        assert list(frame["did_uid_1h"]) == [1, 2, 2]
+        assert list(frame["ip_uid_1h"]) == [1, 2, 2]
+        assert list(frame["uid_did_1h"]) == [1, 1, 1]      # each user only ever used d1
+        assert list(frame["did_txn_cnt_1h"]) == [0, 1, 2]  # counts stay strictly prior
+        first = frame.iloc[0]
+        set_cols = [c for c in frame.columns
+                    if c.startswith(("did_uid_", "uid_did_", "ip_uid_"))
+                    and c != "did_uid_days_on_file"]
+        assert all(first[c] == 1 for c in set_cols), "first purchase ever: every set feature = 1"
+    assert_parity(train, serve)

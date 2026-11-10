@@ -7,6 +7,7 @@ def execute_hard_rules(t: Transaction, f: Features) -> tuple[str, str | None]:
     """Fast rules that don't need the model score. Returns (decision, rule_name)."""
     for rule_fn, args in [
         (rules.signup_burst,      (t,)),
+        (rules.device_many_users_1h, (t, f)),
         (rules.age_limit,         (t, f)),
         (rules.ip_country_block,  (t, f)),
     ]:

@@ -181,6 +181,36 @@ class TestTransactionEndpoint:
         assert "transaction_id" in data
         assert "response_time" in data
 
+    def test_deny_by_device_many_users_1h(self):
+        """Two distinct users on this device in the last hour (buyer included): hard deny, no model,
+        audit row has decision_rule='device_many_users_1h' and model_score NULL."""
+        mock_db = _make_mock_db()
+        mock_redis = _make_mock_redis()
+        _apply_overrides(mock_db, mock_redis)
+        features = _CLEAN_FEATURES.model_copy(update={"did_uid_1h": 2})
+
+        with (
+            patch("app.main.build_features", new_callable=AsyncMock, return_value=features),
+            patch("app.main.update_velocity_counters", new_callable=AsyncMock),
+            patch("app.main.model_score") as ms,
+        ):
+            try:
+                with TestClient(app) as client:
+                    resp = client.post(
+                        "/api/transactions",
+                        json=_TXN_PAYLOAD,
+                        headers={"Idempotency-Key": "device-many-users-1h-test"},
+                    )
+            finally:
+                _clear_overrides()
+
+        assert resp.status_code == 201
+        assert resp.json()["fraud_decision"] == "deny"
+        ms.assert_not_called()
+        record = mock_db.add.call_args[0][0]
+        assert record.decision_rule == "device_many_users_1h"
+        assert record.model_score is None
+
     @pytest.mark.parametrize("field", [
         "device_id", "ip_address", "signup_time", "source", "browser", "sex", "age",
     ])

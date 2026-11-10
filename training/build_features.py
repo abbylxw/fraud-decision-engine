@@ -10,6 +10,11 @@ serving share ONE definition (see tests/test_encoding_contract.py).
 Key idea: velocity features look *backward* in time. We replay transactions in
 purchase_time order, and each row only sees the history before it. A row is added
 to the history AFTER its own features are computed, so it never "sees itself".
+
+Convention (2026-11-09): the "distinct X" SET features (did_uid_*, uid_did_*, ip_uid_*)
+include the buyer: distinct members in the window including the current purchase's member
+(old count + 1 if the member was not already in the window). COUNT features (did_txn_cnt_*,
+purchase_*, country_txn_count_*) stay strictly prior; so does amount_vs_user_avg_30d.
 """
 import bisect
 import json
@@ -73,6 +78,12 @@ def _distinct_since(times, vals, cutoff):
     return len(set(vals[bisect.bisect_left(times, cutoff):]))
 
 
+def _distinct_since_incl(times, vals, cutoff, member):
+    """Distinct members in the window, counting the current purchase's member too."""
+    window = set(vals[bisect.bisect_left(times, cutoff):])
+    return len(window) + (0 if member in window else 1)
+
+
 def _count_sum_since(times, vals, cutoff):
     v = vals[bisect.bisect_left(times, cutoff):]
     return len(v), sum(v)
@@ -100,11 +111,14 @@ def velocity_features(df: pd.DataFrame) -> pd.DataFrame:
         uid, did, ip, val = str(r.user_id), str(r.device_id), r.ip_address, r.purchase_value
         f = {}
         for w in ["5min", "10min", "1h", "2h", "24h", "7d", "30d", "90d"]:
-            f[f"did_uid_{w}"] = _distinct_since(did_uid_t[did], did_uid_v[did], ts - WINDOWS[w])
+            f[f"did_uid_{w}"] = _distinct_since_incl(
+                did_uid_t[did], did_uid_v[did], ts - WINDOWS[w], uid)
         for w in ["5min", "10min", "1h", "2h", "24h", "7d", "30d", "90d"]:
-            f[f"uid_did_{w}"] = _distinct_since(uid_did_t[uid], uid_did_v[uid], ts - WINDOWS[w])
+            f[f"uid_did_{w}"] = _distinct_since_incl(
+                uid_did_t[uid], uid_did_v[uid], ts - WINDOWS[w], did)
         for w in ["5min", "10min", "1h", "2h", "24h", "7d"]:
-            f[f"ip_uid_{w}"] = _distinct_since(ip_uid_t[ip], ip_uid_v[ip], ts - WINDOWS[w])
+            f[f"ip_uid_{w}"] = _distinct_since_incl(
+                ip_uid_t[ip], ip_uid_v[ip], ts - WINDOWS[w], uid)
         for w in ["5min", "10min", "1h", "24h", "7d", "30d", "90d"]:
             f[f"purchase_cnt_{w}"], f[f"purchase_amt_{w}"] = _count_sum_since(
                 pur_t[uid], pur_v[uid], ts - WINDOWS[w])

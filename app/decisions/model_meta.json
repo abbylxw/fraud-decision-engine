@@ -1,6 +1,6 @@
 {
-  "model_version": "xgboost-20261106205858-316e9fd",
-  "trained_at": "2026-11-06T20:58:58",
+  "model_version": "xgboost-20261109211048-5ba3793",
+  "trained_at": "2026-11-09T21:10:48",
   "algorithm": "xgboost",
   "params": {
     "objective": "binary:logistic",
@@ -195,45 +195,45 @@
     },
     "previous_model": {
       "test": {
-        "pr_auc": 0.092,
+        "pr_auc": 0.0483,
         "pr_auc_ci95": [
-          0.0809,
-          0.1056
+          0.0452,
+          0.052
         ],
-        "roc_auc": 0.5572,
+        "roc_auc": 0.5105,
         "roc_auc_ci95": [
-          0.5397,
-          0.5733
+          0.4947,
+          0.5261
         ],
         "at_1pct_alerts": {
-          "recall": 0.0691,
-          "precision": 0.3179
+          "recall": 0.0122,
+          "precision": 0.0563
         },
         "at_5pct_alerts": {
-          "recall": 0.1454,
-          "precision": 0.1337
+          "recall": 0.0526,
+          "precision": 0.0483
         },
-        "precision_at_50pct_recall": 0.0548
+        "precision_at_50pct_recall": 0.0468
       },
       "at_old_threshold": {
-        "threshold": 0.8485,
-        "denied": 327,
-        "deny_rate": 0.0108,
-        "fraud_caught": 98,
+        "threshold": 0.8428,
+        "denied": 13479,
+        "deny_rate": 0.446,
+        "fraud_caught": 641,
         "fraud_total": 1389,
-        "false_declines": 229,
-        "fraud_dollars_stopped": 4059.0,
-        "total_cost": 49626.0
+        "false_declines": 12838,
+        "fraud_dollars_stopped": 24739.0,
+        "total_cost": 155036.0
       },
       "at_new_threshold_rule": {
-        "threshold": 0.8341,
-        "denied": 491,
-        "deny_rate": 0.0162,
-        "fraud_caught": 130,
+        "threshold": 1.01,
+        "denied": 0,
+        "deny_rate": 0.0,
+        "fraud_caught": 0,
         "fraud_total": 1389,
-        "false_declines": 361,
-        "fraud_dollars_stopped": 5211.0,
-        "total_cost": 49794.0
+        "false_declines": 0,
+        "fraud_dollars_stopped": 0.0,
+        "total_cost": 51395.0
       }
     },
     "deny_nothing_cost": 51395.0,

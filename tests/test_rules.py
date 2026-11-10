@@ -17,8 +17,10 @@ from app.data.data_models import Features
 from app.decisions import execute_hard_rules, execute_shadow_rules, execute_soft_rules, rules
 from app.decisions.models import ELEVATED_SCORE, THRESHOLD
 from app.decisions.rules import (
+    DEVICE_USERS_1H_LIMIT,
     SIGNUP_BURST_SECONDS,
     age_limit,
+    device_many_users_1h,
     ip_country_block,
     model_score_threshold,
     rate_limiter_control,
@@ -183,6 +185,47 @@ class TestSignupBurst:
     def test_wired_into_hard_rules(self, sample_transaction, sample_features):
         self._at(sample_transaction, 1)
         assert execute_hard_rules(sample_transaction, sample_features) == ("deny", "signup_burst")
+
+
+# ---------------------------------------------------------------------------
+# device_many_users_1h — deny if >= DEVICE_USERS_1H_LIMIT distinct users on the device in 1h
+# ---------------------------------------------------------------------------
+
+class TestDeviceManyUsers1h:
+    def test_limit_is_two(self):
+        assert DEVICE_USERS_1H_LIMIT == 2
+
+    # did_uid_1h includes the buyer: the first user on a device sees 1.
+    def test_allow_one_user(self, sample_transaction, sample_features):
+        sample_features.did_uid_1h = 1
+        assert device_many_users_1h(sample_transaction, sample_features) == "allow"
+
+    def test_deny_two_users(self, sample_transaction, sample_features):
+        sample_features.did_uid_1h = 2
+        assert device_many_users_1h(sample_transaction, sample_features) == "deny"
+
+    def test_deny_many_users(self, sample_transaction, sample_features):
+        sample_features.did_uid_1h = 9
+        assert device_many_users_1h(sample_transaction, sample_features) == "deny"
+
+    def test_allow_many_users_outside_1h(self, sample_transaction, sample_features):
+        # Legit sharing is spread over days: only the 1h window counts.
+        sample_features.did_uid_1h = 1
+        sample_features.did_uid_24h = 5
+        sample_features.did_uid_90d = 10
+        assert device_many_users_1h(sample_transaction, sample_features) == "allow"
+
+    def test_wired_into_hard_rules(self, sample_transaction, sample_features):
+        sample_features.did_uid_1h = 2
+        assert execute_hard_rules(sample_transaction, sample_features) == (
+            "deny", "device_many_users_1h")
+
+    def test_signup_burst_keeps_its_label(self, sample_transaction, sample_features):
+        # Bot rows trip both; signup_burst runs first so existing audit labels don't change.
+        sample_transaction.purchase_time = sample_transaction.signup_time + timedelta(seconds=1)
+        sample_features.did_uid_1h = 5
+        assert execute_hard_rules(sample_transaction, sample_features) == (
+            "deny", "signup_burst")
 
 
 # ---------------------------------------------------------------------------

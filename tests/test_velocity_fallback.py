@@ -15,6 +15,7 @@ import pytest
 from fakeredis import aioredis as fake_aioredis
 
 from app.data.data_models import Transaction
+from app.decisions import execute_hard_rules
 from app.decisions.features import build_features, event_ts, update_velocity_counters
 
 PURCHASE_TIME = datetime(2015, 6, 1, 12, 0, 0)   # naive, like the client sends
@@ -141,9 +142,10 @@ class TestPurchaseHistoryFallback:
 
 
 class TestVelocityCounters:
-    async def test_new_device_has_zero_counts(self, redis):
+    async def test_new_device_counts_only_the_buyer(self, redis):
+        # Set features include the buyer (1); count features are strictly prior (0).
         f = await build_features(_txn(), _mock_db(), redis)
-        assert (f.did_uid_90d, f.did_txn_cnt_30d, f.ip_uid_7d) == (0, 0, 0)
+        assert (f.did_uid_90d, f.uid_did_90d, f.ip_uid_7d, f.did_txn_cnt_30d) == (1, 1, 1, 0)
 
     async def test_country_windows_are_the_three_the_model_uses(self, redis):
         # 5min/10min/1h were dropped (no model input or rule read them); 24h/7d/30d are inputs.
@@ -158,8 +160,8 @@ class TestVelocityCounters:
         await _record(redis, old, "t0")
         f = await build_features(_txn(), _mock_db(), redis)
 
-        assert f.did_uid_24h == 0
-        assert f.did_uid_30d == 1
+        assert f.did_uid_24h == 1   # only the buyer
+        assert f.did_uid_30d == 2   # user_0 + the buyer
         assert f.did_txn_cnt_24h == 0
         assert f.did_txn_cnt_30d == 1
 
@@ -169,4 +171,22 @@ class TestVelocityCounters:
         later = _txn(user_id="user_9", purchase_time=datetime(2015, 6, 1, 12, 30, 0))
         await _record(redis, later, "t9")
         f = await build_features(_txn(), _mock_db(), redis)
-        assert f.did_uid_1h == 0
+        assert f.did_uid_1h == 1   # only the buyer
+
+
+class TestDeviceManyUsers1hRedisPath:
+    """device_many_users_1h on real build_features() output (fakeredis), not hand-set values."""
+
+    async def test_second_user_on_device_denied_on_first_attempt(self, redis):
+        b = _txn(user_id="user_0", purchase_time=PURCHASE_TIME - timedelta(minutes=10))
+        await _record(redis, b, "tb")
+        a = _txn(user_id="user_1")
+        f = await build_features(a, _mock_db(), redis)
+        assert f.did_uid_1h == 2
+        assert execute_hard_rules(a, f) == ("deny", "device_many_users_1h")
+
+    async def test_single_user_on_fresh_device_allowed(self, redis):
+        a = _txn(user_id="user_1")
+        f = await build_features(a, _mock_db(), redis)
+        assert f.did_uid_1h == 1
+        assert execute_hard_rules(a, f) == ("allow", None)
