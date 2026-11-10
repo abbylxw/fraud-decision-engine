@@ -839,6 +839,25 @@ A rule only looks good on top of a badly tuned model.
 
 ---
 
+## Why public Fraud_Data results look 8× better than ours (2026-11-09)
+
+Reference checked: a Medium post / GitHub repo reporting Random Forest precision 0.98, recall
+0.54, ROC-AUC 0.77 on Fraud_Data (and 99.96% "accuracy" on creditcard.csv, where 99.83% is the
+no-fraud base rate). Their recipe: random `train_test_split`, label-encoded `device_id`, calendar
+parts of both timestamps (incl. month, minute, second) as features, SMOTE, default 0.5 threshold,
+accuracy/ROC-AUC reporting, Flask endpoint that takes a pre-computed feature vector.
+
+Reproduced with `training/random_split_baseline.py`: precision 0.991, recall 0.539, ROC-AUC 0.768.
+Split by row type: recall on bot rows 1.000, on non-bot fraud 0.002; non-bot ROC-AUC 0.498.
+Same recipe with a time split: recall 0.000, ROC-AUC 0.506. So the reported recall is the bot's
+share of fraud (53.8%), learned from device ids and `month == 1` that leak across a random split;
+the model has no skill on anything else and none at all on future months.
+
+Takeaways recorded for interviews / README: (1) split by time; (2) a repeated attack belongs to a
+rule, not to a model that memorises its ids; (3) never label-encode a high-cardinality id and then
+SMOTE it; (4) report PR-AUC against the base rate, not accuracy. Our model's test PR-AUC 0.092
+(2× chance) is what remains once the easy 54% is removed from the model's job.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

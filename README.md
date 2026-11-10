@@ -173,6 +173,31 @@ and threshold choice use validation only; the test period is scored once. Full w
   fraud), chosen on validation, saves $3.1k out of $51.4k of test-period fraud, against $115
   at the current 0.7.
 
+### Why these numbers look low next to other Fraud_Data projects
+
+Public write-ups on this dataset report Random Forest precision ≈ 0.98, recall ≈ 0.54,
+ROC-AUC ≈ 0.77. Those come from a **random** `train_test_split` with `device_id` label-encoded
+and calendar parts (month, minute, second) as features. Rerunning that recipe here
+(`python -m training.random_split_baseline`) reproduces it, and shows where the recall comes from:
+
+| Same Random Forest, same features | Precision | Recall | ROC-AUC |
+|---|---|---|---|
+| Random 80/20 split, all test fraud | 0.99 | 0.54 | 0.77 |
+| … bot rows only (1,533 of 2,850 test frauds) | | **1.00** | |
+| … non-bot fraud only | | **0.002** | 0.50 |
+| Time split (train Jan–Jun, test Jul–Aug) | 0.00 | 0.00 | 0.50 |
+
+The January bot is 7,600 rows, all fraud, 54% of all fraud in the file. A random split puts
+one fifth of them in the test set, where the same device ids already appear with nine fraud rows
+each in training; the forest memorises the device label and "month = 1" and catches exactly
+those rows. Recall 0.54 is the bot's share of fraud. On every other fraud case the model is a
+coin flip, and trained on the past and tested on the future it catches nothing.
+
+This project splits by time, hands the bot to hard rules (`signup_burst`,
+`device_many_users_1h`: 100% of bot rows, 0 legitimate rows hit) and scores the model only on
+the diffuse 4.6% that remains, where PR-AUC 0.092 vs 0.046 random is twice chance, not a
+memorised attack.
+
 ## Model Training
 
 ```bash
