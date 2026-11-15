@@ -167,6 +167,11 @@ hyper-parameters come from `python -m training.tune`. The four tree ensembles ti
 confidence interval contains every other point estimate. How they differ and why they tie here:
 [docs/model_candidates.md](docs/model_candidates.md).
 
+A rolling-origin check (`python -m training.rolling_eval`: train on the past, score the next
+month, seven times) confirms the tie over time: mean PR-AUC is 0.090 for XGBoost and 0.089 for
+LightGBM and CatBoost, with the paired difference at −0.001 [−0.005, +0.002]. The random
+forest trails by 0.006 [0.002, 0.009].
+
 **What the evaluation found:**
 - **The previous model barely beat random guessing.** At its hardcoded threshold of 0.7 it
   flagged 10 of 30,223 test transactions and caught 4 of 1,389 frauds.

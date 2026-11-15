@@ -901,6 +901,40 @@ group) and the Docker image (`api` group) are unchanged; no test imports the tra
   CatBoost-specific feature path on both training and serving sides.
 - `--ship` of the retrained XGBoost (sweep settings, same test score) is a separate decision.
 
+## Rolling-origin evaluation of the four candidates (2026-11-15)
+
+**Why:** one validation month and one test period ranked the boosters differently
+(LightGBM first on validation, CatBoost first on test). `training/rolling_eval.py` repeats
+"train on the past, score the next period" seven times (scored periods May to Nov+Dec,
+expanding training window, tree count picked on the month before the scored one,
+hyper-parameters fixed). Results: `docs/evaluation/rolling_origin.json` and `.png`; full
+tables in `docs/model_candidates.md` section 6.
+
+**Result:** mean PR-AUC XGBoost 0.090, LightGBM 0.089, CatBoost 0.089, random forest 0.084.
+Paired bootstrap of the mean difference vs XGBoost: LightGBM −0.001 [−0.005, +0.002],
+CatBoost −0.001 [−0.004, +0.002], random forest −0.006 [−0.009, −0.002]. The boosters tie
+over time; the random forest is slightly but measurably behind. XGBoost stays. Nothing was
+retrained or shipped.
+
+**Trap found:** XGBoost's `eval_metric="aucpr"` over-credits one-tree models (0.088 vs
+scikit-learn's 0.077 in fold 4; tied scores, different interpolation), so
+`early_stopping_rounds=100` stopped at tree 1 in two folds and under 15 trees in three more,
+under-fitting by up to 0.02 PR-AUC (seven-fold mean 0.082 instead of 0.090). The first run therefore showed the other two boosters
+"significantly" ahead. `rolling_eval.py` trains the full budget and picks the tree count with
+scikit-learn's average precision every 10 trees (same fix as CatBoost).
+
+**Trade-off accepted:** the fix lives only in `rolling_eval.py`, so the stopping logic for
+XGBoost now differs between this script and `train.py` / `tune.py` / `evaluate.py`. Changing
+the shared `candidates.fit_candidate` changes how the served model is trained, which is a
+separate decision.
+
+**TODOs:**
+- Move the scikit-learn-metric tree selection for XGBoost into `candidates.fit_candidate`,
+  re-run `tune.py` (the "reject configs under 50 trees" rule should become unnecessary) and
+  `train.py`, and compare with the served model before any `--ship`.
+- Folds reuse hyper-parameters tuned on Aug 5 to 30; a nested version (re-tune inside each
+  fold) would remove that, at 7× the sweep cost and little expected change.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

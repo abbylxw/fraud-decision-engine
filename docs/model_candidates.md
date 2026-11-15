@@ -151,7 +151,98 @@ was accepted because the alternative (switching the serving stack on a validatio
 0.002) is the worse mistake, and the test-period numbers reported for the shipped model are
 still from a single scoring of that model.
 
-## 6. What would actually move the number
+## 6. Rolling-origin check: is the ranking stable over time?
+
+Sections 4 and 5 rest on one validation month and one test period, and the two disagreed on
+the order of the boosters. A **rolling-origin evaluation** (also called walk-forward
+validation) asks the same question several times: train on the past, score the next period,
+move the cut-off (the "origin") forward a month, repeat. `python -m training.rolling_eval`
+does this seven times (run of 2026-11-15, results in `docs/evaluation/rolling_origin.json`).
+
+| Fold | Train (bot rows removed) | Tree count picked on | Scored period | Scored frauds |
+|---|---|---|---|---|
+| 1 | Jan–Mar (21k rows) | Apr | May | 921 |
+| 2 | Jan–Apr | May | Jun | 842 |
+| 3 | Jan–May | Jun | Jul | 900 |
+| 4 | Jan–Jun | Jul | Aug | 833 |
+| 5 | Jan–Jul | Aug | Sep | 663 |
+| 6 | Jan–Aug | Sep | Oct | 442 |
+| 7 | Jan–Sep (128k rows) | Oct | Nov + Dec | 251 |
+
+The boosters choose their tree count on the month *before* the scored one, so the scored
+period is never seen while fitting. Hyper-parameters are the tuned ones from section 3, the
+same in every fold.
+
+![Rolling-origin PR-AUC by scored period](evaluation/rolling_origin.png)
+
+PR-AUC per scored period (fraud rate 4.5 to 4.8% throughout; best in each row in bold):
+
+| Scored | Random forest | XGBoost | LightGBM | CatBoost |
+|---|---|---|---|---|
+| May | 0.055 | **0.068** | 0.063 | 0.065 |
+| Jun | 0.094 | **0.096** | 0.091 | 0.093 |
+| Jul | 0.082 | 0.085 | **0.086** | 0.086 |
+| Aug | 0.091 | **0.099** | 0.094 | 0.099 |
+| Sep | 0.095 | 0.099 | **0.101** | 0.101 |
+| Oct | 0.081 | 0.087 | **0.090** | 0.086 |
+| Nov + Dec | 0.090 | 0.093 | **0.094** | 0.089 |
+| **Mean** | 0.084 | 0.090 | 0.089 | 0.089 |
+| Folds won | 0 | 3 | 4 | 0 |
+| Mean rank | 3.6 | 1.9 | 2.0 | 2.6 |
+
+Each single cell has a 95% interval about ±0.015 wide (±0.03 for Nov + Dec), so no single
+month separates anything. The useful number is the **paired** difference from XGBoost,
+averaged over the seven folds. "Paired" means both models are scored on the same resampled
+rows, so the noise they share cancels and a much smaller difference becomes detectable:
+
+| vs XGBoost | Mean PR-AUC difference [95% CI] | Ahead in |
+|---|---|---|
+| LightGBM | −0.001 [−0.005, +0.002] | 27% of resamples |
+| CatBoost | −0.001 [−0.004, +0.002] | 26% of resamples |
+| Random forest | −0.006 [−0.009, −0.002] | 0% of resamples |
+
+What this adds to the single-split picture:
+
+- **The three boosters are a tie over time, not just on one test set.** The lead changes hands
+  from month to month (XGBoost wins 3 folds, LightGBM 4, always by 0.003 or less) and the
+  averaged difference is a tenth of a point with an interval that straddles zero. The
+  validation/test flip in section 4 was this month-to-month reshuffling seen twice.
+- **Random forest is behind by a small, real amount** (0.006, interval excludes zero, last or
+  second-last in six of seven folds). One test set could not show this; seven folds can.
+- **More training data stops helping early.** Fold 1 (21k training rows) scores 0.055 to 0.068;
+  from fold 2 (38k rows) on, every fold lands between 0.08 and 0.10 with no upward trend up to
+  128k rows. More rows of the same kind would not move the number; see section 7.
+- **Keeping XGBoost is supported.** No challenger beats it on average, so the selection rule in
+  section 5 gave the right answer for a better reason than "the test difference was inside the
+  noise".
+
+**A third library trap, found by this run.** The first run of the script showed LightGBM and
+CatBoost ahead of XGBoost by 0.007 with an interval that excluded zero. That was wrong.
+XGBoost's built-in `aucpr` metric has the same weakness as CatBoost's `PRAUC`: a model of one
+or two trees gives only a handful of distinct scores, and XGBoost's interpolation over those
+ties over-credits it (fold 4: 0.088 after one tree where scikit-learn computes 0.077). Early
+stopping therefore saw tree 1 as the peak and kept 1 tree in two folds and under 15 in three
+more, where 100 to 850 trees score up to 0.02 higher on the next month (XGBoost's seven-fold mean
+rose from 0.082 to 0.090 once this was fixed). `rolling_eval.py`
+now picks XGBoost's tree count with scikit-learn's average precision every 10 trees, the same
+way `candidates.py` does for CatBoost. The served model is not affected (its early stopping
+kept 368 trees), but `train.py` and `tune.py` still use XGBoost's own early stopping and
+could hit this on a future retrain; the ad-hoc "reject configs under 50 trees" rule in the
+sweep was a symptom of it. Moving the fix into `candidates.fit_candidate` is an open TODO.
+
+Two limits to keep in mind:
+
+- The hyper-parameters were tuned on Aug 5 to 30, so folds 1 to 4 use settings chosen with
+  slightly later data. All four models share that advantage, so the comparison between them
+  holds, but the absolute numbers in those folds are a little optimistic.
+- Folds 5 to 7 cover the test period of section 4. This run is a diagnostic about ranking
+  stability; the single test score of the shipped model in section 4 remains the reported
+  figure.
+
+Worth looking up: *walk-forward validation* (`TimeSeriesSplit` in scikit-learn is the generic
+version) and the *paired bootstrap*.
+
+## 7. What would actually move the number
 
 Not another algorithm. The four agree because they are all reading the same two or three
 device-sharing features; after the bot attack is removed there is little else in this
