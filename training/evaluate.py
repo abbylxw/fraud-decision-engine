@@ -24,6 +24,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from catboost import CatBoostClassifier
+from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
@@ -34,6 +36,7 @@ from xgboost import XGBClassifier
 from app.decisions.models import THRESHOLD as SERVED_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from training.build_features import ROOT, SERVED_FEATURES, build_feature_frame, load_transactions
+from training.candidates import BOOSTERS, EARLY_STOP_ROUNDS, best_trees, fit_candidate
 
 warnings.filterwarnings("ignore", category=UserWarning)
 SEED = 42
@@ -41,6 +44,7 @@ SEED = 42
 # Chart colors: categorical slots 1-3 of the validated reference palette, plus a gray
 # for "baseline / reference" lines. Text stays in neutral ink, never series color.
 C_BLUE, C_ORANGE, C_AQUA, C_GRAY = "#2a78d6", "#eb6834", "#1baf7a", "#8a8984"
+C_PURPLE, C_BROWN = "#7a5bd6", "#a06a2c"
 INK, INK_2 = "#0b0b0b", "#52514e"
 
 
@@ -114,26 +118,33 @@ def make_models(neg_pos_ratio):
             StandardScaler(),
             LogisticRegression(class_weight="balanced", max_iter=2000, random_state=SEED),
         ),
-        # Same settings as the notebook / deployed model.
+        # Sweep winner (docs/evaluation/tune_sweep.json); same settings as train.py.
         "random_forest": RandomForestClassifier(
-            n_estimators=200, max_depth=12, min_samples_leaf=50,
+            n_estimators=200, max_depth=16, min_samples_leaf=20,
             class_weight="balanced", n_jobs=-1, random_state=SEED,
         ),
-        # Notebook settings, but early-stopped on VALIDATION (the notebook watched test).
         "xgboost": XGBClassifier(
-            n_estimators=1000, max_depth=7, learning_rate=0.02, subsample=0.8,
-            colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio, eval_metric="aucpr",
-            early_stopping_rounds=50, random_state=SEED, n_jobs=-1,
+            n_estimators=1000, max_depth=3, learning_rate=0.03, min_child_weight=100,
+            subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
+            eval_metric="aucpr", early_stopping_rounds=EARLY_STOP_ROUNDS,
+            random_state=SEED, n_jobs=-1,
+        ),
+        # Sweep winners (docs/evaluation/tune_sweep.json); same settings as train.py.
+        "lightgbm": LGBMClassifier(
+            n_estimators=1000, num_leaves=15, learning_rate=0.05, min_child_samples=20,
+            subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
+            scale_pos_weight=neg_pos_ratio, metric="average_precision",
+            random_state=SEED, n_jobs=-1, verbose=-1,
+        ),
+        "catboost": CatBoostClassifier(
+            iterations=1000, depth=4, learning_rate=0.05, l2_leaf_reg=10,
+            scale_pos_weight=neg_pos_ratio, random_seed=SEED, verbose=False, thread_count=-1,
+            allow_writing_files=False,
         ),
     }
 
 
-def fit(name, model, X_tr, y_tr, X_va, y_va):
-    if name == "xgboost":
-        model.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], verbose=False)
-    else:
-        model.fit(X_tr, y_tr)
-    return model
+fit = fit_candidate  # boosters early-stop on validation; see training/candidates.py
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +180,8 @@ def chart_fraud_by_month(df, out):
 
 def chart_pr_curves(y, curves, base_rate, out):
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
-    for (label, p), color in zip(curves.items(), [C_GRAY, C_BLUE, C_ORANGE]):
+    for (label, p), color in zip(curves.items(),
+                                 [C_GRAY, C_BLUE, C_ORANGE, C_AQUA, C_PURPLE, C_BROWN]):
         prec, rec, _ = precision_recall_curve(y, p)
         ax.plot(rec, prec, color=color, linewidth=2,
                 label=f"{label} (PR-AUC {average_precision_score(y, p):.3f})")
@@ -285,8 +297,8 @@ def main():
                 "validation_pr_auc": round(float(average_precision_score(y[va], p_va)), 4),
                 "test": score_report(y[te], p_te, args.n_boot),
             }
-            if name == "xgboost":
-                results[key]["best_iteration"] = int(model.best_iteration)
+            if name in BOOSTERS:
+                results[key]["trees"] = best_trees(name, model)
                 imp = pd.Series(model.feature_importances_, index=SERVED_FEATURES)
                 results[key]["top_features"] = {
                     k: round(float(v), 4) for k, v in imp.nlargest(10).items()}
@@ -326,8 +338,8 @@ def main():
     chart_pr_curves(
         y[te],
         {"deployed model": p_deployed,
-         "random forest (all data)": test_scores["random_forest/all_train_data"],
-         best.replace("/", " / ").replace("_", " "): test_scores[best]},
+         **{f"{m.replace('_', ' ')} (no bot rows)": test_scores[f"{m}/without_bot_burst"]
+            for m in ("random_forest", "xgboost", "lightgbm", "catboost")}},
         float(y[te].mean()),
         out / "pr_curves_test.png",
     )

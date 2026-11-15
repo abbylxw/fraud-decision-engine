@@ -1,0 +1,292 @@
+{
+  "model_version": "xgboost-20261110232942-366f3c6",
+  "trained_at": "2026-11-10T23:29:42",
+  "algorithm": "xgboost",
+  "params": {
+    "objective": "binary:logistic",
+    "base_score": null,
+    "booster": null,
+    "callbacks": null,
+    "colsample_bylevel": null,
+    "colsample_bynode": null,
+    "colsample_bytree": 0.8,
+    "device": null,
+    "early_stopping_rounds": null,
+    "enable_categorical": false,
+    "eval_metric": "aucpr",
+    "feature_types": null,
+    "feature_weights": null,
+    "gamma": null,
+    "grow_policy": null,
+    "importance_type": null,
+    "interaction_constraints": null,
+    "learning_rate": 0.03,
+    "max_bin": null,
+    "max_cat_threshold": null,
+    "max_cat_to_onehot": null,
+    "max_delta_step": null,
+    "max_depth": 3,
+    "max_leaves": null,
+    "min_child_weight": 100,
+    "missing": NaN,
+    "monotone_constraints": null,
+    "multi_strategy": null,
+    "n_estimators": 368,
+    "n_jobs": -1,
+    "num_parallel_tree": null,
+    "random_state": 42,
+    "reg_alpha": null,
+    "reg_lambda": null,
+    "sampling_method": null,
+    "scale_pos_weight": 20.92941702032611,
+    "subsample": 0.8,
+    "tree_method": null,
+    "validate_parameters": null,
+    "verbosity": null
+  },
+  "threshold": 0.839651,
+  "threshold_basis": {
+    "chosen_on": "validation",
+    "false_decline_cost": 10.0,
+    "missed_fraud_cost": "purchase_value"
+  },
+  "elevated_score_threshold": 0.602501,
+  "elevated_score_basis": {
+    "chosen_on": "validation",
+    "rule": "top 3% of scores",
+    "validation_precision": 0.2379,
+    "used_by": "rules.rate_limiter_control (score + velocity combos)"
+  },
+  "training_data": {
+    "source": "app/data/Fraud_Data.csv",
+    "rows": 113289,
+    "window": [
+      "2015-01-01 00:00:44",
+      "2015-08-30 15:18:18"
+    ],
+    "excluded": "7600 bot-burst rows (signup->purchase < 60s; denied by signup_burst rule)"
+  },
+  "features": [
+    "purchase_value",
+    "days_since_signup",
+    "sex",
+    "source",
+    "browser",
+    "ipc_United_States",
+    "ipc_China",
+    "ipc_Japan",
+    "ipc_United_Kingdom",
+    "ipc_Korea_Republic_of",
+    "ipc_Germany",
+    "ipc_France",
+    "ipc_Canada",
+    "ipc_Brazil",
+    "ipc_Italy",
+    "ipc_Unknown",
+    "ipc_grp_Africa",
+    "ipc_grp_Asia",
+    "ipc_grp_Europe",
+    "ipc_grp_North_America",
+    "ipc_grp_Oceania",
+    "ipc_grp_South_America",
+    "hour_of_day",
+    "day_of_week",
+    "did_uid_2h",
+    "did_uid_24h",
+    "did_uid_7d",
+    "did_uid_30d",
+    "did_uid_90d",
+    "ip_uid_24h",
+    "ip_uid_7d",
+    "did_txn_cnt_2h",
+    "did_txn_cnt_24h",
+    "did_txn_cnt_7d",
+    "did_txn_cnt_30d",
+    "country_txn_count_24h",
+    "country_txn_count_7d",
+    "country_txn_count_30d",
+    "amount_vs_user_avg_30d",
+    "age_account_gap",
+    "age_group"
+  ],
+  "dropped_features": {
+    "ipc_grp_Other": "constant on training rows",
+    "uid_did_2h": "constant on training rows",
+    "uid_did_24h": "constant on training rows",
+    "uid_did_7d": "constant on training rows",
+    "uid_did_30d": "constant on training rows",
+    "uid_did_90d": "constant on training rows",
+    "ip_uid_2h": "constant on training rows",
+    "purchase_cnt_24h": "constant on training rows",
+    "purchase_amt_24h": "constant on training rows",
+    "purchase_cnt_7d": "constant on training rows",
+    "purchase_amt_7d": "constant on training rows",
+    "purchase_cnt_30d": "constant on training rows",
+    "purchase_amt_30d": "constant on training rows",
+    "purchase_cnt_90d": "constant on training rows",
+    "purchase_amt_90d": "constant on training rows",
+    "purchase_success_cnt_24h": "constant on training rows",
+    "purchase_success_amt_24h": "constant on training rows",
+    "purchase_success_cnt_7d": "constant on training rows",
+    "purchase_success_amt_7d": "constant on training rows",
+    "purchase_success_cnt_30d": "constant on training rows",
+    "purchase_success_amt_30d": "constant on training rows",
+    "purchase_success_cnt_90d": "constant on training rows",
+    "purchase_success_amt_90d": "constant on training rows",
+    "did_uid_days_on_file": "constant on training rows",
+    "pur_median_amt_90d": "constant on training rows",
+    "time_since_last_txn_uid": "constant on training rows",
+    "high_amount_vs_hist": "constant on training rows",
+    "month_of_year": "test months never appear in training; memorises January"
+  },
+  "top_features": {
+    "did_uid_90d": 0.2254,
+    "did_txn_cnt_30d": 0.1661,
+    "did_uid_30d": 0.0728,
+    "age_group": 0.0246,
+    "ipc_grp_Asia": 0.0237,
+    "ipc_United_States": 0.0218,
+    "age_account_gap": 0.0217,
+    "country_txn_count_30d": 0.0211,
+    "ipc_Japan": 0.0211,
+    "ipc_Germany": 0.0207
+  },
+  "validation_pr_auc": {
+    "random_forest": 0.095,
+    "xgboost": 0.1118,
+    "lightgbm": 0.1151,
+    "catboost": 0.1077
+  },
+  "candidates_on_test": {
+    "random_forest": {
+      "trees": null,
+      "pr_auc": 0.0853,
+      "pr_auc_ci95": [
+        0.0759,
+        0.0981
+      ],
+      "roc_auc": 0.5579
+    },
+    "xgboost": {
+      "trees": 368,
+      "pr_auc": 0.0913,
+      "pr_auc_ci95": [
+        0.0812,
+        0.1046
+      ],
+      "roc_auc": 0.5603
+    },
+    "lightgbm": {
+      "trees": 190,
+      "pr_auc": 0.0914,
+      "pr_auc_ci95": [
+        0.0809,
+        0.1056
+      ],
+      "roc_auc": 0.5606
+    },
+    "catboost": {
+      "trees": 240,
+      "pr_auc": 0.0958,
+      "pr_auc_ci95": [
+        0.0842,
+        0.1114
+      ],
+      "roc_auc": 0.5612
+    }
+  },
+  "selection_rule": {
+    "incumbent": "xgboost",
+    "selected": "xgboost",
+    "reason": "lightgbm won validation (0.1151 vs 0.1118) but its test PR-AUC 0.0914 is inside xgboost's 95% CI (upper 0.1046); kept the incumbent",
+    "rule": "highest validation PR-AUC, unless the winner is a challenger whose test PR-AUC is inside the incumbent's 95% CI"
+  },
+  "evaluation": {
+    "new_model": {
+      "test": {
+        "pr_auc": 0.0916,
+        "pr_auc_ci95": [
+          0.0808,
+          0.1063
+        ],
+        "roc_auc": 0.5559,
+        "roc_auc_ci95": [
+          0.5386,
+          0.5724
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0641,
+          "precision": 0.2947
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1526,
+          "precision": 0.1403
+        },
+        "precision_at_50pct_recall": 0.0534
+      },
+      "at_new_threshold": {
+        "threshold": 0.8397,
+        "denied": 420,
+        "deny_rate": 0.0139,
+        "fraud_caught": 116,
+        "fraud_total": 1389,
+        "false_declines": 304,
+        "fraud_dollars_stopped": 4613.0,
+        "total_cost": 49822.0
+      },
+      "elevated_score_on_test": {
+        "share": 0.0263,
+        "precision": 0.233
+      }
+    },
+    "previous_model": {
+      "test": {
+        "pr_auc": 0.092,
+        "pr_auc_ci95": [
+          0.0814,
+          0.1065
+        ],
+        "roc_auc": 0.5568,
+        "roc_auc_ci95": [
+          0.5393,
+          0.5741
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0634,
+          "precision": 0.2914
+        },
+        "at_5pct_alerts": {
+          "recall": 0.1497,
+          "precision": 0.1377
+        },
+        "precision_at_50pct_recall": 0.0533
+      },
+      "at_old_threshold": {
+        "threshold": 0.8428,
+        "denied": 365,
+        "deny_rate": 0.0121,
+        "fraud_caught": 106,
+        "fraud_total": 1389,
+        "false_declines": 259,
+        "fraud_dollars_stopped": 4271.0,
+        "total_cost": 49714.0
+      },
+      "at_new_threshold_rule": {
+        "threshold": 0.8535,
+        "denied": 276,
+        "deny_rate": 0.0091,
+        "fraud_caught": 85,
+        "fraud_total": 1389,
+        "false_declines": 191,
+        "fraud_dollars_stopped": 3417.0,
+        "total_cost": 49888.0
+      }
+    },
+    "deny_nothing_cost": 51395.0,
+    "ship_gate": {
+      "rule": "new test PR-AUC >= previous model's 95% CI lower bound",
+      "passed": true
+    }
+  },
+  "seed": 42
+}

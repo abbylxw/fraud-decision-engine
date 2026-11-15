@@ -858,6 +858,49 @@ rule, not to a model that memorises its ids; (3) never label-encode a high-cardi
 SMOTE it; (4) report PR-AUC against the base rate, not accuracy. Our model's test PR-AUC 0.092
 (2× chance) is what remains once the easy 54% is removed from the model's job.
 
+## Model candidates: tuned LightGBM and CatBoost added, XGBoost kept (2026-11-10)
+
+**Change:** `training/train.py` and `training/evaluate.py` compare four tree candidates
+(random forest, XGBoost, LightGBM, CatBoost) instead of two or three. New
+`training/tune.py` runs a validation-only grid per algorithm (66 configs, ~2 min) and writes
+`results/tune_<ts>/sweep.json` (copy in `docs/evaluation/tune_sweep.json`); the winners are pasted into both scripts by hand with the
+sweep folder in a comment. New `training/candidates.py` holds the split/feature-selection
+block that train.py and tune.py share and the per-library early-stopping glue. The
+explanation of the four algorithms and the full results table are in
+`docs/model_candidates.md`.
+
+**Result:** all four tie on the test period (PR-AUC 0.085 to 0.096, every 95% CI about
+±0.013 wide and overlapping). LightGBM won validation (0.115 vs XGBoost 0.112) and was middle
+of the pack on test. The ceiling is the data, not the learner.
+
+**Selection rule (`train.select_candidate`):** XGBoost is the incumbent because it is the only
+booster in the `api` dependency group. A challenger ships only if it wins validation *and* its
+test PR-AUC exceeds the incumbent's 95% CI upper bound. Trade-off accepted: this reads test
+scores for every candidate, so test now influences model choice slightly; the previous script
+scored test once. Switching the serving stack on a validation-only win of 0.003 was judged
+the worse error. The rule and reason are recorded in `model_meta.json["selection_rule"]`.
+
+**Library traps found (kept here so they are not re-learned):**
+- LightGBM's `early_stopping` callback watches every metric in the model's list, including
+  the default log-loss, which with `scale_pos_weight` = 21 worsens from tree 1; training
+  stopped at 1 tree. Fix: `metric="average_precision"` + `first_metric_only=True`.
+- CatBoost's `PRAUC` eval metric gave 0.108 after one tree where scikit-learn's average
+  precision gives 0.076 (different interpolation under heavy score ties), so its overfitting
+  detector stopped at tree 1; `use_weights=false` made no difference. Fix: train the full
+  budget and pick the tree count with scikit-learn's metric via `staged_predict_proba` every
+  10 trees, then `shrink()`.
+
+**Dependencies:** `lightgbm==4.6.0`, `catboost==1.2.8` in the `train` group only. CI (`dev`
+group) and the Docker image (`api` group) are unchanged; no test imports the training scripts.
+
+**TODOs:**
+- The sweep is a grid, not a budgeted search; with this little signal a wider search would
+  only re-sample noise, but on a richer dataset replace it with `optuna` on validation PR-AUC.
+- CatBoost's categorical handling is unused because all served features are numeric. The
+  real experiment is feeding it raw `device_id` / `ip_country` strings, which needs a
+  CatBoost-specific feature path on both training and serving sides.
+- `--ship` of the retrained XGBoost (sweep settings, same test score) is a separate decision.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

@@ -1,0 +1,578 @@
+{
+  "generated_at": "2026-11-10T23:27:28",
+  "selection_metric": "validation PR-AUC (test rows never used)",
+  "train_rows": 98178,
+  "validation_rows": 15111,
+  "features": [
+    "purchase_value",
+    "days_since_signup",
+    "sex",
+    "source",
+    "browser",
+    "ipc_United_States",
+    "ipc_China",
+    "ipc_Japan",
+    "ipc_United_Kingdom",
+    "ipc_Korea_Republic_of",
+    "ipc_Germany",
+    "ipc_France",
+    "ipc_Canada",
+    "ipc_Brazil",
+    "ipc_Italy",
+    "ipc_Unknown",
+    "ipc_grp_Africa",
+    "ipc_grp_Asia",
+    "ipc_grp_Europe",
+    "ipc_grp_North_America",
+    "ipc_grp_Oceania",
+    "ipc_grp_South_America",
+    "hour_of_day",
+    "day_of_week",
+    "did_uid_2h",
+    "did_uid_24h",
+    "did_uid_7d",
+    "did_uid_30d",
+    "did_uid_90d",
+    "ip_uid_24h",
+    "ip_uid_7d",
+    "did_txn_cnt_2h",
+    "did_txn_cnt_24h",
+    "did_txn_cnt_7d",
+    "did_txn_cnt_30d",
+    "country_txn_count_24h",
+    "country_txn_count_7d",
+    "country_txn_count_30d",
+    "amount_vs_user_avg_30d",
+    "age_account_gap",
+    "age_group"
+  ],
+  "sweep": {
+    "random_forest": [
+      {
+        "max_depth": 16,
+        "min_samples_leaf": 20,
+        "validation_pr_auc": 0.095,
+        "trees": null,
+        "fit_seconds": 1.8
+      },
+      {
+        "max_depth": 12,
+        "min_samples_leaf": 100,
+        "validation_pr_auc": 0.0948,
+        "trees": null,
+        "fit_seconds": 1.5
+      },
+      {
+        "max_depth": 8,
+        "min_samples_leaf": 20,
+        "validation_pr_auc": 0.0943,
+        "trees": null,
+        "fit_seconds": 1.1
+      },
+      {
+        "max_depth": 12,
+        "min_samples_leaf": 50,
+        "validation_pr_auc": 0.0934,
+        "trees": null,
+        "fit_seconds": 1.5
+      },
+      {
+        "max_depth": 16,
+        "min_samples_leaf": 100,
+        "validation_pr_auc": 0.0932,
+        "trees": null,
+        "fit_seconds": 1.6
+      },
+      {
+        "max_depth": 8,
+        "min_samples_leaf": 100,
+        "validation_pr_auc": 0.0922,
+        "trees": null,
+        "fit_seconds": 1.1
+      },
+      {
+        "max_depth": 8,
+        "min_samples_leaf": 50,
+        "validation_pr_auc": 0.0917,
+        "trees": null,
+        "fit_seconds": 1.0
+      },
+      {
+        "max_depth": 12,
+        "min_samples_leaf": 20,
+        "validation_pr_auc": 0.0917,
+        "trees": null,
+        "fit_seconds": 1.5
+      },
+      {
+        "max_depth": 16,
+        "min_samples_leaf": 50,
+        "validation_pr_auc": 0.0912,
+        "trees": null,
+        "fit_seconds": 1.8
+      }
+    ],
+    "xgboost": [
+      {
+        "max_depth": 5,
+        "learning_rate": 0.1,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1119,
+        "trees": 25,
+        "fit_seconds": 0.5
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1118,
+        "trees": 368,
+        "fit_seconds": 1.2
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.1,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1117,
+        "trees": 158,
+        "fit_seconds": 0.6
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.1,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1109,
+        "trees": 105,
+        "fit_seconds": 0.5
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.1,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1109,
+        "trees": 107,
+        "fit_seconds": 0.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1106,
+        "trees": 12,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.1,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1103,
+        "trees": 104,
+        "fit_seconds": 0.6
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1102,
+        "trees": 12,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.1,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1095,
+        "trees": 132,
+        "fit_seconds": 0.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1092,
+        "trees": 7,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.109,
+        "trees": 212,
+        "fit_seconds": 0.9
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1084,
+        "trees": 203,
+        "fit_seconds": 0.8
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.108,
+        "trees": 12,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.05,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1073,
+        "trees": 242,
+        "fit_seconds": 0.9
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.03,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1069,
+        "trees": 244,
+        "fit_seconds": 0.8
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.03,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1067,
+        "trees": 367,
+        "fit_seconds": 1.1
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.03,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1065,
+        "trees": 249,
+        "fit_seconds": 0.8
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.1,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1056,
+        "trees": 42,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1044,
+        "trees": 12,
+        "fit_seconds": 0.5
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.104,
+        "trees": 146,
+        "fit_seconds": 0.7
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.05,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1036,
+        "trees": 254,
+        "fit_seconds": 0.9
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.1,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1036,
+        "trees": 43,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.05,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1033,
+        "trees": 214,
+        "fit_seconds": 0.8
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1032,
+        "trees": 92,
+        "fit_seconds": 0.5
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1011,
+        "trees": 12,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.0947,
+        "trees": 1,
+        "fit_seconds": 0.4
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.1,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.0947,
+        "trees": 1,
+        "fit_seconds": 0.4
+      }
+    ],
+    "lightgbm": [
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.05,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1151,
+        "trees": 190,
+        "fit_seconds": 1.1
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.03,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1109,
+        "trees": 326,
+        "fit_seconds": 0.9
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.03,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1102,
+        "trees": 316,
+        "fit_seconds": 1.5
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.05,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1094,
+        "trees": 316,
+        "fit_seconds": 0.9
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1094,
+        "trees": 113,
+        "fit_seconds": 1.2
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.03,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1092,
+        "trees": 213,
+        "fit_seconds": 1.8
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1078,
+        "trees": 305,
+        "fit_seconds": 2.3
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.03,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1075,
+        "trees": 229,
+        "fit_seconds": 1.9
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.03,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1069,
+        "trees": 204,
+        "fit_seconds": 1.3
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1066,
+        "trees": 171,
+        "fit_seconds": 1.5
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.03,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1062,
+        "trees": 235,
+        "fit_seconds": 1.1
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.05,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1061,
+        "trees": 98,
+        "fit_seconds": 0.4
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.03,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.106,
+        "trees": 230,
+        "fit_seconds": 1.9
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.05,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1056,
+        "trees": 183,
+        "fit_seconds": 0.7
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.05,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1054,
+        "trees": 161,
+        "fit_seconds": 1.0
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.03,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1052,
+        "trees": 139,
+        "fit_seconds": 0.6
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.05,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.105,
+        "trees": 316,
+        "fit_seconds": 1.4
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.03,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.104,
+        "trees": 218,
+        "fit_seconds": 0.7
+      }
+    ],
+    "catboost": [
+      {
+        "depth": 4,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1077,
+        "trees": 240,
+        "fit_seconds": 4.6
+      },
+      {
+        "depth": 3,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1071,
+        "trees": 640,
+        "fit_seconds": 4.0
+      },
+      {
+        "depth": 3,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1055,
+        "trees": 470,
+        "fit_seconds": 4.0
+      },
+      {
+        "depth": 3,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1054,
+        "trees": 900,
+        "fit_seconds": 4.0
+      },
+      {
+        "depth": 6,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1053,
+        "trees": 300,
+        "fit_seconds": 5.5
+      },
+      {
+        "depth": 4,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.105,
+        "trees": 570,
+        "fit_seconds": 4.5
+      },
+      {
+        "depth": 4,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1048,
+        "trees": 110,
+        "fit_seconds": 4.4
+      },
+      {
+        "depth": 6,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1046,
+        "trees": 20,
+        "fit_seconds": 5.5
+      },
+      {
+        "depth": 6,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1033,
+        "trees": 20,
+        "fit_seconds": 5.4
+      },
+      {
+        "depth": 3,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1031,
+        "trees": 580,
+        "fit_seconds": 4.1
+      },
+      {
+        "depth": 6,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.103,
+        "trees": 20,
+        "fit_seconds": 5.6
+      },
+      {
+        "depth": 4,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1015,
+        "trees": 400,
+        "fit_seconds": 4.4
+      }
+    ]
+  }
+}

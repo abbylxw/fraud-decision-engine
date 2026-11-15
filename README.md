@@ -144,7 +144,7 @@ pytest tests/ -v
 ## Model Evaluation
 
 ```bash
-python -m training.evaluate          # ~30 s; writes results/<timestamp>/metrics.json + charts
+python -m training.evaluate          # ~2 min; writes results/<timestamp>/metrics.json + charts
 ```
 
 Time-based split (train Jan–Aug 5 / validation Aug 5–30 / test Aug 30–Dec 16). Early stopping
@@ -154,11 +154,18 @@ and threshold choice use validation only; the test period is scored once. Full w
 | Model (test period, fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
 |---|---|---|
 | Random guessing | 0.046 | 0.50 |
-| Previous RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
-| XGBoost (`training/train.py`, 25 features, alphabetical country code) | 0.092 [0.081, 0.106] | 0.56 |
+| Logistic regression | 0.066 [0.060, 0.074] | 0.56 |
+| Random forest (depth 16, 200 trees) | 0.085 [0.076, 0.098] | 0.56 |
+| XGBoost (depth 3, 368 trees) | 0.091 [0.081, 0.105] | 0.56 |
+| LightGBM (15 leaves, 190 trees) | 0.091 [0.081, 0.106] | 0.56 |
+| CatBoost (depth 4, 240 trees) | 0.096 [0.084, 0.111] | 0.56 |
 | **Served XGBoost** (41 features, grouped country one-hot) | **0.092 [0.081, 0.107]** | 0.56 |
-| XGBoost, early-stopped on validation | 0.088 [0.079, 0.101] | 0.56 |
-| Logistic regression | 0.049 [0.046, 0.054] | 0.50 |
+| Previous RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
+
+All tree models are trained without the January bot rows and early-stopped on validation;
+hyper-parameters come from `python -m training.tune`. The four tree ensembles tie: every
+confidence interval contains every other point estimate. How they differ and why they tie here:
+[docs/model_candidates.md](docs/model_candidates.md).
 
 **What the evaluation found:**
 - **The previous model barely beat random guessing.** At its hardcoded threshold of 0.7 it
@@ -222,8 +229,12 @@ What the served model does differently from the notebook model, and why:
   `tests/test_encoding_contract.py` checks all 182 names. PR-AUC is unchanged (per-country fraud
   rates are nearly flat, 3.8–5.0%), so the gain is a correct, explainable feature rather than
   accuracy.
-- **Shallow XGBoost** (depth 3, 203 trees). With the notebook's depth-7 settings, early stopping
-  fired after 3 trees because the signal left after January is weak and deep trees overfit it.
+- **Four tree candidates, one winner by validation PR-AUC.** Random forest, XGBoost, LightGBM
+  and CatBoost, each tuned by a small validation-only grid (`python -m training.tune`). All
+  boosters are shallow (depth 3 / 7 leaves): with the notebook's depth-7 settings early
+  stopping fired after 3 trees, because the signal left after January is weak and deep trees
+  overfit it. XGBoost stays served unless a challenger beats its 95% CI on test; see
+  [docs/model_candidates.md](docs/model_candidates.md) for how the four differ and why they tie.
 - **The threshold is chosen by cost on validation** (missed fraud = purchase value, false decline
   = $10) and stored in `app/decisions/model_meta.json` with the model version, training window
   and evaluation results. The API reads it from there; it is no longer hardcoded.

@@ -27,6 +27,8 @@ import warnings
 
 import joblib
 import numpy as np
+from catboost import CatBoostClassifier
+from lightgbm import LGBMClassifier
 from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import average_precision_score
@@ -37,6 +39,13 @@ from app.decisions.models import THRESHOLD as OLD_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from app.decisions.rules import SIGNUP_BURST_SECONDS
 from training.build_features import ROOT, build_feature_frame, load_transactions
+from training.candidates import (
+    EARLY_STOP_ROUNDS,
+    best_trees,
+    fit_candidate,
+    fix_trees,
+    time_split,
+)
 from training.evaluate import SEED, score_report
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -75,27 +84,65 @@ DROP_ALWAYS = {"month_of_year": "test months never appear in training; memorises
 ELEVATED_ALERT_RATE = 0.03
 
 
-def make_candidates(neg_pos_ratio):
-    """Two candidates; the better one on validation PR-AUC ships.
+INCUMBENT = "xgboost"
 
-    XGBoost is shallow on purpose. With the notebook settings (depth 7, lr 0.02) early
-    stopping fired after 3 trees: the remaining signal is weak (mostly device sharing)
-    and deep trees overfit it immediately. A small validation-only sweep (depth 2-5,
-    lr 0.03-0.1, min_child_weight 1-100) put every shallow config at PR-AUC ~0.110-0.112,
-    i.e. within noise; depth 3 / lr 0.05 / min_child_weight 50 stops at ~145 trees, the
-    most stable of them.
+
+def make_candidates(neg_pos_ratio):
+    """Four tree candidates: one bagging model and three gradient boosters.
+
+    Hyper-parameters come from the validation-only sweep `python -m training.tune`
+    (docs/evaluation/tune_sweep.json; summary in docs/model_candidates.md). Rule:
+    each algorithm's validation winner, unless it early-stopped under 50 trees (XGBoost's
+    0.1119 config kept 25 trees, so the 0.1118 config with 368 trees is used instead).
+    Validation PR-AUC: RF 0.095, XGBoost 0.112, LightGBM 0.115, CatBoost 0.108; the whole
+    range inside each algorithm's grid is ~0.01, i.e. noise. All boosters are shallow:
+    the signal left after the January bot rows are removed is weak (mostly device sharing)
+    and deep trees overfit it within a handful of rounds.
     """
     return {
         "random_forest": RandomForestClassifier(
-            n_estimators=200, max_depth=12, min_samples_leaf=50,
+            n_estimators=200, max_depth=16, min_samples_leaf=20,
             class_weight="balanced", n_jobs=-1, random_state=SEED,
         ),
         "xgboost": XGBClassifier(
-            n_estimators=1000, max_depth=3, learning_rate=0.05, min_child_weight=50,
+            n_estimators=1000, max_depth=3, learning_rate=0.03, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
-            eval_metric="aucpr", early_stopping_rounds=100, random_state=SEED, n_jobs=-1,
+            eval_metric="aucpr", early_stopping_rounds=EARLY_STOP_ROUNDS,
+            random_state=SEED, n_jobs=-1,
+        ),
+        "lightgbm": LGBMClassifier(
+            n_estimators=1000, num_leaves=15, learning_rate=0.05, min_child_samples=20,
+            subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
+            scale_pos_weight=neg_pos_ratio, metric="average_precision",
+            random_state=SEED, n_jobs=-1, verbose=-1,
+        ),
+        "catboost": CatBoostClassifier(
+            iterations=1000, depth=4, learning_rate=0.05, l2_leaf_reg=10,
+            scale_pos_weight=neg_pos_ratio, random_seed=SEED, verbose=False, thread_count=-1,
+            allow_writing_files=False,
         ),
     }
+
+
+def select_candidate(val, test_pr_auc, incumbent=INCUMBENT):
+    """Which candidate becomes the served model.
+
+    The incumbent algorithm (XGBoost, the only booster the API image ships with) keeps
+    its place unless a challenger is clearly better: higher validation PR-AUC AND a test
+    PR-AUC above the incumbent's 95% CI upper bound. A win inside the noise band is not
+    worth a new runtime dependency. Returns (name, reason).
+    """
+    best = max(val, key=lambda k: val[k]["pr_auc"])
+    if best == incumbent:
+        return best, "highest validation PR-AUC"
+    inc_hi = test_pr_auc[incumbent]["pr_auc_ci95"][1]
+    if test_pr_auc[best]["pr_auc"] > inc_hi:
+        return best, (f"validation PR-AUC above {incumbent} and test PR-AUC "
+                      f"{test_pr_auc[best]['pr_auc']:.4f} > {incumbent} CI upper {inc_hi:.4f}")
+    return incumbent, (f"{best} won validation ({val[best]['pr_auc']:.4f} vs "
+                       f"{val[incumbent]['pr_auc']:.4f}) but its test PR-AUC "
+                       f"{test_pr_auc[best]['pr_auc']:.4f} is inside {incumbent}'s 95% CI "
+                       f"(upper {inc_hi:.4f}); kept the incumbent")
 
 
 # ---------------------------------------------------------------------------
@@ -152,27 +199,7 @@ def main():
     X_all = build_feature_frame(df)
     y = df["class"].to_numpy()
     value = df["purchase_value"].to_numpy(dtype=float)
-    gap = (df["purchase_time"] - df["signup_time"]).dt.total_seconds().to_numpy()
-    bot = (gap >= 0) & (gap < SIGNUP_BURST_SECONDS)
-
-    n = len(df)
-    i_va, i_te = int(n * 0.70), int(n * 0.80)
-    idx = np.arange(n)
-    tr = (idx < i_va) & ~bot
-    va = (idx >= i_va) & (idx < i_te) & ~bot
-    te = idx >= i_te
-    print(f"  bot-burst rows removed: {bot.sum():,} (train {bot[:i_va].sum():,}, "
-          f"validation {bot[i_va:i_te].sum():,}, test {bot[i_te:].sum():,})")
-    print(f"  train rows={tr.sum():,} fraud={y[tr].mean():.1%} | "
-          f"validation rows={va.sum():,} fraud={y[va].mean():.1%} | "
-          f"test rows={te.sum():,} fraud={y[te].mean():.1%}")
-
-    # --- Feature selection -------------------------------------------------
-    constant = [c for c in CANDIDATE_FEATURES if X_all.loc[tr, c].nunique() == 1]
-    dropped = {c: "constant on training rows" for c in constant} | DROP_ALWAYS
-    features = [c for c in CANDIDATE_FEATURES if c not in dropped]
-    print(f"  features: {len(CANDIDATE_FEATURES)} candidates -> {len(features)} kept "
-          f"({len(constant)} constant, {len(DROP_ALWAYS)} dropped by design)")
+    tr, va, te, bot, features, dropped, i_te = time_split(df, X_all, CANDIDATE_FEATURES, DROP_ALWAYS)
     X = X_all[features]
 
     # --- Choose model on validation ---------------------------------------
@@ -180,24 +207,29 @@ def main():
     candidates = make_candidates(ratio)
     val = {}
     for name, model in candidates.items():
-        if name == "xgboost":
-            model.fit(X[tr], y[tr], eval_set=[(X[va], y[va])], verbose=False)
-        else:
-            model.fit(X[tr], y[tr])
+        fit_candidate(name, model, X[tr], y[tr], X[va], y[va])
         p_va = model.predict_proba(X[va])[:, 1]
-        val[name] = {"model": model, "p_va": p_va,
+        val[name] = {"model": model, "p_va": p_va, "trees": best_trees(name, model),
                      "pr_auc": float(average_precision_score(y[va], p_va))}
-        print(f"  {name:<14} validation PR-AUC={val[name]['pr_auc']:.4f}")
-    best = max(val, key=lambda k: val[k]["pr_auc"])
-    print(f"  selected: {best}")
+        print(f"  {name:<14} validation PR-AUC={val[name]['pr_auc']:.4f}"
+              + (f"  trees={val[name]['trees']}" if val[name]["trees"] else ""))
+
+    # Every candidate's train-only fit is scored on test ONCE, for the comparison table
+    # and the "clearly better" selection rule. The chosen one is then refit below.
+    candidate_test = {name: score_report(y[te], v["model"].predict_proba(X[te])[:, 1], args.n_boot)
+                      for name, v in val.items()}
+    best, why = select_candidate(val, candidate_test)
+    print(f"  selected: {best} ({why})")
+    if best != INCUMBENT:
+        print(f"  NOTE: {best} is not in the api dependency group; add it to pyproject.toml "
+              f"before --ship or the container cannot load model.joblib.")
 
     # --- Refit on train + validation with fixed hyperparameters -----------
     fit_rows = tr | va
     final = clone(candidates[best])
-    if best == "xgboost":
-        n_trees = int(val[best]["model"].best_iteration) + 1
-        final.set_params(n_estimators=n_trees, early_stopping_rounds=None)
-        print(f"  xgboost refit with n_estimators={n_trees} (validation early stop)")
+    if val[best]["trees"]:
+        fix_trees(best, final, val[best]["trees"])
+        print(f"  {best} refit with {val[best]['trees']} trees (validation early stop)")
     final.fit(X[fit_rows], y[fit_rows])
 
     # Threshold picked on validation scores of the train-only model, then applied to
@@ -275,6 +307,12 @@ def main():
         "dropped_features": dropped,
         "top_features": {k: round(float(v), 4) for k, v in imp.items()},
         "validation_pr_auc": {k: round(v["pr_auc"], 4) for k, v in val.items()},
+        "candidates_on_test": {k: {"trees": val[k]["trees"], "pr_auc": t["pr_auc"],
+                                   "pr_auc_ci95": t["pr_auc_ci95"], "roc_auc": t["roc_auc"]}
+                               for k, t in candidate_test.items()},
+        "selection_rule": {"incumbent": INCUMBENT, "selected": best, "reason": why,
+                           "rule": "highest validation PR-AUC, unless the winner is a challenger "
+                                   "whose test PR-AUC is inside the incumbent's 95% CI"},
         "evaluation": report,
         "seed": SEED,
     }
@@ -283,7 +321,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "model_meta.json").write_text(json.dumps(meta, indent=2))
 
-    print("\nTest period (scored once):")
+    print("\nCandidates on test (train-only fits):")
+    for k, t in candidate_test.items():
+        print(f"  {k:<14} PR-AUC={t['pr_auc']:.4f} {t['pr_auc_ci95']}  ROC-AUC={t['roc_auc']:.4f}")
+    print("\nTest period (refit model vs deployed):")
     for k in ("new_model", "previous_model"):
         t = report[k]["test"]
         print(f"  {k:<15} PR-AUC={t['pr_auc']:.4f} {t['pr_auc_ci95']}  "

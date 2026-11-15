@@ -37,6 +37,10 @@ train = [
     "torch==2.10.0",
     "kaggle==2.2.5",
     "pyarrow==26.0.0",
+    # Model candidates compared by training/{tune,train,evaluate}.py. Train-only: the served
+    # model is XGBoost, so the API image does not need these (see docs/model_candidates.md).
+    "lightgbm==4.6.0",
+    "catboost==1.2.8",
 ]
 dev = [
     { include-group = "api" },
