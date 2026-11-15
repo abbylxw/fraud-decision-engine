@@ -12,7 +12,10 @@ What changed vs the original notebook model, and why:
     the feature can only memorise the January attack.
   * Features that are constant on the training rows are dropped. Every user in
     Fraud_Data.csv has one transaction, so all per-user counters are always 0.
-  * The decision threshold is chosen on VALIDATION by dollar cost instead of hardcoded.
+  * The decision thresholds are chosen on VALIDATION by dollar cost instead of hardcoded.
+    There are two: scores above the deny threshold are declined, scores between the
+    review and deny thresholds get "review" (step-up check or manual look). See
+    pick_thresholds below and docs/feature_ablation.md for why a middle band is needed.
 
 Split (same as training/evaluate.py): train = first 70% by time, validation = next 10%,
 test = last 20%. Model choice, early stopping and threshold use validation; test is
@@ -35,6 +38,7 @@ from sklearn.metrics import average_precision_score
 from xgboost import XGBClassifier
 
 from app.decisions.models import COUNTRY_ONEHOT
+from app.decisions.models import REVIEW_THRESHOLD as OLD_REVIEW_THRESHOLD
 from app.decisions.models import THRESHOLD as OLD_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from app.decisions.rules import SIGNUP_BURST_SECONDS
@@ -179,6 +183,72 @@ def outcome(y, p, value, threshold, false_decline_cost):
     }
 
 
+# ---------------------------------------------------------------------------
+# Three-way policy: allow / review / deny.
+#
+# Cost of a policy on a set of orders, in dollars:
+#   fraud that is allowed            -> its purchase value is lost
+#   legitimate order that is denied  -> false_decline_cost (lost margin + an angry customer)
+#   any order sent to review         -> review_cost (a step-up check or a minute of an analyst)
+#   fraud sent to review             -> stopped with probability review_catch_rate, else lost
+# A denied fraud costs nothing. Review is cheaper than a wrong decline, so it is the right
+# action for scores that are risky but not risky enough for a decline to pay for itself.
+# ---------------------------------------------------------------------------
+
+def policy_cost(y, p, value, review_t, deny_t, false_decline_cost, review_cost, catch_rate=1.0):
+    deny = p >= deny_t
+    review = (p >= review_t) & ~deny
+    fraud = y == 1
+    return float(value[fraud & ~deny & ~review].sum()
+                 + (1 - catch_rate) * value[fraud & review].sum()
+                 + false_decline_cost * (deny & ~fraud).sum()
+                 + review_cost * review.sum())
+
+
+def pick_thresholds(y, p, value, false_decline_cost, review_cost, catch_rate=1.0):
+    """(review_threshold, deny_threshold) with the lowest policy_cost, review <= deny.
+
+    Same candidate grid as pick_threshold. 1.01 means "never": a deny threshold of 1.01
+    is a model that only allows or reviews; equal thresholds mean no review band.
+    The cost splits into a part that depends only on the review threshold and a part that
+    depends only on the deny threshold, so the best pair is found with one pass (a running
+    minimum) instead of trying all ~160,000 pairs."""
+    grid = np.append(np.unique(np.quantile(p, np.linspace(0, 1, 401))), 1.01)
+    fraud = y == 1
+    above = [p >= t for t in grid]
+    fraud_value = np.array([value[a & fraud].sum() for a in above])   # fraud $ at or above t
+    legit = np.array([(a & ~fraud).sum() for a in above])             # legit orders at or above t
+    count = np.array([a.sum() for a in above])
+    # total = constant + review_part[r] + deny_part[d], for grid indices r <= d
+    review_part = -catch_rate * fraud_value + review_cost * count
+    deny_part = -(1 - catch_rate) * fraud_value + false_decline_cost * legit - review_cost * count
+    best_r = np.array([int(np.argmin(review_part[:d + 1])) for d in range(len(grid))])
+    d = int(np.argmin(review_part[best_r] + deny_part))
+    return float(grid[best_r[d]]), float(grid[d])
+
+
+def policy_outcome(y, p, value, review_t, deny_t, false_decline_cost, review_cost,
+                   catch_rate=1.0):
+    deny = p >= deny_t
+    review = (p >= review_t) & ~deny
+    fraud = y == 1
+    return {
+        "review_threshold": round(review_t, 4), "deny_threshold": round(deny_t, 4),
+        "denied": int(deny.sum()), "deny_rate": round(float(deny.mean()), 4),
+        "reviewed": int(review.sum()), "review_rate": round(float(review.mean()), 4),
+        "fraud_total": int(fraud.sum()),
+        "fraud_denied": int((deny & fraud).sum()),
+        "fraud_reviewed": int((review & fraud).sum()),
+        "fraud_allowed": int((~deny & ~review & fraud).sum()),
+        "false_declines": int((deny & ~fraud).sum()),
+        "legit_reviewed": int((review & ~fraud).sum()),
+        "review_precision": round(float(y[review].mean()), 4) if review.any() else None,
+        "deny_precision": round(float(y[deny].mean()), 4) if deny.any() else None,
+        "total_cost": round(policy_cost(y, p, value, review_t, deny_t, false_decline_cost,
+                                        review_cost, catch_rate), 2),
+    }
+
+
 def git_sha():
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
@@ -192,6 +262,11 @@ def main():
     ap.add_argument("--false-decline-cost", type=float, default=10.0,
                     help="dollar cost of wrongly denying a legitimate order "
                          "(lost margin + customer friction)")
+    ap.add_argument("--review-cost", type=float, default=5.0,
+                    help="dollar cost of sending one order to review (step-up check or "
+                         "analyst time), charged on every reviewed order")
+    ap.add_argument("--review-catch-rate", type=float, default=1.0,
+                    help="share of reviewed fraud that the review stops")
     ap.add_argument("--n-boot", type=int, default=500)
     ap.add_argument("--ship", action="store_true",
                     help="overwrite app/decisions/model.joblib, model_features.json, model_meta.json")
@@ -238,9 +313,11 @@ def main():
     # Threshold picked on validation scores of the train-only model, then applied to
     # the refit model. The refit sees 10% more data, so its scores shift slightly;
     # acceptable here, and the test-period numbers below are what the shipped model does.
-    threshold = pick_threshold(y[va], val[best]["p_va"], value[va], args.false_decline_cost)
-    print(f"  cost-based threshold (validation, false decline=${args.false_decline_cost:.0f}): "
-          f"{threshold:.4f}")
+    costs = (args.false_decline_cost, args.review_cost, args.review_catch_rate)
+    review_threshold, threshold = pick_thresholds(y[va], val[best]["p_va"], value[va], *costs)
+    print(f"  cost-based thresholds (validation; false decline=${args.false_decline_cost:.0f}, "
+          f"review=${args.review_cost:.0f}, review catches {args.review_catch_rate:.0%}): "
+          f"review >= {review_threshold:.4f}, deny >= {threshold:.4f}")
     p_va_best = val[best]["p_va"]
     elevated = float(np.quantile(p_va_best, 1 - ELEVATED_ALERT_RATE))
     elevated_prec = float(y[va][p_va_best >= elevated].mean())
@@ -251,20 +328,25 @@ def main():
     old_features = json.loads((DECISIONS / "model_features.json").read_text())
     p_new = final.predict_proba(X[te])[:, 1]
     p_old = deployed_model.predict_proba(X_all.loc[te, old_features])[:, 1]
+    p_old_va = deployed_model.predict_proba(X_all.loc[va, old_features])[:, 1]
     yt, vt = y[te], value[te]
     report = {
         "new_model": {
             "test": score_report(yt, p_new, args.n_boot),
-            "at_new_threshold": outcome(yt, p_new, vt, threshold, args.false_decline_cost),
+            "policy": policy_outcome(yt, p_new, vt, review_threshold, threshold, *costs),
+            # Deny-only policy with a single threshold, for comparison with earlier runs.
+            "deny_only": outcome(
+                yt, p_new, vt,
+                pick_threshold(y[va], val[best]["p_va"], value[va], args.false_decline_cost),
+                args.false_decline_cost),
         },
         "previous_model": {
             "test": score_report(yt, p_old, args.n_boot),
-            "at_old_threshold": outcome(yt, p_old, vt, OLD_THRESHOLD, args.false_decline_cost),
-            "at_new_threshold_rule": outcome(
-                yt, p_old, vt,
-                pick_threshold(y[va], deployed_model.predict_proba(X_all.loc[va, old_features])[:, 1],
-                               value[va], args.false_decline_cost),
-                args.false_decline_cost),
+            # As it is served today (its own thresholds from model_meta.json).
+            "as_served": policy_outcome(yt, p_old, vt, OLD_REVIEW_THRESHOLD, OLD_THRESHOLD, *costs),
+            # Given the same freedom as the new model: its best review/deny pair on validation.
+            "best_policy": policy_outcome(
+                yt, p_old, vt, *pick_thresholds(y[va], p_old_va, value[va], *costs), *costs),
         },
         "deny_nothing_cost": round(float(vt[yt == 1].sum()), 2),
     }
@@ -276,10 +358,33 @@ def main():
 
     # Ship gate: the new model must not be meaningfully worse on test. It removes
     # artefacts rather than adding signal, so "no worse" is the bar, not "better".
+    # Second condition (2026-11-15): the new policy must not cost more on test than what is
+    # served today. A model once passed the PR-AUC gate while being worth $0 at the decline
+    # threshold; ranking quality alone does not say a model earns its keep.
     new_pr, old_ci = report["new_model"]["test"]["pr_auc"], report["previous_model"]["test"]["pr_auc_ci95"]
-    gate_ok = new_pr >= old_ci[0]
-    report["ship_gate"] = {"rule": "new test PR-AUC >= previous model's 95% CI lower bound",
-                           "passed": bool(gate_ok)}
+    new_cost = report["new_model"]["policy"]["total_cost"]
+    served_cost = report["previous_model"]["as_served"]["total_cost"]
+    pr_ok, cost_ok = new_pr >= old_ci[0], new_cost <= served_cost
+    gate_ok = pr_ok and cost_ok
+    report["ship_gate"] = {
+        "rule": "new test PR-AUC >= previous model's 95% CI lower bound AND new policy's "
+                "test cost <= the served policy's test cost (same cost parameters)",
+        "pr_auc_ok": bool(pr_ok), "cost_ok": bool(cost_ok),
+        "new_policy_cost": new_cost, "served_policy_cost": served_cost,
+        "passed": bool(gate_ok)}
+
+    # How much the conclusion depends on the two assumptions about review.
+    sensitivity = []
+    for rc in (3.0, 5.0, 8.0):
+        for cr in (1.0, 0.8, 0.6):
+            c = (args.false_decline_cost, rc, cr)
+            new = policy_outcome(yt, p_new, vt, *pick_thresholds(y[va], val[best]["p_va"], value[va], *c), *c)
+            old = policy_outcome(yt, p_old, vt, *pick_thresholds(y[va], p_old_va, value[va], *c), *c)
+            sensitivity.append({"review_cost": rc, "review_catch_rate": cr,
+                                "new": {k: new[k] for k in ("review_rate", "deny_rate", "total_cost")},
+                                "served_model_best_policy": {
+                                    k: old[k] for k in ("review_rate", "deny_rate", "total_cost")}})
+    report["review_sensitivity"] = sensitivity
 
     imp = dict(sorted(zip(features, final.feature_importances_), key=lambda kv: -kv[1])[:10])
 
@@ -291,8 +396,13 @@ def main():
         "params": {k: v for k, v in final.get_params().items()
                    if isinstance(v, (int, float, str, bool)) or v is None},
         "threshold": round(threshold, 6),
+        "review_threshold": round(review_threshold, 6),
         "threshold_basis": {"chosen_on": "validation",
+                            "decisions": "score >= threshold: deny; "
+                                         "review_threshold <= score < threshold: review",
                             "false_decline_cost": args.false_decline_cost,
+                            "review_cost": args.review_cost,
+                            "review_catch_rate": args.review_catch_rate,
                             "missed_fraud_cost": "purchase_value"},
         "elevated_score_threshold": round(elevated, 6),
         "elevated_score_basis": {"chosen_on": "validation",
@@ -332,10 +442,23 @@ def main():
         t = report[k]["test"]
         print(f"  {k:<15} PR-AUC={t['pr_auc']:.4f} {t['pr_auc_ci95']}  "
               f"ROC-AUC={t['roc_auc']:.4f} {t['roc_auc_ci95']}")
-    print(f"  new model at threshold {threshold:.3f}: {report['new_model']['at_new_threshold']}")
-    print(f"  old model at threshold {OLD_THRESHOLD}: {report['previous_model']['at_old_threshold']}")
+    print(f"\nPolicy on test (cost of doing nothing ${report['deny_nothing_cost']:,.0f}):")
+    cols = ("review_rate", "deny_rate", "fraud_reviewed", "fraud_denied", "fraud_allowed",
+            "legit_reviewed", "false_declines", "review_precision", "total_cost")
+    for label, o in (("new model, new thresholds", report["new_model"]["policy"]),
+                     ("served model, as served", report["previous_model"]["as_served"]),
+                     ("served model, its best pair", report["previous_model"]["best_policy"])):
+        print(f"  {label:<28} review>={o['review_threshold']:.3f} deny>={o['deny_threshold']:.3f}  "
+              + "  ".join(f"{c}={o[c]}" for c in cols))
+    print("\nSensitivity (total test cost; thresholds re-picked on validation for each row):")
+    for r in sensitivity:
+        print(f"  review ${r['review_cost']:.0f}, catches {r['review_catch_rate']:.0%}: "
+              f"new ${r['new']['total_cost']:,.0f} (review {r['new']['review_rate']:.1%}, "
+              f"deny {r['new']['deny_rate']:.1%})  vs served model's best "
+              f"${r['served_model_best_policy']['total_cost']:,.0f}")
     print(f"  top features: {meta['top_features']}")
-    print(f"  ship gate passed: {gate_ok}")
+    print(f"  ship gate: PR-AUC ok={pr_ok}, cost ok={cost_ok} "
+          f"(${new_cost:,.0f} vs served ${served_cost:,.0f}) -> passed: {gate_ok}")
     print(f"Wrote {out.relative_to(ROOT)}/model_meta.json")
 
     if args.ship:

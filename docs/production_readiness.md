@@ -18,10 +18,10 @@ gap. **Open** = not started.
 | **Early stopping correctness** | Done | XGBoost/CatBoost tree counts picked with scikit-learn's metric (`training/candidates.py`), after the built-in metrics were found to stop at tree 1 | `compare_datasets.py` (Sparkov) still on XGBoost's own stopping |
 | **Feature engineering evidence** | Done | Ablation with paired CIs and recorded null results (`docs/feature_ablation.md`) | |
 | **Training/serving parity** | Done | Shared encodings; event-time windows; parity replay on synthetic and real rows; contract tests | `did_txn_cnt_all` is arrival-order, not event-time (documented, pinned by a test) |
-| **Best available model in production** | **Open** | Candidate with `did_txn_cnt_all`: test PR-AUC 0.141 vs served 0.092 | Blocked on the `review` decision band: at decline costs the gain is worth $0 (`docs/feature_ablation.md` §6) |
-| **Decision policy** | Partial | Hard rules, cost-based deny threshold, shadow rules, rule backtest | No `review` / step-up outcome between allow and deny; velocity cut-offs in `rate_limiter_control` are expert-set and cannot fire on this data |
+| **Best available model in production** | **Open** | Candidate with `did_txn_cnt_all` and a review band: test PR-AUC 0.141 vs served 0.092, test cost $44.4k vs $49.7k, both ship gates pass (`docs/feature_ablation.md` §7) | Waiting for explicit ship approval; then apply `db_init/008`, rebuild the image, smoke-test |
+| **Decision policy** | Partial | Hard rules; allow / review / deny on the model score with both thresholds chosen by cost on validation; shadow rules; rule backtest | Review cost and catch rate are assumptions, not measurements; cost ties resolve towards the more intrusive policy; velocity cut-offs in `rate_limiter_control` are expert-set and cannot fire on this data |
 | **Reproducible training** | Done | `python -m training.train`, fixed seed, pinned dependency groups, model version = algorithm + timestamp + git sha | No scheduled retraining; artifacts live in git, not a registry |
-| **Ship gate** | Done | `--ship` refuses below the previous model's CI lower bound; run only on explicit approval | Gate compares PR-AUC only; should also compare cost at threshold (the current candidate passes the gate and is still not worth shipping as-is) |
+| **Ship gate** | Done | `--ship` requires test PR-AUC ≥ the previous model's CI lower bound **and** test cost of the new policy ≤ the served policy; run only on explicit approval | Cost comparison is a point estimate, no interval |
 | **Auditability** | Done | Every decision stores features, `model_version`, `model_score`, `decision_rule` | No per-decision reason codes |
 | **Explainability** | Open | Global feature importances in `model_meta.json` | Top-3 SHAP reason codes per scored decision |
 | **Monitoring: system** | Done | Prometheus metrics, Grafana dashboards, per-step latency, per-worker counters | No alert rules committed |
@@ -39,10 +39,9 @@ gap. **Open** = not started.
 
 Each item gets its own plan before code. The order is by what unblocks the most.
 
-1. **`review` decision band, then ship the 42-feature model.** Third outcome between allow and
-   deny, threshold pair chosen by cost on validation (review cost and decline cost as explicit
-   parameters), ship gate extended to compare cost. This is what turns the PR-AUC gain into
-   money and is the only thing blocking the better model.
+1. **Ship the 42-feature model with its review band.** The band, the two-threshold cost
+   search and the extended ship gate are built and tested (2026-11-15); what remains is the
+   approved `--ship`, the database migration and a rebuild.
 2. **Model card and README for an ML reader.** `docs/model_card.md` (data, metrics with
    intervals, intended use, limits, the January bot attack, what the model must not be used
    for); README leads with evaluation and the feature study. Then make the repository public.

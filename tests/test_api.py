@@ -311,6 +311,39 @@ class TestTransactionEndpoint:
         assert resp.status_code == 201
         assert resp.json()["fraud_decision"] == "allow"
 
+    def test_review_band_returns_review_and_audits_the_band(self):
+        """A score between the review and deny thresholds: the caller is told to review,
+        and the audit row records which band decided, with the score."""
+        mock_db = _make_mock_db()
+        mock_redis = _make_mock_redis()
+        _apply_overrides(mock_db, mock_redis)
+
+        with (
+            patch("app.main.build_features", new_callable=AsyncMock, return_value=_CLEAN_FEATURES),
+            patch("app.main.model_score", return_value=0.70),
+            patch("app.decisions.rules.REVIEW_THRESHOLD", 0.60),
+            patch("app.decisions.rules.THRESHOLD", 0.90),
+            patch("app.main.update_velocity_counters", new_callable=AsyncMock) as update,
+        ):
+            try:
+                with TestClient(app) as client:
+                    resp = client.post(
+                        "/api/transactions",
+                        json=_TXN_PAYLOAD,
+                        headers={"Idempotency-Key": "review-test"},
+                    )
+            finally:
+                _clear_overrides()
+
+        assert resp.status_code == 201
+        assert resp.json()["fraud_decision"] == "review"
+        record = mock_db.add.call_args[0][0]
+        assert record.fraud_decision == "review"
+        assert record.decision_rule == "model_score_review"
+        assert record.model_score == 0.70
+        # The velocity update is told the real decision (it treats review as not denied).
+        assert update.call_args.kwargs["fraud_decision"] == "review"
+
     def test_idempotency_returns_cached_response(self):
         """Sending the same Idempotency-Key twice returns the first response
         without re-processing the transaction."""

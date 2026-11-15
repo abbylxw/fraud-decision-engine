@@ -1,5 +1,5 @@
 from app.data.data_models import Features, Transaction
-from app.decisions.models import ELEVATED_SCORE, THRESHOLD
+from app.decisions.models import ELEVATED_SCORE, REVIEW_THRESHOLD, THRESHOLD
 
 
 def age_limit(transaction: Transaction, feature: Features):
@@ -76,8 +76,21 @@ def device_many_users_1h(transaction: Transaction, feature: Features) -> str:
 
 
 def model_score_threshold(score: float) -> str:
-    """Deny if the model's fraud probability meets or exceeds the threshold."""
-    return 'deny' if score >= THRESHOLD else 'allow'
+    """Three-way decision on the model score:
+
+        score >= THRESHOLD          deny    a decline pays for itself at this risk
+        score >= REVIEW_THRESHOLD   review  the caller should step up (3-D Secure, SMS
+                                            code) or queue the order for a person
+        otherwise                   allow
+
+    Both thresholds come from model_meta.json. Why a middle band exists: at $10 per wrongly
+    declined order and a $37 average fraud, a decline only pays above ~27% precision, and
+    most of the fraud the model finds sits just below that (docs/feature_ablation.md)."""
+    if score >= THRESHOLD:
+        return 'deny'
+    if score >= REVIEW_THRESHOLD:
+        return 'review'
+    return 'allow'
 
 
 def rate_limiter_control(transaction: Transaction, feature: Features, score: float) -> list[str]:

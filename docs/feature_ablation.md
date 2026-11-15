@@ -189,7 +189,51 @@ together with a third decision, `review`, for the 23%-precision band (roadmap it
 `docs/production_readiness.md`), and keep `deny` for scores above the 27% break-even. Until
 then the served model stays `xgboost-20261109211048-5ba3793`.
 
-## 7. Things worth looking up
+## 7. Follow-up: the `review` band (2026-11-15, same day)
+
+The API and the training script now support a third decision. `training/train.py` picks a
+review threshold and a deny threshold together on validation by cost (`pick_thresholds`),
+and the ship gate also requires the new policy to cost no more on test than the served one.
+Report: `docs/evaluation/train_review_band.json`. Cost model: a wrongly declined order
+costs $10; every reviewed order costs $5; a reviewed fraud is stopped. This is stricter
+than the table in section 6, which charged the review only on legitimate orders.
+
+| Policy on the test period | Reviewed | Denied | Fraud reviewed / denied / missed | Legit reviewed / declined | Total cost |
+|---|---|---|---|---|---|
+| Do nothing | | | 0 / 0 / 1,389 | | $51,395 |
+| Served model as served (deny ≥ 0.843) | 0% | 1.2% | 0 / 106 / 1,283 | 0 / 259 | $49,714 |
+| Served model, its own best review/deny pair | 2.3% | 0.2% | 157 / 18 / 1,214 | 522 / 44 | $48,558 |
+| **New model (review ≥ 0.784, deny ≥ 0.904)** | 6.6% | 0.02% | 458 / 3 / 928 | 1,524 / 3 | **$44,403** |
+
+So with a review band the new model cuts total cost by 10.7% against what is served and by
+13.6% against doing nothing, and it almost stops declining on the model score at all: at
+these costs a decline beats a review only above 50% precision, which the model reaches for
+six orders. Declines are left to the hard rules.
+
+**How much this depends on the two assumptions about review** (thresholds re-picked on
+validation for each row; test cost of the new model vs the served model given the same
+freedom):
+
+| Review cost | Review stops | New model | Served model's best | New model's policy |
+|---|---|---|---|---|
+| $3 | 100% | $40,439 | $49,254 | review 6.6% |
+| $3 | 80% | $44,355 | $49,380 | review 5.5%, deny 1.1% |
+| $3 | 60% | $47,239 | $49,330 | review 4.3%, deny 2.3% |
+| $5 | 100% | $44,403 | $48,558 | review 6.6% |
+| $5 | 80% | $48,042 | $49,839 | review 3.9%, deny 2.3% |
+| $5 | 60% | $49,743 | $49,888 | deny 6.2%, no review |
+| $8 | any | $49,743 | $49,888 | deny 6.2%, no review |
+
+The gain is real when a review costs about $5 or less and stops at least 80% of the fraud
+it sees. Outside that range the review band disappears and the result is the cost-neutral
+"deny 6%" policy of section 6. Those two numbers are assumptions here, not measurements:
+they are what a real deployment would have to measure first, and they are command-line
+parameters (`--review-cost`, `--review-catch-rate`) for that reason.
+
+One weakness left open: when costs are tied (the last rows), the search returns the policy
+that acts on *more* orders. A tie-break towards the least intrusive policy would be safer.
+
+## 8. Things worth looking up
 
 - *Ablation study*: measuring a component by removing it.
 - *Paired bootstrap*: why comparing two models on the same resampled rows detects much

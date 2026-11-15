@@ -300,8 +300,10 @@ async def main(rps=500, duration_seconds=30, source="fraud_data", url=API_URL,
     elapsed = time.monotonic() - start
     extra = []
     if ok_total:
-        extra.append(f"decisions: allow={decisions['allow']} deny={decisions['deny']} "
-                     f"(deny rate={100 * decisions['deny'] / ok_total:.1f}%)")
+        extra.append(f"decisions: allow={decisions['allow']} review={decisions['review']} "
+                     f"deny={decisions['deny']} "
+                     f"(review rate={100 * decisions['review'] / ok_total:.1f}%, "
+                     f"deny rate={100 * decisions['deny'] / ok_total:.1f}%)")
     if retry_declined:
         extra.append(f"retries={retries_sent} (attempts that ended in allow={retry_allowed})")
     print("\n" + summary(rps if not speedup else None, total_sent, ok_total,

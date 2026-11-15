@@ -994,6 +994,60 @@ describe what is deployed.
 - A backfill script to rebuild `did:txn_all:*` from Postgres after a Redis flush (the
   fallback does it lazily, one device at a time).
 
+## Third decision `review` between allow and deny (2026-11-15)
+
+**Problem:** the better model's extra catches sit at about 23% precision. A decline pays
+only above 27% ($10 per wrongly declined order / $37 average fraud), so behind allow/deny
+the model was worth nothing (previous section). Fraud teams handle this band with a cheaper
+action than a decline.
+
+**Decision:** `fraud_decision` is now `allow`, `review` or `deny`. `review` means "do not
+auto-approve: step up (3-D Secure, SMS code) or queue for a person". The engine reports it;
+the caller acts on it. Scores in `[review_threshold, threshold)` are reviewed, scores at or
+above `threshold` are denied; both live in `model_meta.json`. Hard rules never review. The
+audit rule name is `model_score_review`.
+
+**Cost model (`training/train.py::policy_cost`):** allowed fraud loses its purchase value;
+a wrongly declined order costs `--false-decline-cost` ($10); every reviewed order costs
+`--review-cost` ($5); a reviewed fraud is stopped with probability `--review-catch-rate`
+(1.0). `pick_thresholds` finds the cheapest pair on validation in one pass (the cost splits
+into a review part and a deny part), checked against brute force in
+`tests/test_thresholds.py`.
+
+**Alternatives rejected:**
+- *A fixed band, e.g. "top 5% of scores".* Simple, but not tied to cost: it would review the
+  same share whether a review costs $1 or $20.
+- *Reusing `ELEVATED_SCORE` (top 3% of validation scores).* That constant feeds the shadow
+  rate-limiter combinations; tying the customer-facing decision to it would couple two
+  things that are tuned for different reasons.
+- *A second model for the review decision.* No labels exist for review outcomes.
+- *Lowering the deny threshold instead.* That is the cost-neutral 6% decline policy.
+
+**Backward compatibility:** `REVIEW_THRESHOLD` defaults to `THRESHOLD` when
+`model_meta.json` has no `review_threshold`, so the currently served model behaves exactly
+as before (empty band). Clients that only know `allow`/`deny` must be updated before a model
+with a band ships: treating an unknown `review` as `allow` silently drops the protection.
+
+**Trade-offs accepted:**
+- Review cost and catch rate are assumptions. Sensitivity table in
+  `docs/feature_ablation.md` §7: the gain holds for a review ≤ about $5 that stops ≥ 80%;
+  beyond that the band disappears.
+- A reviewed purchase counts as "successful" in the `purchase_success_*` velocity counters
+  (its outcome is unknown at decision time). Fix needs label feedback.
+- With ties in cost the search prefers the policy acting on more orders.
+- The ship gate's cost comparison is a point estimate without a confidence interval.
+
+**Result (not shipped, awaiting approval):** new model with review ≥ 0.784 and deny ≥ 0.904
+on test: 6.6% reviewed (458 frauds at 23% precision), 6 orders denied, total cost $44,403 vs
+$49,714 as served (−10.7%) and $51,395 doing nothing. Both ship gates pass.
+
+**TODOs:**
+- Tie-break in `pick_thresholds` towards the least intrusive policy.
+- Bootstrap interval on the cost difference in the ship gate.
+- `training/evaluate.py` and `training/rule_backtest.py` still reason about a single deny
+  threshold; extend them to the three-way policy after the ship.
+- Review outcomes as labels (`POST /api/labels`) to measure the real catch rate.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

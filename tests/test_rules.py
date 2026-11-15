@@ -229,23 +229,54 @@ class TestDeviceManyUsers1h:
 
 
 # ---------------------------------------------------------------------------
-# model_score_threshold — deny if fraud probability >= THRESHOLD (from model_meta.json)
+# model_score_threshold — allow / review / deny on the model score. Both thresholds come
+# from model_meta.json, so the tests set them explicitly instead of hardcoding numbers.
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def band(monkeypatch):
+    """Review band 0.60 <= score < 0.90."""
+    monkeypatch.setattr(rules, "REVIEW_THRESHOLD", 0.60)
+    monkeypatch.setattr(rules, "THRESHOLD", 0.90)
+
+
+@pytest.fixture
+def no_band(monkeypatch):
+    """A model shipped without a review threshold: the two are equal, the band is empty."""
+    monkeypatch.setattr(rules, "REVIEW_THRESHOLD", 0.80)
+    monkeypatch.setattr(rules, "THRESHOLD", 0.80)
+
+
 class TestModelScoreThreshold:
-    # THRESHOLD comes from app/decisions/model_meta.json (chosen on validation by
-    # training/train.py), so test against it rather than a hardcoded number.
-    def test_deny_at_threshold(self):
-        assert model_score_threshold(THRESHOLD) == "deny"
+    @pytest.mark.parametrize("score, expected", [
+        (0.0, "allow"), (0.599, "allow"),
+        (0.60, "review"), (0.75, "review"), (0.899, "review"),   # lower edge is inclusive
+        (0.90, "deny"), (1.0, "deny"),                           # deny edge is inclusive
+    ])
+    def test_three_way_with_band(self, band, score, expected):
+        assert model_score_threshold(score) == expected
 
-    def test_deny_above_threshold(self):
-        assert model_score_threshold(min(1.0, THRESHOLD + 0.01)) == "deny"
+    @pytest.mark.parametrize("score, expected", [
+        (0.799, "allow"), (0.80, "deny"), (0.95, "deny"),
+    ])
+    def test_empty_band_never_reviews(self, no_band, score, expected):
+        assert model_score_threshold(score) == expected
 
-    def test_allow_just_below_threshold(self):
-        assert model_score_threshold(THRESHOLD - 0.001) == "allow"
-
-    def test_allow_zero(self):
+    def test_served_thresholds_are_ordered(self):
+        # Whatever model is shipped: review can never start above deny.
+        from app.decisions.models import REVIEW_THRESHOLD
+        assert REVIEW_THRESHOLD <= THRESHOLD
         assert model_score_threshold(0.0) == "allow"
+
+    def test_soft_rules_name_the_band(self, band, sample_transaction):
+        f = Features(**sample_transaction.model_dump(by_alias=False))
+        assert execute_soft_rules(sample_transaction, f, 0.95) == ("deny", "model_score_threshold")
+        assert execute_soft_rules(sample_transaction, f, 0.70) == ("review", "model_score_review")
+        assert execute_soft_rules(sample_transaction, f, 0.10) == ("allow", None)
+
+    def test_hard_rules_never_return_review(self, sample_transaction):
+        f = Features(**sample_transaction.model_dump(by_alias=False))
+        assert execute_hard_rules(sample_transaction, f)[0] in ("allow", "deny")
 
 
 # ---------------------------------------------------------------------------

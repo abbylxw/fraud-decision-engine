@@ -104,6 +104,8 @@ async def update_velocity_counters(user_id: str, device_id: str, ip: int,
         # coming back after the windowed counters have forgotten it.
         redis.incr(f"did:txn_all:{device_id}"),
     ]
+    # "Successful" = not denied. A "review" counts as successful here: its real outcome is
+    # unknown at decision time (no label feedback yet; docs/production_readiness.md).
     if fraud_decision != 'deny':
         coros.append(
             redis.zadd(f"purchase:success:{user_id}", {f"{transaction_id}:{purchase_value}": event_ts})

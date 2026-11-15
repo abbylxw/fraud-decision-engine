@@ -17,12 +17,13 @@ def execute_hard_rules(t: Transaction, f: Features) -> tuple[str, str | None]:
 
 
 def execute_soft_rules(t: Transaction, f: Features, score: float) -> tuple[str, str | None]:
-    """Rules that receive the model score. Returns (decision, rule_name)."""
-    for rule_fn, args in [
-        (rules.model_score_threshold, (score,)),
-    ]:
-        if rule_fn(*args) == 'deny':
-            return 'deny', rule_fn.__name__
+    """Rules that receive the model score. Returns (decision, rule_name) where decision is
+    'allow', 'review' or 'deny'. The audit rule name says which band the score fell in."""
+    decision = rules.model_score_threshold(score)
+    if decision == 'deny':
+        return 'deny', 'model_score_threshold'
+    if decision == 'review':
+        return 'review', 'model_score_review'
     return 'allow', None
 
 

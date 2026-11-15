@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,7 +29,8 @@ class Transaction(BaseModel):
 
 class DecisionResponse(BaseModel):
     transaction_id: UUID
-    fraud_decision: str
+    # "review" = do not auto-approve: step up (3-D Secure, SMS code) or queue for a person.
+    fraud_decision: Literal["allow", "review", "deny"]
     response_time: datetime
 
 class Features(Transaction):

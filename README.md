@@ -17,7 +17,8 @@ POST /api/transactions
         │            grouped IP country (one-hot)
         │
         ▼
- [Soft Rules]  ←── rate limiter, model threshold
+ [Soft Rules]  ←── model score: allow / review / deny (two cost-based thresholds);
+        │            rate limiter in shadow mode
         │
         ▼
  PostgreSQL (audit log) + Redis (velocity counters update, fire-and-forget)
@@ -78,6 +79,19 @@ curl -X POST http://localhost:8000/api/transactions \
   "response_time": "2025-03-14T12:00:01.234Z"
 }
 ```
+
+`fraud_decision` is one of:
+
+| Value | Meaning for the caller |
+|---|---|
+| `allow` | Approve the order. |
+| `review` | Do not auto-approve: run a step-up check (3-D Secure, SMS code) or queue it for a person. Returned when the model score is between the review and deny thresholds. |
+| `deny` | Decline. A hard rule fired, or the score is high enough that a decline pays for itself. |
+
+Both thresholds are chosen by cost on validation data and stored in
+`app/decisions/model_meta.json`. The model served today was shipped before the review band
+existed, so it only returns `allow` or `deny` until the next model is shipped
+([docs/feature_ablation.md](docs/feature_ablation.md) §7).
 
 ## Health Check
 
