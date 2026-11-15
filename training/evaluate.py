@@ -36,7 +36,7 @@ from xgboost import XGBClassifier
 from app.decisions.models import THRESHOLD as SERVED_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from training.build_features import ROOT, SERVED_FEATURES, build_feature_frame, load_transactions
-from training.candidates import BOOSTERS, EARLY_STOP_ROUNDS, best_trees, fit_candidate
+from training.candidates import BOOSTERS, best_trees, fit_candidate
 
 warnings.filterwarnings("ignore", category=UserWarning)
 SEED = 42
@@ -126,7 +126,6 @@ def make_models(neg_pos_ratio):
         "xgboost": XGBClassifier(
             n_estimators=1000, max_depth=3, learning_rate=0.03, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
-            eval_metric="aucpr", early_stopping_rounds=EARLY_STOP_ROUNDS,
             random_state=SEED, n_jobs=-1,
         ),
         # Sweep winners (docs/evaluation/tune_sweep.json); same settings as train.py.

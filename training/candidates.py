@@ -13,8 +13,8 @@ from sklearn.metrics import average_precision_score
 from app.decisions.rules import SIGNUP_BURST_SECONDS
 
 BOOSTERS = ("xgboost", "lightgbm", "catboost")
-EARLY_STOP_ROUNDS = 100  # XGBoost takes this in the constructor, LightGBM in fit()
-CATBOOST_EVAL_PERIOD = 10  # CatBoost: validation PR-AUC checked every 10 trees (see fit_candidate)
+EARLY_STOP_ROUNDS = 100  # LightGBM's early-stopping patience (a fit() callback)
+EVAL_PERIOD = 10  # XGBoost, CatBoost: validation PR-AUC checked every 10 trees (see fit_candidate)
 
 
 def time_split(df, X_all, candidate_features, drop_always):
@@ -52,11 +52,15 @@ def fit_candidate(name, model, X_tr, y_tr, X_va, y_va):
     watches PR-AUC only (by default it also watches logloss, which with scale_pos_weight
     gets worse from tree 1 and stops training immediately).
 
-    CatBoost: its own ``PRAUC`` metric disagrees with scikit-learn's average precision
-    (0.108 vs 0.076 after one tree on this data) and its overfitting detector therefore
-    stopped at tree 1. So CatBoost trains its full ``iterations`` budget, validation PR-AUC
-    is computed with scikit-learn every CATBOOST_EVAL_PERIOD trees, and the model is
-    shrunk to the best checkpoint. Same idea as early stopping, patience = whole budget.
+    CatBoost and XGBoost: their built-in PR-AUC metrics (``PRAUC``, ``aucpr``) disagree
+    with scikit-learn's average precision when a model has few distinct scores. After one
+    tree CatBoost reported 0.108 and XGBoost 0.088 where scikit-learn computes 0.076 and
+    0.077, so their own early stopping saw tree 1 as the peak and stopped there (found by
+    training/rolling_eval.py, 2026-11-15). So both train their full tree budget, validation
+    PR-AUC is computed with scikit-learn every EVAL_PERIOD trees, and the model is cut back
+    to the best checkpoint: CatBoost with ``shrink()``, XGBoost by setting the booster's
+    ``best_iteration``, which ``predict_proba`` then honours. Same idea as early stopping
+    with patience = the whole budget.
     """
     if name == "lightgbm":
         model.fit(X_tr, y_tr, eval_set=[(X_va, y_va)],
@@ -65,11 +69,16 @@ def fit_candidate(name, model, X_tr, y_tr, X_va, y_va):
     elif name == "catboost":
         model.fit(X_tr, y_tr, verbose=False)
         curve = [average_precision_score(y_va, p[:, 1])
-                 for p in model.staged_predict_proba(X_va, eval_period=CATBOOST_EVAL_PERIOD)]
-        n_best = (int(np.argmax(curve)) + 1) * CATBOOST_EVAL_PERIOD
+                 for p in model.staged_predict_proba(X_va, eval_period=EVAL_PERIOD)]
+        n_best = (int(np.argmax(curve)) + 1) * EVAL_PERIOD
         model.shrink(min(n_best, model.tree_count_))
-    elif name in BOOSTERS:
-        model.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], verbose=False)
+    elif name == "xgboost":
+        model.fit(X_tr, y_tr, verbose=False)
+        counts = range(EVAL_PERIOD, model.n_estimators + 1, EVAL_PERIOD)
+        curve = [average_precision_score(
+                     y_va, model.predict_proba(X_va, iteration_range=(0, k))[:, 1])
+                 for k in counts]
+        model.get_booster().best_iteration = counts[int(np.argmax(curve))] - 1
     else:
         model.fit(X_tr, y_tr)
     return model
@@ -78,7 +87,7 @@ def fit_candidate(name, model, X_tr, y_tr, X_va, y_va):
 def best_trees(name, model):
     """Number of trees the early-stopped booster kept (None for non-boosters)."""
     if name == "xgboost":
-        return int(model.best_iteration) + 1
+        return int(model.best_iteration) + 1  # set in fit_candidate
     if name == "lightgbm":
         return int(model.best_iteration_)
     if name == "catboost":
@@ -87,9 +96,9 @@ def best_trees(name, model):
 
 
 def fix_trees(name, model, n_trees):
-    """Turn early stopping off and pin the tree count, for the refit on train+validation."""
+    """Pin the tree count, for the refit on train+validation."""
     if name == "xgboost":
-        model.set_params(n_estimators=n_trees, early_stopping_rounds=None)
+        model.set_params(n_estimators=n_trees)
     elif name == "lightgbm":
         model.set_params(n_estimators=n_trees)  # early stopping is a fit() callback, not a param
     elif name == "catboost":

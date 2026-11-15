@@ -80,7 +80,7 @@ not touched. The grids:
 | CatBoost | `depth` {3, 4, 6} × `learning_rate` {0.03, 0.05} × `l2_leaf_reg` {3, 10} | 12 |
 
 Every booster gets `scale_pos_weight` = negatives / positives (about 21) and a 1000-tree
-budget with early stopping on validation PR-AUC. The chosen settings are written into
+budget, with the tree count chosen on validation PR-AUC. The chosen settings are written into
 `training/train.py` (`make_candidates`) and `training/evaluate.py` (`make_models`) by hand,
 with the sweep folder named in the comment, so the served hyper-parameters are always visible
 in code rather than hidden in a results file.
@@ -91,6 +91,9 @@ Two library-specific traps the sweep hit, kept here because they are easy to fal
   and the default list includes log-loss. With `scale_pos_weight` = 21 the log-loss on
   validation gets worse from the first tree, so training stopped at tree 1 with PR-AUC 0.065.
   Fix: `metric="average_precision"` on the model and `first_metric_only=True` on the callback.
+- **XGBoost's built-in `aucpr` has the same problem as CatBoost's metric below**, found
+  later by the rolling-origin run (section 6). Both boosters now pick their tree count with
+  scikit-learn's metric.
 - **CatBoost's built-in `PRAUC` is not scikit-learn's average precision.** After one tree it
   reported 0.108 where scikit-learn computes 0.076 (different interpolation; with many tied
   scores the trapezoid rule over-credits), so its overfitting detector also stopped at tree
@@ -223,12 +226,13 @@ or two trees gives only a handful of distinct scores, and XGBoost's interpolatio
 ties over-credits it (fold 4: 0.088 after one tree where scikit-learn computes 0.077). Early
 stopping therefore saw tree 1 as the peak and kept 1 tree in two folds and under 15 in three
 more, where 100 to 850 trees score up to 0.02 higher on the next month (XGBoost's seven-fold mean
-rose from 0.082 to 0.090 once this was fixed). `rolling_eval.py`
-now picks XGBoost's tree count with scikit-learn's average precision every 10 trees, the same
-way `candidates.py` does for CatBoost. The served model is not affected (its early stopping
-kept 368 trees), but `train.py` and `tune.py` still use XGBoost's own early stopping and
-could hit this on a future retrain; the ad-hoc "reject configs under 50 trees" rule in the
-sweep was a symptom of it. Moving the fix into `candidates.fit_candidate` is an open TODO.
+rose from 0.082 to 0.090 once this was fixed). The fix
+is in `candidates.fit_candidate`, shared by every training script: XGBoost trains its full
+budget and the tree count is picked with scikit-learn's average precision every 10 trees,
+the same way as CatBoost. The served model was not affected (its early stopping kept 203
+trees), and re-running the sweep with the fix picks the same XGBoost settings (370 trees
+where the old stopping kept 368). The ad-hoc "reject configs under 50 trees" rule the first
+sweep needed was a symptom of this bug and is gone.
 
 Two limits to keep in mind:
 

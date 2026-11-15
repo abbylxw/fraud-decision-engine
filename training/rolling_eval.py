@@ -17,12 +17,9 @@ seven times: train on the past, score the next period, then move the cut-off (th
 Rules:
   * The boosters pick their tree count on the month BEFORE the scored one, so the scored
     period is never seen while fitting. Same as production: stop on last month, predict next.
-  * XGBoost's tree count is picked here with scikit-learn's average precision, not with
-    XGBoost's own early stopping. Its built-in "aucpr" over-credits a model of one or two
-    trees (few distinct scores, many ties: 0.088 where scikit-learn says 0.077), so early
-    stopping quit at tree 1 in several folds and under-fitted. Same trap, same fix as
-    CatBoost in training/candidates.py. LightGBM's "average_precision" agrees with
-    scikit-learn and is left alone.
+  * XGBoost's and CatBoost's tree counts are picked with scikit-learn's average precision,
+    not their own early stopping (training/candidates.fit_candidate explains why; the
+    first run of this script is what exposed the XGBoost half of that trap).
   * Hyper-parameters are the tuned ones from train.make_candidates, fixed for every fold.
   * Bot rows (signup -> purchase < 60 s, January only) are removed, as in train.py.
   * Models are compared against XGBoost (the served algorithm) with a PAIRED bootstrap:
@@ -44,7 +41,7 @@ from sklearn.metrics import average_precision_score
 
 from app.decisions.rules import SIGNUP_BURST_SECONDS
 from training.build_features import ROOT, build_feature_frame, load_transactions
-from training.candidates import CATBOOST_EVAL_PERIOD, best_trees, fit_candidate
+from training.candidates import best_trees, fit_candidate
 from training.evaluate import (
     C_AQUA,
     C_BLUE,
@@ -64,18 +61,6 @@ MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 # (early-stop month, scored months). Training = every month before the early-stop month.
 FOLDS = [(4, [5]), (5, [6]), (6, [7]), (7, [8]), (8, [9]), (9, [10]), (10, [11, 12])]
 COLORS = {"random_forest": C_ORANGE, "xgboost": C_BLUE, "lightgbm": C_AQUA, "catboost": C_PURPLE}
-
-
-def fit_xgboost(model, X_tr, y_tr, X_va, y_va):
-    """Train the full tree budget, then keep the tree count with the best scikit-learn
-    PR-AUC on the early-stop month (checked every CATBOOST_EVAL_PERIOD trees).
-    Returns that tree count; predict with iteration_range=(0, n)."""
-    model.set_params(early_stopping_rounds=None)
-    model.fit(X_tr, y_tr, verbose=False)
-    counts = range(CATBOOST_EVAL_PERIOD, model.n_estimators + 1, CATBOOST_EVAL_PERIOD)
-    curve = [average_precision_score(y_va, model.predict_proba(X_va, iteration_range=(0, k))[:, 1])
-             for k in counts]
-    return counts[int(np.argmax(curve))]
 
 
 def label(months):
@@ -155,13 +140,9 @@ def main():
 
         scores, models = {}, {}
         for name, model in candidates.items():
-            if name == "xgboost":
-                trees = fit_xgboost(model, X[tr], y[tr], X[va], y[va])
-                p = model.predict_proba(X[sc], iteration_range=(0, trees))[:, 1]
-            else:
-                fit_candidate(name, model, X[tr], y[tr], X[va], y[va])
-                trees = best_trees(name, model)
-                p = model.predict_proba(X[sc])[:, 1]
+            fit_candidate(name, model, X[tr], y[tr], X[va], y[va])
+            trees = best_trees(name, model)
+            p = model.predict_proba(X[sc])[:, 1]
             scores[name] = p
             pr = float(average_precision_score(y[sc], p))
             models[name] = {

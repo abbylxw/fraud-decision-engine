@@ -40,7 +40,6 @@ from app.decisions.models import _model as deployed_model
 from app.decisions.rules import SIGNUP_BURST_SECONDS
 from training.build_features import ROOT, build_feature_frame, load_transactions
 from training.candidates import (
-    EARLY_STOP_ROUNDS,
     best_trees,
     fit_candidate,
     fix_trees,
@@ -92,8 +91,9 @@ def make_candidates(neg_pos_ratio):
 
     Hyper-parameters come from the validation-only sweep `python -m training.tune`
     (docs/evaluation/tune_sweep.json; summary in docs/model_candidates.md). Rule:
-    each algorithm's validation winner, unless it early-stopped under 50 trees (XGBoost's
-    0.1119 config kept 25 trees, so the 0.1118 config with 368 trees is used instead).
+    each algorithm's validation winner. (An earlier sweep needed an extra "reject configs
+    under 50 trees" rule; that was XGBoost's own early stopping misfiring, fixed in
+    candidates.fit_candidate on 2026-11-15, and the same config wins without the rule.)
     Validation PR-AUC: RF 0.095, XGBoost 0.112, LightGBM 0.115, CatBoost 0.108; the whole
     range inside each algorithm's grid is ~0.01, i.e. noise. All boosters are shallow:
     the signal left after the January bot rows are removed is weak (mostly device sharing)
@@ -107,7 +107,6 @@ def make_candidates(neg_pos_ratio):
         "xgboost": XGBClassifier(
             n_estimators=1000, max_depth=3, learning_rate=0.03, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
-            eval_metric="aucpr", early_stopping_rounds=EARLY_STOP_ROUNDS,
             random_state=SEED, n_jobs=-1,
         ),
         "lightgbm": LGBMClassifier(

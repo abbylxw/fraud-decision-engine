@@ -24,7 +24,7 @@ from sklearn.metrics import average_precision_score
 from xgboost import XGBClassifier
 
 from training.build_features import ROOT, build_feature_frame, load_transactions
-from training.candidates import EARLY_STOP_ROUNDS, best_trees, fit_candidate, time_split
+from training.candidates import best_trees, fit_candidate, time_split
 from training.evaluate import SEED
 from training.train import CANDIDATE_FEATURES, DROP_ALWAYS
 
@@ -40,9 +40,7 @@ def grids(ratio):
 
     def xgb(**c):
         return XGBClassifier(n_estimators=1000, subsample=0.8, colsample_bytree=0.8,
-                             scale_pos_weight=ratio, eval_metric="aucpr",
-                             early_stopping_rounds=EARLY_STOP_ROUNDS, random_state=SEED,
-                             n_jobs=-1, **c)
+                             scale_pos_weight=ratio, random_state=SEED, n_jobs=-1, **c)
 
     def lgbm(**c):
         return LGBMClassifier(n_estimators=1000, subsample=0.8, subsample_freq=1,

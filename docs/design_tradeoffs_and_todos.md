@@ -923,15 +923,19 @@ under-fitting by up to 0.02 PR-AUC (seven-fold mean 0.082 instead of 0.090). The
 "significantly" ahead. `rolling_eval.py` trains the full budget and picks the tree count with
 scikit-learn's average precision every 10 trees (same fix as CatBoost).
 
-**Trade-off accepted:** the fix lives only in `rolling_eval.py`, so the stopping logic for
-XGBoost now differs between this script and `train.py` / `tune.py` / `evaluate.py`. Changing
-the shared `candidates.fit_candidate` changes how the served model is trained, which is a
-separate decision.
+**Follow-up, same day:** the fix was moved into the shared `candidates.fit_candidate`
+(XGBoost trains the full budget; the best tree count is written to the booster's
+`best_iteration`, which `predict_proba` honours, so no caller changes). `early_stopping_rounds`
+and `eval_metric="aucpr"` were removed from the XGBoost constructors in `train.py`,
+`evaluate.py` and `tune.py`. Re-run sweep: same winning XGBoost config (depth 3, lr 0.03,
+min_child_weight 100; 370 trees vs 368), and the "reject configs under 50 trees" rule is no
+longer needed. Retrain without ship: test PR-AUC 0.0917 vs served 0.0920, so nothing shipped.
+Cost: each XGBoost fit always trains 1000 trees and scores validation 100 times (about 1 s
+more per fit at this size). `training/compare_datasets.py` (Sparkov) still uses XGBoost's own
+early stopping; scores there have many distinct values (PR-AUC 0.97), so the trap does not
+apply, but it is the one script not on the shared helper.
 
 **TODOs:**
-- Move the scikit-learn-metric tree selection for XGBoost into `candidates.fit_candidate`,
-  re-run `tune.py` (the "reject configs under 50 trees" rule should become unnecessary) and
-  `train.py`, and compare with the served model before any `--ship`.
 - Folds reuse hyper-parameters tuned on Aug 5 to 30; a nested version (re-tune inside each
   fold) would remove that, at 7× the sweep cost and little expected change.
 
