@@ -50,6 +50,11 @@ from training.candidates import (
     time_split,
 )
 from training.evaluate import SEED, score_report
+from training.policy import (
+    cost_difference_ci,
+    pick_thresholds,
+    policy_outcome,
+)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -183,72 +188,6 @@ def outcome(y, p, value, threshold, false_decline_cost):
     }
 
 
-# ---------------------------------------------------------------------------
-# Three-way policy: allow / review / deny.
-#
-# Cost of a policy on a set of orders, in dollars:
-#   fraud that is allowed            -> its purchase value is lost
-#   legitimate order that is denied  -> false_decline_cost (lost margin + an angry customer)
-#   any order sent to review         -> review_cost (a step-up check or a minute of an analyst)
-#   fraud sent to review             -> stopped with probability review_catch_rate, else lost
-# A denied fraud costs nothing. Review is cheaper than a wrong decline, so it is the right
-# action for scores that are risky but not risky enough for a decline to pay for itself.
-# ---------------------------------------------------------------------------
-
-def policy_cost(y, p, value, review_t, deny_t, false_decline_cost, review_cost, catch_rate=1.0):
-    deny = p >= deny_t
-    review = (p >= review_t) & ~deny
-    fraud = y == 1
-    return float(value[fraud & ~deny & ~review].sum()
-                 + (1 - catch_rate) * value[fraud & review].sum()
-                 + false_decline_cost * (deny & ~fraud).sum()
-                 + review_cost * review.sum())
-
-
-def pick_thresholds(y, p, value, false_decline_cost, review_cost, catch_rate=1.0):
-    """(review_threshold, deny_threshold) with the lowest policy_cost, review <= deny.
-
-    Same candidate grid as pick_threshold. 1.01 means "never": a deny threshold of 1.01
-    is a model that only allows or reviews; equal thresholds mean no review band.
-    The cost splits into a part that depends only on the review threshold and a part that
-    depends only on the deny threshold, so the best pair is found with one pass (a running
-    minimum) instead of trying all ~160,000 pairs."""
-    grid = np.append(np.unique(np.quantile(p, np.linspace(0, 1, 401))), 1.01)
-    fraud = y == 1
-    above = [p >= t for t in grid]
-    fraud_value = np.array([value[a & fraud].sum() for a in above])   # fraud $ at or above t
-    legit = np.array([(a & ~fraud).sum() for a in above])             # legit orders at or above t
-    count = np.array([a.sum() for a in above])
-    # total = constant + review_part[r] + deny_part[d], for grid indices r <= d
-    review_part = -catch_rate * fraud_value + review_cost * count
-    deny_part = -(1 - catch_rate) * fraud_value + false_decline_cost * legit - review_cost * count
-    best_r = np.array([int(np.argmin(review_part[:d + 1])) for d in range(len(grid))])
-    d = int(np.argmin(review_part[best_r] + deny_part))
-    return float(grid[best_r[d]]), float(grid[d])
-
-
-def policy_outcome(y, p, value, review_t, deny_t, false_decline_cost, review_cost,
-                   catch_rate=1.0):
-    deny = p >= deny_t
-    review = (p >= review_t) & ~deny
-    fraud = y == 1
-    return {
-        "review_threshold": round(review_t, 4), "deny_threshold": round(deny_t, 4),
-        "denied": int(deny.sum()), "deny_rate": round(float(deny.mean()), 4),
-        "reviewed": int(review.sum()), "review_rate": round(float(review.mean()), 4),
-        "fraud_total": int(fraud.sum()),
-        "fraud_denied": int((deny & fraud).sum()),
-        "fraud_reviewed": int((review & fraud).sum()),
-        "fraud_allowed": int((~deny & ~review & fraud).sum()),
-        "false_declines": int((deny & ~fraud).sum()),
-        "legit_reviewed": int((review & ~fraud).sum()),
-        "review_precision": round(float(y[review].mean()), 4) if review.any() else None,
-        "deny_precision": round(float(y[deny].mean()), 4) if deny.any() else None,
-        "total_cost": round(policy_cost(y, p, value, review_t, deny_t, false_decline_cost,
-                                        review_cost, catch_rate), 2),
-    }
-
-
 def git_sha():
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
@@ -366,11 +305,16 @@ def main():
     served_cost = report["previous_model"]["as_served"]["total_cost"]
     pr_ok, cost_ok = new_pr >= old_ci[0], new_cost <= served_cost
     gate_ok = pr_ok and cost_ok
+    # How sure is the cost difference? Paired bootstrap over test orders, thresholds fixed.
+    cost_diff_ci = cost_difference_ci(
+        yt, vt, p_new, (review_threshold, threshold),
+        p_old, (OLD_REVIEW_THRESHOLD, OLD_THRESHOLD), *costs, n_boot=args.n_boot, seed=SEED)
     report["ship_gate"] = {
         "rule": "new test PR-AUC >= previous model's 95% CI lower bound AND new policy's "
                 "test cost <= the served policy's test cost (same cost parameters)",
         "pr_auc_ok": bool(pr_ok), "cost_ok": bool(cost_ok),
         "new_policy_cost": new_cost, "served_policy_cost": served_cost,
+        "cost_difference_ci95": cost_diff_ci,   # new - served; reported, not part of the rule
         "passed": bool(gate_ok)}
 
     # How much the conclusion depends on the two assumptions about review.
@@ -403,6 +347,8 @@ def main():
                             "false_decline_cost": args.false_decline_cost,
                             "review_cost": args.review_cost,
                             "review_catch_rate": args.review_catch_rate,
+                            "tie_break": "least intrusive policy within 1% of the minimum "
+                                         "validation cost (training/policy.py)",
                             "missed_fraud_cost": "purchase_value"},
         "elevated_score_threshold": round(elevated, 6),
         "elevated_score_basis": {"chosen_on": "validation",
@@ -458,7 +404,8 @@ def main():
               f"${r['served_model_best_policy']['total_cost']:,.0f}")
     print(f"  top features: {meta['top_features']}")
     print(f"  ship gate: PR-AUC ok={pr_ok}, cost ok={cost_ok} "
-          f"(${new_cost:,.0f} vs served ${served_cost:,.0f}) -> passed: {gate_ok}")
+          f"(${new_cost:,.0f} vs served ${served_cost:,.0f}; difference "
+          f"${new_cost - served_cost:,.0f}, 95% CI {cost_diff_ci}) -> passed: {gate_ok}")
     print(f"Wrote {out.relative_to(ROOT)}/model_meta.json")
 
     if args.ship:

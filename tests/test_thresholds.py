@@ -3,23 +3,14 @@ The cost model behind the allow / review / deny thresholds (training/train.py).
 
 Small hand-built score arrays where the best policy is obvious, so a mistake in the cost
 arithmetic or in the threshold search shows up as a wrong answer, not a slightly worse number.
-Needs the training dependencies (lightgbm, catboost); skipped in CI, which installs only
-the API + test group.
+training/policy.py needs only numpy, so these run in CI.
 """
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from app.data.data_models import DecisionResponse
-
-pytest.importorskip("lightgbm")
-pytest.importorskip("catboost")
-from training.train import (  # noqa: E402
-    pick_threshold,
-    pick_thresholds,
-    policy_cost,
-    policy_outcome,
-)
+from training.policy import pick_thresholds, policy_cost, policy_outcome
 
 FD, RC = 10.0, 5.0   # false-decline cost, review cost
 
@@ -74,8 +65,9 @@ def test_expensive_review_falls_back_to_the_single_deny_threshold():
     y, p, v = _scores()
     review_t, deny_t = pick_thresholds(y, p, v, FD, review_cost=50.0)
     assert review_t == deny_t
-    single = pick_threshold(y, p, v, FD)
-    assert ((p >= deny_t) == (p >= single)).all()
+    # Without review, declining the 25% group also pays ($750 of wrong declines against
+    # $1,000 of fraud), so the single-threshold optimum declines the top two groups.
+    assert ((p >= deny_t) == (p >= 0.6)).all()
     assert policy_outcome(y, p, v, review_t, deny_t, FD, 50.0)["reviewed"] == 0
 
 
@@ -103,8 +95,31 @@ def test_search_matches_brute_force_on_random_scores():
     grid = np.append(np.unique(np.quantile(p, np.linspace(0, 1, 401))), 1.01)
     for rc, cr in ((5.0, 1.0), (3.0, 0.8), (8.0, 0.6)):
         best = min(policy_cost(y, p, v, r, d, FD, rc, cr) for d in grid for r in grid if r <= d)
-        review_t, deny_t = pick_thresholds(y, p, v, FD, rc, cr)
+        review_t, deny_t = pick_thresholds(y, p, v, FD, rc, cr, tolerance=0)
         assert policy_cost(y, p, v, review_t, deny_t, FD, rc, cr) == pytest.approx(best)
+        # With the default 1% tolerance the answer may differ, but never by more than 1%.
+        review_t, deny_t = pick_thresholds(y, p, v, FD, rc, cr)
+        assert policy_cost(y, p, v, review_t, deny_t, FD, rc, cr) <= best * 1.01 + 1e-6
+
+
+def test_near_tie_goes_to_the_least_intrusive_policy():
+    # 1,000 orders at score 0.5, each worth $40, 12.6% fraud. Reviewing them all costs
+    # $5,000 and saves 126 x $40 = $5,040: $40 better than doing nothing, a 0.8% gain.
+    # Not worth interrupting 1,000 customers; within the 1% tolerance, do nothing.
+    p = np.full(1000, 0.5)
+    y = np.r_[np.ones(126), np.zeros(874)].astype(int)
+    v = np.full(1000, 40.0)
+    exact = pick_thresholds(y, p, v, FD, RC, tolerance=0)
+    assert policy_outcome(y, p, v, *exact, FD, RC)["reviewed"] == 1000
+    gentle = pick_thresholds(y, p, v, FD, RC)
+    o = policy_outcome(y, p, v, *gentle, FD, RC)
+    assert o["reviewed"] == 0 and o["denied"] == 0
+
+
+def test_clear_gain_is_not_given_up_by_the_tie_break():
+    y, p, v = _scores()
+    assert (pick_thresholds(y, p, v, FD, RC) ==
+            pick_thresholds(y, p, v, FD, RC, tolerance=0))
 
 
 def test_response_model_accepts_only_the_three_decisions():
