@@ -63,6 +63,9 @@ async def redis():
     await r.set("cache:ip:1234567890", "United States")
     for user in ("user_0", "user_1", "user_9"):
         await r.set(f"cache:did:device_1:{user}", "0")
+    # A known device with no transactions yet, so the all-time-count fallback stays out of
+    # the other tests (TestDeviceAllTimeCount removes this key to exercise it).
+    await r.set("did:txn_all:device_1", "0")
     yield r
     await r.aclose()
 
@@ -172,6 +175,73 @@ class TestVelocityCounters:
         await _record(redis, later, "t9")
         f = await build_features(_txn(), _mock_db(), redis)
         assert f.did_uid_1h == 1   # only the buyer
+
+
+def _count_db(n: int):
+    """Postgres mock whose execute() answers the device all-time COUNT(*) with n."""
+    result = MagicMock()
+    result.scalar_one.return_value = n
+    result.all.return_value = []      # the purchase-history fallback shares this mock
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=result)
+    return db
+
+
+def _device_count_calls(db):
+    return [c for c in db.execute.await_args_list if "device_id" in c.args[1]]
+
+
+class TestDeviceAllTimeCount:
+    """did_txn_cnt_all: transactions ever seen on the device, strictly before this one."""
+
+    async def test_counter_counts_prior_transactions_with_no_window(self, redis):
+        # 200 days earlier: far outside every windowed counter, still counted here.
+        old = _txn(user_id="user_0", purchase_time=PURCHASE_TIME - timedelta(days=200))
+        await _record(redis, old, "t0")
+        f = await build_features(_txn(), _mock_db(), redis)
+        assert f.did_txn_cnt_30d == 0
+        assert f.did_uid_90d == 1          # only the buyer: the 90-day set forgot user_0
+        assert f.did_txn_cnt_all == 1
+
+    async def test_redis_counter_skips_db(self, redis):
+        db = _count_db(99)
+        f = await build_features(_txn(), db, redis)
+        assert f.did_txn_cnt_all == 0
+        assert _device_count_calls(db) == []
+
+    async def test_missing_counter_asks_db_as_of_transaction_time(self, redis):
+        await redis.delete("did:txn_all:device_1")
+        db = _count_db(7)
+        f = await build_features(_txn(), db, redis)
+
+        assert f.did_txn_cnt_all == 7
+        (call,) = _device_count_calls(db)
+        assert call.args[1] == {"device_id": "device_1",
+                                "as_of": PURCHASE_TIME.replace(tzinfo=timezone.utc)}
+        assert "CAST(:as_of AS timestamptz)" in str(call.args[0])
+
+    async def test_db_answer_seeds_redis_so_the_counter_continues(self, redis):
+        # Redis lost the key; Postgres says 7. After this transaction is recorded the
+        # counter must read 8, not 1, and the next request must not query Postgres.
+        await redis.delete("did:txn_all:device_1")
+        t = _txn()
+        await build_features(t, _count_db(7), redis)
+        await _record(redis, t, "t1")
+
+        db = _count_db(0)
+        f = await build_features(_txn(user_id="user_9"), db, redis)
+        assert f.did_txn_cnt_all == 8
+        assert _device_count_calls(db) == []
+
+    async def test_counter_is_arrival_order_not_event_time(self, redis):
+        # Known trade-off (docs/design_tradeoffs_and_todos.md, 2026-11-15): a plain counter
+        # cannot tell that an already-recorded transaction has a LATER purchase_time, so an
+        # out-of-order arrival is counted. The windowed counters above do not have this gap.
+        later = _txn(user_id="user_9", purchase_time=PURCHASE_TIME + timedelta(minutes=30))
+        await _record(redis, later, "t9")
+        f = await build_features(_txn(), _mock_db(), redis)
+        assert f.did_txn_cnt_1h == 0
+        assert f.did_txn_cnt_all == 1
 
 
 class TestDeviceManyUsers1hRedisPath:

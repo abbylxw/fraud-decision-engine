@@ -1,0 +1,306 @@
+{
+  "generated_at": "2026-11-15T15:25:05",
+  "model": "tuned XGBoost (train.make_candidates), rolling-origin folds of rolling_eval.py",
+  "n_boot": 1000,
+  "new_features": [
+    "did_txn_cnt_all",
+    "did_secs_since_first_txn",
+    "did_secs_since_last_txn",
+    "did_uid_all"
+  ],
+  "coverage": {
+    "share_of_scored_rows_on_a_seen_device": 0.0491,
+    "fraud_rate_seen_device": 0.2288,
+    "fraud_rate_new_device": 0.0364
+  },
+  "folds": [
+    {
+      "scored": "May",
+      "baseline": {
+        "pr_auc": 0.0679,
+        "trees": 80
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.0707,
+        "trees": 40
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.0667,
+        "trees": 40
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.0681,
+        "trees": 110
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.0707,
+        "trees": 40
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.0701,
+        "trees": 120
+      },
+      "+all four": {
+        "pr_auc": 0.0743,
+        "trees": 40
+      }
+    },
+    {
+      "scored": "Jun",
+      "baseline": {
+        "pr_auc": 0.0964,
+        "trees": 120
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.1069,
+        "trees": 40
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.1028,
+        "trees": 40
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.1011,
+        "trees": 120
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.1069,
+        "trees": 40
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.107,
+        "trees": 30
+      },
+      "+all four": {
+        "pr_auc": 0.1065,
+        "trees": 60
+      }
+    },
+    {
+      "scored": "Jul",
+      "baseline": {
+        "pr_auc": 0.0853,
+        "trees": 290
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.102,
+        "trees": 440
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.1047,
+        "trees": 100
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.1034,
+        "trees": 100
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.102,
+        "trees": 440
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.1041,
+        "trees": 250
+      },
+      "+all four": {
+        "pr_auc": 0.1008,
+        "trees": 340
+      }
+    },
+    {
+      "scored": "Aug",
+      "baseline": {
+        "pr_auc": 0.0989,
+        "trees": 690
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.1346,
+        "trees": 120
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.1309,
+        "trees": 110
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.131,
+        "trees": 120
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.1346,
+        "trees": 120
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.1397,
+        "trees": 100
+      },
+      "+all four": {
+        "pr_auc": 0.1391,
+        "trees": 80
+      }
+    },
+    {
+      "scored": "Sep",
+      "baseline": {
+        "pr_auc": 0.099,
+        "trees": 620
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.1439,
+        "trees": 190
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.142,
+        "trees": 190
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.1396,
+        "trees": 410
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.1439,
+        "trees": 190
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.144,
+        "trees": 240
+      },
+      "+all four": {
+        "pr_auc": 0.1455,
+        "trees": 270
+      }
+    },
+    {
+      "scored": "Oct",
+      "baseline": {
+        "pr_auc": 0.087,
+        "trees": 210
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.1374,
+        "trees": 230
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.1406,
+        "trees": 230
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.1376,
+        "trees": 230
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.1374,
+        "trees": 230
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.1382,
+        "trees": 70
+      },
+      "+all four": {
+        "pr_auc": 0.1392,
+        "trees": 70
+      }
+    },
+    {
+      "scored": "Nov+Dec",
+      "baseline": {
+        "pr_auc": 0.0927,
+        "trees": 850
+      },
+      "+did_txn_cnt_all": {
+        "pr_auc": 0.1624,
+        "trees": 160
+      },
+      "+did_secs_since_first_txn": {
+        "pr_auc": 0.1561,
+        "trees": 140
+      },
+      "+did_secs_since_last_txn": {
+        "pr_auc": 0.1564,
+        "trees": 190
+      },
+      "+did_uid_all": {
+        "pr_auc": 0.1624,
+        "trees": 160
+      },
+      "+count and recency (3)": {
+        "pr_auc": 0.1638,
+        "trees": 330
+      },
+      "+all four": {
+        "pr_auc": 0.1622,
+        "trees": 130
+      }
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "mean_pr_auc": 0.0896
+    },
+    "+did_txn_cnt_all": {
+      "mean_pr_auc": 0.1226,
+      "vs_baseline": {
+        "mean_diff": 0.0331,
+        "ci95": [
+          0.0277,
+          0.0381
+        ],
+        "share_of_resamples_challenger_ahead": 1.0
+      }
+    },
+    "+did_secs_since_first_txn": {
+      "mean_pr_auc": 0.1205,
+      "vs_baseline": {
+        "mean_diff": 0.0312,
+        "ci95": [
+          0.0257,
+          0.0367
+        ],
+        "share_of_resamples_challenger_ahead": 1.0
+      }
+    },
+    "+did_secs_since_last_txn": {
+      "mean_pr_auc": 0.1196,
+      "vs_baseline": {
+        "mean_diff": 0.0302,
+        "ci95": [
+          0.0246,
+          0.0358
+        ],
+        "share_of_resamples_challenger_ahead": 1.0
+      }
+    },
+    "+did_uid_all": {
+      "mean_pr_auc": 0.1226,
+      "vs_baseline": {
+        "mean_diff": 0.0331,
+        "ci95": [
+          0.0277,
+          0.0381
+        ],
+        "share_of_resamples_challenger_ahead": 1.0
+      }
+    },
+    "+count and recency (3)": {
+      "mean_pr_auc": 0.1238,
+      "vs_baseline": {
+        "mean_diff": 0.0342,
+        "ci95": [
+          0.0265,
+          0.0412
+        ],
+        "share_of_resamples_challenger_ahead": 1.0
+      }
+    },
+    "+all four": {
+      "mean_pr_auc": 0.1239,
+      "vs_baseline": {
+        "mean_diff": 0.0344,
+        "ci95": [
+          0.0268,
+          0.0415
+        ],
+        "share_of_resamples_challenger_ahead": 1.0
+      }
+    }
+  }
+}

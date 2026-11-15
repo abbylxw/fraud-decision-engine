@@ -124,19 +124,19 @@ def make_models(neg_pos_ratio):
             class_weight="balanced", n_jobs=-1, random_state=SEED,
         ),
         "xgboost": XGBClassifier(
-            n_estimators=1000, max_depth=3, learning_rate=0.03, min_child_weight=100,
+            n_estimators=1000, max_depth=3, learning_rate=0.05, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
             random_state=SEED, n_jobs=-1,
         ),
         # Sweep winners (docs/evaluation/tune_sweep.json); same settings as train.py.
         "lightgbm": LGBMClassifier(
-            n_estimators=1000, num_leaves=15, learning_rate=0.05, min_child_samples=20,
+            n_estimators=1000, num_leaves=7, learning_rate=0.03, min_child_samples=100,
             subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
             scale_pos_weight=neg_pos_ratio, metric="average_precision",
             random_state=SEED, n_jobs=-1, verbose=-1,
         ),
         "catboost": CatBoostClassifier(
-            iterations=1000, depth=4, learning_rate=0.05, l2_leaf_reg=10,
+            iterations=1000, depth=3, learning_rate=0.05, l2_leaf_reg=10,
             scale_pos_weight=neg_pos_ratio, random_seed=SEED, verbose=False, thread_count=-1,
             allow_writing_files=False,
         ),

@@ -139,6 +139,14 @@ def velocity_features(df: pd.DataFrame) -> pd.DataFrame:
         for w in ["5min", "10min", "1h", "2h", "24h", "7d", "30d"]:
             f[f"did_txn_cnt_{w}"] = _count_since(did_txn_t[did], ts - WINDOWS[w])
         f["time_since_last_txn_uid"] = ts - uid_last_ts.get(uid, ts)
+        # All-time device history (no window): every earlier transaction on this device,
+        # whoever the user was. did_txn_t is never purged in this replay, so it holds the
+        # device's full history. -1 = the device has never been seen before.
+        seen = did_txn_t[did]
+        f["did_txn_cnt_all"] = len(seen)
+        f["did_secs_since_first_txn"] = ts - seen[0] if seen else -1.0
+        f["did_secs_since_last_txn"] = ts - seen[-1] if seen else -1.0
+        f["did_uid_all"] = len(set(did_uid_v[did]) | {uid})
         for w in ["24h", "7d", "30d"]:
             f[f"country_txn_count_{w}"] = _count_since(country_t[r.ip_country], ts - WINDOWS[w])
         rows.append(f)

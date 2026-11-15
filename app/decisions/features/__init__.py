@@ -18,6 +18,7 @@ from .request import (
     get_month_of_year,
 )
 from .velocity import (
+    _device_txn_count_from_db,
     _purchase_counts_from_db,
     update_velocity_counters,
 )
@@ -144,6 +145,8 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     pipe.zscore(f"did:uid:{t.device_id}", t.user_id)
     pipe.zscore(f"uid:did:{t.user_id}", t.device_id)
     pipe.zscore(f"ip:uid:{ip_int}", t.user_id)
+    # [38]    did:txn_all — all-time transaction counter for this device (no window)
+    pipe.get(f"did:txn_all:{t.device_id}")
 
     r = await pipe.execute()
 
@@ -183,6 +186,16 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         purchase = await _purchase_counts_from_db(t.user_id, db, as_of=ct)
 
     last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else 0.0
+
+    # All-time device count. No Redis key means a new device or a lost key; Postgres knows
+    # which. The answer is written back (NX: never overwrite a counter another request just
+    # created) so the post-response INCR continues from the right number and the next
+    # request for this device does not hit the database again.
+    if r[38] is not None:
+        did_txn_cnt_all = int(r[38])
+    else:
+        did_txn_cnt_all = await _device_txn_count_from_db(t.device_id, db, as_of=ct)
+        await redis.set(f"did:txn_all:{t.device_id}", did_txn_cnt_all, nx=True)
 
     # --- Derived features ---
     days_since_signup = get_days_since_signup(t)
@@ -228,6 +241,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         did_txn_cnt_24h           = did_txn['24h'],
         did_txn_cnt_7d            = did_txn['7d'],
         did_txn_cnt_30d           = did_txn['30d'],
+        did_txn_cnt_all           = did_txn_cnt_all,
         purchase_cnt_5min         = purchase['cnt_5min'],
         purchase_amt_5min         = purchase['amt_5min'],
         purchase_cnt_10min        = purchase['cnt_10min'],

@@ -1,0 +1,437 @@
+{
+  "generated_at": "2026-11-15T15:35:31",
+  "design": "expanding window; boosters early-stop on the month before the scored period, by scikit-learn average precision; hyper-parameters fixed (train.make_candidates); bot rows removed",
+  "n_boot": 1000,
+  "folds": [
+    {
+      "fold": 1,
+      "train": "Jan-Mar",
+      "early_stop": "Apr",
+      "scored": "May",
+      "train_rows": 21036,
+      "scored_rows": 19364,
+      "scored_frauds": 921,
+      "base_rate": 0.0476,
+      "features": 42,
+      "winner": "lightgbm",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.0615,
+          "ci95": [
+            0.0542,
+            0.0718
+          ],
+          "lift": 1.29,
+          "trees": null,
+          "rank": 4
+        },
+        "xgboost": {
+          "pr_auc": 0.0723,
+          "ci95": [
+            0.0619,
+            0.086
+          ],
+          "lift": 1.52,
+          "trees": 120,
+          "rank": 2
+        },
+        "lightgbm": {
+          "pr_auc": 0.073,
+          "ci95": [
+            0.0632,
+            0.0861
+          ],
+          "lift": 1.53,
+          "trees": 126,
+          "rank": 1
+        },
+        "catboost": {
+          "pr_auc": 0.0713,
+          "ci95": [
+            0.0621,
+            0.0843
+          ],
+          "lift": 1.5,
+          "trees": 160,
+          "rank": 3
+        }
+      }
+    },
+    {
+      "fold": 2,
+      "train": "Jan-Apr",
+      "early_stop": "May",
+      "scored": "Jun",
+      "train_rows": 37587,
+      "scored_rows": 18908,
+      "scored_frauds": 842,
+      "base_rate": 0.0445,
+      "features": 42,
+      "winner": "catboost",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.1007,
+          "ci95": [
+            0.0867,
+            0.1195
+          ],
+          "lift": 2.26,
+          "trees": null,
+          "rank": 4
+        },
+        "xgboost": {
+          "pr_auc": 0.1023,
+          "ci95": [
+            0.0879,
+            0.1209
+          ],
+          "lift": 2.3,
+          "trees": 30,
+          "rank": 2
+        },
+        "lightgbm": {
+          "pr_auc": 0.1008,
+          "ci95": [
+            0.087,
+            0.1189
+          ],
+          "lift": 2.26,
+          "trees": 27,
+          "rank": 3
+        },
+        "catboost": {
+          "pr_auc": 0.1024,
+          "ci95": [
+            0.0878,
+            0.1205
+          ],
+          "lift": 2.3,
+          "trees": 110,
+          "rank": 1
+        }
+      }
+    },
+    {
+      "fold": 3,
+      "train": "Jan-May",
+      "early_stop": "Jun",
+      "scored": "Jul",
+      "train_rows": 56951,
+      "scored_rows": 19507,
+      "scored_frauds": 900,
+      "base_rate": 0.0461,
+      "features": 42,
+      "winner": "catboost",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.0994,
+          "ci95": [
+            0.0867,
+            0.1162
+          ],
+          "lift": 2.16,
+          "trees": null,
+          "rank": 4
+        },
+        "xgboost": {
+          "pr_auc": 0.1047,
+          "ci95": [
+            0.0913,
+            0.1216
+          ],
+          "lift": 2.27,
+          "trees": 310,
+          "rank": 2
+        },
+        "lightgbm": {
+          "pr_auc": 0.103,
+          "ci95": [
+            0.0896,
+            0.1191
+          ],
+          "lift": 2.23,
+          "trees": 91,
+          "rank": 3
+        },
+        "catboost": {
+          "pr_auc": 0.1055,
+          "ci95": [
+            0.0921,
+            0.1219
+          ],
+          "lift": 2.29,
+          "trees": 220,
+          "rank": 1
+        }
+      }
+    },
+    {
+      "fold": 4,
+      "train": "Jan-Jun",
+      "early_stop": "Jul",
+      "scored": "Aug",
+      "train_rows": 75859,
+      "scored_rows": 18662,
+      "scored_frauds": 833,
+      "base_rate": 0.0446,
+      "features": 42,
+      "winner": "xgboost",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.1205,
+          "ci95": [
+            0.1037,
+            0.1396
+          ],
+          "lift": 2.7,
+          "trees": null,
+          "rank": 3
+        },
+        "xgboost": {
+          "pr_auc": 0.1379,
+          "ci95": [
+            0.1178,
+            0.161
+          ],
+          "lift": 3.09,
+          "trees": 100,
+          "rank": 1
+        },
+        "lightgbm": {
+          "pr_auc": 0.1184,
+          "ci95": [
+            0.1031,
+            0.1391
+          ],
+          "lift": 2.65,
+          "trees": 192,
+          "rank": 4
+        },
+        "catboost": {
+          "pr_auc": 0.1234,
+          "ci95": [
+            0.1061,
+            0.1459
+          ],
+          "lift": 2.76,
+          "trees": 200,
+          "rank": 2
+        }
+      }
+    },
+    {
+      "fold": 5,
+      "train": "Jan-Jul",
+      "early_stop": "Aug",
+      "scored": "Sep",
+      "train_rows": 95366,
+      "scored_rows": 14347,
+      "scored_frauds": 663,
+      "base_rate": 0.0462,
+      "features": 42,
+      "winner": "xgboost",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.1307,
+          "ci95": [
+            0.1115,
+            0.1555
+          ],
+          "lift": 2.83,
+          "trees": null,
+          "rank": 4
+        },
+        "xgboost": {
+          "pr_auc": 0.1429,
+          "ci95": [
+            0.121,
+            0.1706
+          ],
+          "lift": 3.09,
+          "trees": 170,
+          "rank": 1
+        },
+        "lightgbm": {
+          "pr_auc": 0.1394,
+          "ci95": [
+            0.1177,
+            0.1663
+          ],
+          "lift": 3.02,
+          "trees": 138,
+          "rank": 3
+        },
+        "catboost": {
+          "pr_auc": 0.1407,
+          "ci95": [
+            0.1193,
+            0.1686
+          ],
+          "lift": 3.05,
+          "trees": 120,
+          "rank": 2
+        }
+      }
+    },
+    {
+      "fold": 6,
+      "train": "Jan-Aug",
+      "early_stop": "Sep",
+      "scored": "Oct",
+      "train_rows": 114028,
+      "scored_rows": 9815,
+      "scored_frauds": 442,
+      "base_rate": 0.045,
+      "features": 42,
+      "winner": "lightgbm",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.1334,
+          "ci95": [
+            0.1117,
+            0.1622
+          ],
+          "lift": 2.96,
+          "trees": null,
+          "rank": 4
+        },
+        "xgboost": {
+          "pr_auc": 0.1372,
+          "ci95": [
+            0.1157,
+            0.1663
+          ],
+          "lift": 3.05,
+          "trees": 70,
+          "rank": 2
+        },
+        "lightgbm": {
+          "pr_auc": 0.1391,
+          "ci95": [
+            0.1164,
+            0.1691
+          ],
+          "lift": 3.09,
+          "trees": 306,
+          "rank": 1
+        },
+        "catboost": {
+          "pr_auc": 0.1356,
+          "ci95": [
+            0.114,
+            0.1638
+          ],
+          "lift": 3.01,
+          "trees": 160,
+          "rank": 3
+        }
+      }
+    },
+    {
+      "fold": 7,
+      "train": "Jan-Sep",
+      "early_stop": "Oct",
+      "scored": "Nov+Dec",
+      "train_rows": 128375,
+      "scored_rows": 5322,
+      "scored_frauds": 251,
+      "base_rate": 0.0472,
+      "features": 42,
+      "winner": "xgboost",
+      "models": {
+        "random_forest": {
+          "pr_auc": 0.1554,
+          "ci95": [
+            0.1201,
+            0.2067
+          ],
+          "lift": 3.29,
+          "trees": null,
+          "rank": 4
+        },
+        "xgboost": {
+          "pr_auc": 0.1681,
+          "ci95": [
+            0.1266,
+            0.2167
+          ],
+          "lift": 3.56,
+          "trees": 140,
+          "rank": 1
+        },
+        "lightgbm": {
+          "pr_auc": 0.1581,
+          "ci95": [
+            0.1214,
+            0.209
+          ],
+          "lift": 3.35,
+          "trees": 197,
+          "rank": 3
+        },
+        "catboost": {
+          "pr_auc": 0.1601,
+          "ci95": [
+            0.1231,
+            0.2098
+          ],
+          "lift": 3.39,
+          "trees": 250,
+          "rank": 2
+        }
+      }
+    }
+  ],
+  "summary": {
+    "random_forest": {
+      "mean_pr_auc": 0.1145,
+      "mean_lift": 2.5,
+      "mean_rank": 3.86,
+      "folds_won": 0
+    },
+    "xgboost": {
+      "mean_pr_auc": 0.1236,
+      "mean_lift": 2.7,
+      "mean_rank": 1.57,
+      "folds_won": 3
+    },
+    "lightgbm": {
+      "mean_pr_auc": 0.1188,
+      "mean_lift": 2.59,
+      "mean_rank": 2.57,
+      "folds_won": 2
+    },
+    "catboost": {
+      "mean_pr_auc": 0.1199,
+      "mean_lift": 2.61,
+      "mean_rank": 2.0,
+      "folds_won": 2
+    }
+  },
+  "paired_mean_diff_vs_xgboost": {
+    "random_forest": {
+      "mean_diff": -0.0088,
+      "ci95": [
+        -0.0132,
+        -0.0043
+      ],
+      "share_of_resamples_challenger_ahead": 0.0
+    },
+    "lightgbm": {
+      "mean_diff": -0.0045,
+      "ci95": [
+        -0.0078,
+        -0.0011
+      ],
+      "share_of_resamples_challenger_ahead": 0.004
+    },
+    "catboost": {
+      "mean_diff": -0.0034,
+      "ci95": [
+        -0.0069,
+        0.0005
+      ],
+      "share_of_resamples_challenger_ahead": 0.042
+    }
+  }
+}

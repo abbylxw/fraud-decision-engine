@@ -939,6 +939,61 @@ apply, but it is the one script not on the shared helper.
 - Folds reuse hyper-parameters tuned on Aug 5 to 30; a nested version (re-tune inside each
   fold) would remove that, at 7× the sweep cost and little expected change.
 
+## All-time device count `did_txn_cnt_all`: built and tested, not shipped (2026-11-15)
+
+Full study: `docs/feature_ablation.md`. Summary of the decisions.
+
+**Problem:** four tuned algorithms tied at PR-AUC 0.09; every device counter forgot a device
+after 90 days. Devices seen at any earlier time are 4.9% of traffic with a 22.9% fraud rate
+(3.6% on new devices).
+
+**Decision 1, which features:** ablation on the rolling-origin folds
+(`training/feature_ablation.py`). `did_txn_cnt_all` alone: +0.033 mean PR-AUC
+[+0.028, +0.038]. Recency (seconds since first / last transaction) and distinct users ever
+give the same gain alone and +0.001 on top. Served: the count only. Alternative rejected:
+serving all four "to be safe" (three more values to keep in parity for no measured gain).
+
+**Decision 2, how to serve it:** a plain Redis counter `did:txn_all:{device_id}` (`INCR`, no
+TTL), read in the existing pipeline; Postgres `COUNT(*)` fallback on a miss behind a new
+`(device_id, purchase_time)` index, re-seeding Redis with `SET NX`. Alternatives rejected:
+(a) stop purging the existing `did:txn` sorted set at 90 days: event-time correct, but one
+member per transaction forever instead of one integer per device; (b) Postgres only: an
+extra query on every request rather than only on first sight of a device.
+
+**Trade-offs accepted** (details and "what would change it" in the study, section 5):
+arrival-order rather than event-time counting (pinned by
+`test_counter_is_arrival_order_not_event_time`); unbounded Redis keys, one per device; one
+extra indexed query per first-seen device, latency not yet load-tested; denied transactions
+count.
+
+**Result:** retrained XGBoost (42 features, depth 3, lr 0.05, min_child_weight 100, 200
+trees): test PR-AUC 0.141 [0.125, 0.160] vs served 0.092 [0.081, 0.107]; paired difference
++0.049 [+0.040, +0.059]; ROC-AUC 0.641 vs 0.557. Ship gate passed.
+
+**Decision 3, not shipping yet.** At the current costs (false decline $10, average fraud
+$37, break-even precision 27%) the new model's validation-chosen threshold declines 6.2% of
+traffic instead of 1.2%, catching 435 frauds instead of 106 with 1,438 false declines
+instead of 259, for the same total cost ($49.7k both). The newly found fraud sits in a band
+of about 23% precision: profitable for a $5 review or step-up (total cost $42.1k vs $49.4k),
+not for a decline. Shipping it behind allow/deny would quintuple declines for nothing.
+Served model unchanged: `xgboost-20261109211048-5ba3793`. The serving code for the feature
+is merged and safe: the API computes and stores the value, the served model ignores it.
+
+**Also changed:** hyper-parameters in `train.make_candidates` / `evaluate.make_models`
+re-tuned with the new feature. `training/evaluate.py` scores the *served* feature list, so
+`docs/evaluation/metrics.json` and the README table were deliberately not refreshed: they
+describe what is deployed.
+
+**TODOs:**
+- `review` decision band (score between the review and deny thresholds) so the model can be
+  shipped where it earns money; then retrain with `--ship` after explicit approval.
+- Load-test the first-seen-device Postgres lookup (`client_mimic.py`, p50/p99 before/after).
+- Existing databases need `db_init/008` applied by hand (column + index).
+- `training/evaluate.py` should take the candidate feature list as an option so a not-yet-
+  shipped feature set can be charted.
+- A backfill script to rebuild `did:txn_all:*` from Postgres after a Redis flush (the
+  fallback does it lazily, one device at a time).
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

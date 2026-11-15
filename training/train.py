@@ -70,6 +70,9 @@ CANDIDATE_FEATURES = [
     "purchase_success_cnt_90d", "purchase_success_amt_90d",
     "did_uid_days_on_file", "pur_median_amt_90d",
     "did_txn_cnt_2h", "did_txn_cnt_24h", "did_txn_cnt_7d", "did_txn_cnt_30d",
+    # All-time device transaction count (no window). Added 2026-11-15 after
+    # training/feature_ablation.py: +0.033 mean rolling-origin PR-AUC [+0.028, +0.038].
+    "did_txn_cnt_all",
     "time_since_last_txn_uid",
     "country_txn_count_24h", "country_txn_count_7d", "country_txn_count_30d",
     "amount_vs_user_avg_30d", "age_account_gap", "high_amount_vs_hist", "age_group",
@@ -94,8 +97,9 @@ def make_candidates(neg_pos_ratio):
     each algorithm's validation winner. (An earlier sweep needed an extra "reject configs
     under 50 trees" rule; that was XGBoost's own early stopping misfiring, fixed in
     candidates.fit_candidate on 2026-11-15, and the same config wins without the rule.)
-    Validation PR-AUC: RF 0.095, XGBoost 0.112, LightGBM 0.115, CatBoost 0.108; the whole
-    range inside each algorithm's grid is ~0.01, i.e. noise. All boosters are shallow:
+    Validation PR-AUC (sweep of 2026-11-15, with did_txn_cnt_all): RF 0.129, XGBoost 0.149,
+    LightGBM 0.148, CatBoost 0.143; the top three configs of each booster are within 0.002
+    of each other, i.e. noise. All boosters are shallow:
     the signal left after the January bot rows are removed is weak (mostly device sharing)
     and deep trees overfit it within a handful of rounds.
     """
@@ -105,18 +109,18 @@ def make_candidates(neg_pos_ratio):
             class_weight="balanced", n_jobs=-1, random_state=SEED,
         ),
         "xgboost": XGBClassifier(
-            n_estimators=1000, max_depth=3, learning_rate=0.03, min_child_weight=100,
+            n_estimators=1000, max_depth=3, learning_rate=0.05, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
             random_state=SEED, n_jobs=-1,
         ),
         "lightgbm": LGBMClassifier(
-            n_estimators=1000, num_leaves=15, learning_rate=0.05, min_child_samples=20,
+            n_estimators=1000, num_leaves=7, learning_rate=0.03, min_child_samples=100,
             subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
             scale_pos_weight=neg_pos_ratio, metric="average_precision",
             random_state=SEED, n_jobs=-1, verbose=-1,
         ),
         "catboost": CatBoostClassifier(
-            iterations=1000, depth=4, learning_rate=0.05, l2_leaf_reg=10,
+            iterations=1000, depth=3, learning_rate=0.05, l2_leaf_reg=10,
             scale_pos_weight=neg_pos_ratio, random_seed=SEED, verbose=False, thread_count=-1,
             allow_writing_files=False,
         ),

@@ -67,8 +67,7 @@ curl -X POST http://localhost:8000/api/transactions \
     "browser": "Chrome",
     "sex": "M",
     "age": 30,
-    "ip_address": 3663237372,
-    "class": 0
+    "ip_address": 3663237372
   }'
 ```
 
@@ -172,6 +171,15 @@ month, seven times) confirms the tie over time: mean PR-AUC is 0.090 for XGBoost
 LightGBM and CatBoost, with the paired difference at −0.001 [−0.005, +0.002]. The random
 forest trails by 0.006 [0.002, 0.009].
 
+**A feature beat every algorithm change.** One added feature, the all-time transaction count
+of the device (`did_txn_cnt_all`), lifts the tuned XGBoost from 0.092 to 0.141 test PR-AUC
+(paired difference +0.049 [+0.040, +0.059]) and all four algorithms rise with it. It is built
+and parity-tested on the serving side but **not shipped**: the fraud it finds sits at about
+23% precision, below the 27% needed for a decline to pay for itself, so it needs a `review`
+decision rather than `deny`. Full study, including the cost table:
+[docs/feature_ablation.md](docs/feature_ablation.md). The table above describes the served
+model.
+
 **What the evaluation found:**
 - **The previous model barely beat random guessing.** At its hardcoded threshold of 0.7 it
   flagged 10 of 30,223 test transactions and caught 4 of 1,389 frauds.
@@ -253,6 +261,10 @@ What the served model does differently from the notebook model, and why:
   `model_score` (NULL when a hard rule denied first) and `decision_rule`
   (`app/data/db_init/005_add_model_audit_columns.sql`; idempotent, apply by hand to an
   existing database).
+- **Upgrading an existing database:** `app/data/db_init/008_add_device_all_time_count.sql`
+  adds the `did_txn_cnt_all` audit column and a `(device_id, purchase_time)` index. Fresh
+  Docker volumes get it automatically; an existing database needs it applied by hand before
+  starting this version of the API, or every audit insert fails on the missing column.
 - **A ship gate:** `--ship` refuses unless test PR-AUC is at least the previous model's 95% CI
   lower bound.
 

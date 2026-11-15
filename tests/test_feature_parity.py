@@ -111,7 +111,12 @@ async def serving_features(df: pd.DataFrame, monkeypatch) -> pd.DataFrame:
 
     monkeypatch.setattr(serving, "get_ip_country", fake_ip_country)
     monkeypatch.setattr(serving, "get_did_days_on_file", fake_days_on_file)
+    async def no_device_history(device_id, db, as_of=None):
+        # Same reasoning: no did:txn_all counter in a sequential replay = a new device.
+        return 0
+
     monkeypatch.setattr(serving, "_purchase_counts_from_db", empty_purchase_history)
+    monkeypatch.setattr(serving, "_device_txn_count_from_db", no_device_history)
 
     redis = fake_aioredis.FakeRedis(decode_responses=True)
     out = []
@@ -173,6 +178,26 @@ async def test_parity_on_real_data(monkeypatch):
     # The API receives the integer IP (client_mimic.py truncates the CSV float).
     df["ip_address"] = df["ip_address"].astype("int64")
     assert_parity(build_feature_frame(df), await serving_features(df, monkeypatch))
+
+
+def test_all_time_device_count_uses_only_earlier_rows():
+    """Leakage check: did_txn_cnt_all for a row must not change when the rows AFTER it
+    change. Build features on the full frame and on its first half; the first half's
+    values must be identical."""
+    df = synthetic_transactions()
+    half = len(df) // 2
+    full = build_feature_frame(df)["did_txn_cnt_all"].to_numpy()[:half]
+    head = build_feature_frame(df.iloc[:half].copy())["did_txn_cnt_all"].to_numpy()
+    assert (full == head).all()
+    assert full.max() > 0   # devices repeat in the synthetic data, so the feature varies
+    # Equals the number of earlier rows on the same device.
+    assert (full == df.groupby("device_id").cumcount().to_numpy()[:half]).all()
+
+
+async def test_all_time_device_count_is_compared_by_the_parity_tests(monkeypatch):
+    df = synthetic_transactions(n=300)
+    serve = await serving_features(df, monkeypatch)
+    assert "did_txn_cnt_all" in serve.columns and serve["did_txn_cnt_all"].max() > 0
 
 
 # ---------------------------------------------------------------------------

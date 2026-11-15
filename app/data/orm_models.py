@@ -93,6 +93,7 @@ class TransactionRecord(Base):
     did_txn_cnt_24h:   Mapped[int]   = mapped_column(default=0)
     did_txn_cnt_7d:    Mapped[int]   = mapped_column(default=0)
     did_txn_cnt_30d:   Mapped[int]   = mapped_column(default=0)
+    did_txn_cnt_all:   Mapped[int]   = mapped_column(default=0)
     pur_median_amt_90d:      Mapped[float] = mapped_column(default=0.0)
     amount_vs_user_avg_30d:  Mapped[float] = mapped_column(default=1.0)
     age_account_gap:         Mapped[float] = mapped_column(default=0.0)

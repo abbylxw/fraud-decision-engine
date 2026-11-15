@@ -56,6 +56,22 @@ async def _purchase_counts_from_db(user_id: str, db: AsyncSession, as_of: float)
     return _parse_purchase_entries(all_entries, suc_entries, windows)
 
 
+async def _device_txn_count_from_db(device_id: str, db: AsyncSession, as_of: float) -> int:
+    """All-time number of transactions on this device up to the transaction's own time.
+
+    Fallback for did_txn_cnt_all when Redis has no did:txn_all counter for the device:
+    either the device is new (the usual case, answer 0) or Redis lost the key. An index
+    lookup on idx_transactions_device_time (db_init/008)."""
+    as_of_dt = datetime.fromtimestamp(as_of, tz=timezone.utc)
+    res = await db.execute(text("""
+        SELECT COUNT(*)
+        FROM transactions
+        WHERE device_id = :device_id
+          AND purchase_time <= CAST(:as_of AS timestamptz)
+    """), {"device_id": device_id, "as_of": as_of_dt})
+    return int(res.scalar_one())
+
+
 # ---------------------------------------------------------------------------
 # Counter updates — called fire-and-forget after the decision is returned
 # ---------------------------------------------------------------------------
@@ -83,6 +99,10 @@ async def update_velocity_counters(user_id: str, device_id: str, ip: int,
         redis.zadd(f"did:txn:{device_id}",    {f"{transaction_id}": event_ts}),
         redis.zadd(f"country:txn:{ip_country}", {f"{transaction_id}": event_ts}),
         redis.set(f"uid:last_txn:{user_id}", str(event_ts)),
+        # All-time transactions on the device (model feature did_txn_cnt_all). A plain
+        # counter with no TTL and no 90-day purge: the signal is precisely the device
+        # coming back after the windowed counters have forgotten it.
+        redis.incr(f"did:txn_all:{device_id}"),
     ]
     if fraud_decision != 'deny':
         coros.append(
