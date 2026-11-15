@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from prometheus_client import CollectorRegistry, Counter, Histogram, make_asgi_app, multiprocess
+from prometheus_client import (
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    make_asgi_app,
+    multiprocess,
+)
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -18,7 +25,7 @@ from app.data.data_models import DBWrite, DecisionResponse, Transaction
 from app.data.orm_models import TransactionRecord
 from app.decisions import execute_hard_rules, execute_shadow_rules, execute_soft_rules
 from app.decisions.features import build_features, event_ts, update_velocity_counters
-from app.decisions.models import MODEL_VERSION
+from app.decisions.models import MODEL_VERSION, REVIEW_THRESHOLD, THRESHOLD
 from app.decisions.models import score as model_score
 
 # ---------------------------------------------------------------------------
@@ -89,6 +96,20 @@ STEP_LATENCY = Histogram(
 MODEL_SCORE = Histogram(
     "fraud_model_score_value", "Distribution of raw fraud probability scores",
     buckets=[.0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1.0])
+# The served model's two decision thresholds, so a dashboard can draw them next to the live
+# score distribution (a score histogram means little without knowing where the cut-offs are).
+# Every worker sets the same value; "max" merges them into one series in multiprocess mode.
+MODEL_THRESHOLD = Gauge(
+    "fraud_model_threshold", "Model score thresholds from model_meta.json", ["band"],
+    multiprocess_mode="max")
+MODEL_THRESHOLD.labels(band="review").set(REVIEW_THRESHOLD)
+MODEL_THRESHOLD.labels(band="deny").set(THRESHOLD)
+# Requests from a device that has transacted before (did_txn_cnt_all > 0), by decision.
+# This is the model's strongest signal; its share of traffic is the first thing to watch
+# for drift (a jump means device ids changed meaning, or an attack is reusing devices).
+RETURNING_DEVICE_TOTAL = Counter(
+    "fraud_returning_device_total",
+    "Requests from a device with earlier transactions, by decision", ["decision"])
 IDEMPOTENCY_HITS = Counter(
     "fraud_idempotency_hits_total", "Requests served from idempotency cache")
 IDEMPOTENCY_CONFLICTS = Counter(
@@ -246,6 +267,8 @@ async def run_process(transaction: Transaction,
     DECISION_RULE_TOTAL.labels(
         decision_rule=decision_rule or "none", decision=fraud_decision).inc()
     COUNTRY_REQUESTS.labels(country=features.ip_country, decision=fraud_decision).inc()
+    if features.did_txn_cnt_all > 0:
+        RETURNING_DEVICE_TOTAL.labels(decision=fraud_decision).inc()
     response = DecisionResponse(
         transaction_id=transaction_id,
         fraud_decision=fraud_decision,

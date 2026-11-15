@@ -93,6 +93,22 @@ Both thresholds are chosen by cost on validation data and stored in
 existed, so it only returns `allow` or `deny` until the next model is shipped
 ([docs/feature_ablation.md](docs/feature_ablation.md) §7).
 
+## Demo
+
+```bash
+docker compose up -d --build
+python scripts/demo.py            # six stories, then ~2,000 replayed transactions
+```
+
+The script sends real requests and prints each decision with the reason, read back from
+the audit table: a normal customer (allow), a bot buying one second after signup (deny),
+a second account on one device within the hour (deny), a sanctioned country (deny), a
+device returning after 120 days with a different account (review), and a retried request
+answered from the idempotency cache. The replay then fills the Grafana dashboard
+(http://localhost:3000, row "Decisions and model"): decision mix, review rate, decisions
+by rule, the score distribution against the served thresholds, and the share of traffic
+from returning devices.
+
 ## Health Check
 
 ```bash

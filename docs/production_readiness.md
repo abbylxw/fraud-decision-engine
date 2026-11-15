@@ -25,7 +25,8 @@ gap. **Open** = not started.
 | **Auditability** | Done | Every decision stores features, `model_version`, `model_score`, `decision_rule` | No per-decision reason codes |
 | **Explainability** | Open | Global feature importances in `model_meta.json` | Top-3 SHAP reason codes per scored decision |
 | **Monitoring: system** | Done | Prometheus metrics, Grafana dashboards, per-step latency, per-worker counters | No alert rules committed |
-| **Monitoring: model** | Partial | Score histogram, decisions by rule and country | No drift metric (PSI) on features or score; no alert on `device_many_users_1h` volume |
+| **Monitoring: model** | Partial | Score histogram with the served thresholds, decision mix (allow/review/deny), decisions by rule and country, shadow-rule hits, returning-device share (Grafana row "Decisions and model") | No drift metric (PSI) on features or score; no committed alert rules |
+| **Demo** | Partial | `scripts/demo.py`: six labelled stories against the live stack plus a traffic replay | Written, not yet run against a rebuilt stack (needs `db_init/008` and a new image) |
 | **Label feedback** | Open | | `POST /api/labels`; without it live precision/recall cannot be measured and retraining has no new labels |
 | **Idempotency / retries** | Partial | Redis `SET NX` claim, 409 on in-flight duplicates, concurrency tests | No unique `idempotency_key` in Postgres (crash-after-commit gap) |
 | **Failure handling** | Partial | Redis-miss fallbacks to Postgres (purchase history, device count), tracked background tasks, drained on shutdown | Behaviour when Redis is fully down is not tested; `ZADD GT` for out-of-order set updates |

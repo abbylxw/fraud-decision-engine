@@ -254,6 +254,213 @@
           "unit": "reqps"
         }
       }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Decisions and model",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "title": "Decision mix: allow / review / deny (% of decisions)",
+      "type": "timeseries",
+      "description": "What the engine told callers. review = step up or manual look; deny = decline.",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (decision) (rate(fraud_decisions_total[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
+          "legendFormat": "{{decision}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 40
+          },
+          "max": 100
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "title": "Review rate and model-deny rate (%)",
+      "type": "timeseries",
+      "description": "Share of decisions made by the model's two score bands. Expected on Fraud_Data after the 42-feature model ships: review about 6-7%, model deny about 0%.",
+      "gridPos": {
+        "x": 8,
+        "y": 36,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(fraud_decision_rule_total{decision_rule=\"model_score_review\"}[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
+          "legendFormat": "review (model)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(fraud_decision_rule_total{decision_rule=\"model_score_threshold\"}[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
+          "legendFormat": "deny (model)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "title": "Decisions by rule (per second)",
+      "type": "timeseries",
+      "description": "Which rule or score band produced each non-allow decision (audit decision_rule).",
+      "gridPos": {
+        "x": 16,
+        "y": 36,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (decision_rule, decision) (rate(fraud_decision_rule_total{decision_rule!=\"none\"}[1m]))",
+          "legendFormat": "{{decision_rule}} -> {{decision}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "title": "Model score (p50 / p95) against the served thresholds",
+      "type": "timeseries",
+      "description": "Scores are not probabilities (class weighting inflates them); read them against the thresholds. A drifting p50 with fixed thresholds changes the review rate.",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(fraud_model_score_value_bucket[5m])))",
+          "legendFormat": "score p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(fraud_model_score_value_bucket[5m])))",
+          "legendFormat": "score p95"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_model_threshold{band=\"review\"})",
+          "legendFormat": "review threshold"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_model_threshold{band=\"deny\"})",
+          "legendFormat": "deny threshold"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 15,
+      "title": "Returning devices: share of traffic and their decisions (%)",
+      "type": "timeseries",
+      "description": "did_txn_cnt_all > 0 is the model's strongest feature (about 5% of traffic, 23% fraud in training data). A jump in the share is the first drift signal to check.",
+      "gridPos": {
+        "x": 8,
+        "y": 43,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(fraud_returning_device_total[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
+          "legendFormat": "returning-device share"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(fraud_returning_device_total{decision=\"review\"}[1m])) / sum(rate(fraud_returning_device_total[1m])) * 100",
+          "legendFormat": "of those: reviewed"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(fraud_returning_device_total{decision=\"deny\"}[1m])) / sum(rate(fraud_returning_device_total[1m])) * 100",
+          "legendFormat": "of those: denied"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "title": "Shadow rules: would-deny hits (per second)",
+      "type": "timeseries",
+      "description": "Rate-limiter branches running in shadow mode: counted, never applied.",
+      "gridPos": {
+        "x": 16,
+        "y": 43,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum by (rule) (rate(fraud_rule_shadow_total[1m]))",
+          "legendFormat": "{{rule}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      }
     }
   ]
 }
