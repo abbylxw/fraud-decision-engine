@@ -108,6 +108,13 @@ cache. The replay then fills the Grafana dashboard
 by rule, the score distribution against the served thresholds, and the share of traffic
 from devices that other accounts have used before.
 
+A one-page tour for readers who will not run anything is in `docs/demo/tour.html` (open it
+in a browser): the request flow, the seven stories, the rolling-origin chart with and
+without the device feature, and a cost console that re-picks the review and deny thresholds
+for any decline cost, review cost and catch rate. It is built from the evaluation outputs by
+`python -m scripts.export_demo_data`, which writes aggregated curves only, no transaction
+rows.
+
 ## Health Check
 
 ```bash
@@ -208,7 +215,9 @@ study, with the things that did not help, is in
 
 **Better ranking was not automatically more money.** The fraud the new feature finds sits at
 about 23% precision. With a $37 average fraud and $10 per wrongly declined customer, a
-decline only pays above 27%, so behind allow/deny the better model was worth $0. It ships
+decline breaks even at 21% ($10 / ($10 + $37)), so those extra declines earn almost nothing:
+behind allow/deny the better model caught four times the fraud for the same total cost. A $5
+review breaks even at 13.5%. It ships
 with a third decision, `review`, and both thresholds chosen by cost:
 
 | Policy on the test period (30,223 orders, 1,389 frauds) | Reviewed | Denied by model | Fraud stopped | Legit orders touched | Total cost* |

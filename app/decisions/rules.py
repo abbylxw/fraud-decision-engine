@@ -84,8 +84,9 @@ def model_score_threshold(score: float) -> str:
         otherwise                   allow
 
     Both thresholds come from model_meta.json. Why a middle band exists: at $10 per wrongly
-    declined order and a $37 average fraud, a decline only pays above ~27% precision, and
-    most of the fraud the model finds sits just below that (docs/feature_ablation.md)."""
+    declined order and a $37 average fraud, a decline breaks even at ~21% precision and a $5
+    review at ~13.5%; most of the fraud the model finds sits at ~23%, where a decline earns
+    almost nothing and a review clearly pays (docs/feature_ablation.md)."""
     if score >= THRESHOLD:
         return 'deny'
     if score >= REVIEW_THRESHOLD:

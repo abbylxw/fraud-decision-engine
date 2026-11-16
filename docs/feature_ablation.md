@@ -172,10 +172,15 @@ next 1% 26.8% vs 17.5%; next 3% 21.3% vs 7.4%; next 5% 8.8% vs 4.5%.
 
 What this says:
 
-- With an average fraud of $37 and a $10 cost per wrongly declined order, declining pays only
-  above **27% precision** ($10 / $37). The new feature creates a large group at about 23%.
-  So at the current settings the new model **declines five times more orders for the same
-  total cost**. The same holds under the unit-cost convention used for rule backtests (missed
+- With an average fraud of $37 and a $10 cost per wrongly declined order, declining breaks
+  even at **21% precision** ($10 / ($10 + $37): at precision π a decline saves π × $37 and
+  loses (1 − π) × $10). The new feature creates a large group at about 23%, only just above
+  that line: each decline there earns about $0.90 on average, against about $3.60 for the
+  old model's fewer declines at 29%. Five times as many declines, each worth a quarter as
+  much, add up to the same total. So at the current settings the new model **declines five
+  times more orders for the same total cost**. (An earlier version of this page gave the
+  break-even as 27%, $10 / $37; that formula was wrong. Every cost in the tables was
+  computed directly from the data and is unaffected.) The same holds under the unit-cost convention used for rule backtests (missed
   fraud 3, false positive 1; break-even precision 25%): new 4,300, served 4,103, doing
   nothing 4,167.
 - If the action costs $5 or less per legitimate order, the new model cuts total cost by 15 to
@@ -188,7 +193,7 @@ What this says:
 
 **Recommendation: do not ship this model behind the current allow/deny decision.** Ship it
 together with a third decision, `review`, for the 23%-precision band (roadmap item in
-`docs/production_readiness.md`), and keep `deny` for scores above the 27% break-even. Until
+`docs/production_readiness.md`), and keep `deny` for scores where a decline clearly beats a review. Until
 then the served model stays `xgboost-20261109211048-5ba3793`.
 
 ## 7. Follow-up: the `review` band (2026-11-15, same day)

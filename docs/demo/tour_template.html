@@ -1,0 +1,398 @@
+<title>Fraud Decision Engine Tour</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column (max 980px) of stacked sections; each section pairs a short
+   explanation with one working exhibit (pipeline, request cards, chart, cost console). */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f5; --line: #d9dee6;
+  --ink: #10161f; --ink-2: #47525f; --ink-3: #6b7683;
+  --accent: #0f5c7a; --accent-soft: #dcecf2;
+  --allow: #0b7a3b; --allow-bg: #dff3e6; --review: #8a5a00; --review-bg: #fbecc8;
+  --deny: #b3261e; --deny-bg: #fbe0dd;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --base: #8a8984;
+  --display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1318; --surface: #171c23; --surface-2: #1f262f; --line: #2d3641;
+  --ink: #eef1f4; --ink-2: #b6bfc9; --ink-3: #8b96a2;
+  --accent: #6cc0dd; --accent-soft: #17323d;
+  --allow: #5fd08c; --allow-bg: #143222; --review: #f0c05a; --review-bg: #3a2c0c;
+  --deny: #ff8a80; --deny-bg: #3d1a17;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --base: #8a8984;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1318; --surface: #171c23; --surface-2: #1f262f; --line: #2d3641;
+  --ink: #eef1f4; --ink-2: #b6bfc9; --ink-3: #8b96a2;
+  --accent: #6cc0dd; --accent-soft: #17323d;
+  --allow: #5fd08c; --allow-bg: #143222; --review: #f0c05a; --review-bg: #3a2c0c;
+  --deny: #ff8a80; --deny-bg: #3d1a17;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --base: #8a8984;
+  color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+.wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.9rem, 5vw, 2.7rem); line-height: 1.1; }
+h2 { font-size: 1.45rem; line-height: 1.2; }
+h3 { font-size: 1.02rem; }
+p { margin: 0; max-width: 68ch; }
+.lede { font-size: 1.1rem; color: var(--ink-2); }
+.eyebrow { font-family: var(--mono); font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+section { display: flex; flex-direction: column; gap: 16px; }
+.note { color: var(--ink-3); font-size: .88rem; }
+code, .mono { font-family: var(--mono); font-size: .86em; }
+.num { font-variant-numeric: tabular-nums; }
+a { color: var(--accent); }
+
+header.top { display: flex; flex-direction: column; gap: 14px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.fact { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fact b { font-family: var(--display); font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fact span { color: var(--ink-2); font-size: .86rem; }
+
+/* pipeline */
+.pipe { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; position: relative; }
+.stage .k { font-family: var(--mono); font-size: .72rem; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; }
+.stage ul { margin: 0; padding-left: 1.05em; color: var(--ink-2); font-size: .88rem; display: flex; flex-direction: column; gap: 3px; }
+.stage .out { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 760px) { .pipe { grid-template-columns: 1fr; } }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: .76rem; font-weight: 500; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.allow { color: var(--allow); background: var(--allow-bg); }
+.pill.review { color: var(--review); background: var(--review-bg); }
+.pill.deny { color: var(--deny); background: var(--deny-bg); }
+.pill.review::before { border-radius: 1px; transform: rotate(45deg); }
+.pill.deny::before { border-radius: 1px; }
+
+/* stories */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button, .seg button { font: inherit; font-size: .88rem; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.tabs button[aria-selected="true"], .seg button[aria-pressed="true"] { color: var(--surface); background: var(--accent); border-color: var(--accent); }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.story { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; display: grid; grid-template-columns: 1.1fr 1fr; min-width: 0; }
+.story > div { padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.story > div + div { border-left: 1px solid var(--line); }
+@media (max-width: 760px) { .story { grid-template-columns: 1fr; } .story > div + div { border-left: 0; border-top: 1px solid var(--line); } }
+pre.req { margin: 0; font-family: var(--mono); font-size: .8rem; line-height: 1.5; background: var(--surface-2); border-radius: 4px; padding: 12px; overflow-x: auto; color: var(--ink); }
+dl.kv { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .88rem; }
+dl.kv dt { font-family: var(--mono); font-size: .8rem; color: var(--ink-3); }
+dl.kv dd { margin: 0; font-family: var(--mono); font-size: .8rem; overflow-wrap: anywhere; }
+
+/* charts */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .84rem; color: var(--ink-2); }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: .78rem; border-radius: 4px; padding: 8px 10px; line-height: 1.45; white-space: nowrap; z-index: 2; font-variant-numeric: tabular-nums; }
+.tip b { font-weight: 600; }
+.tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+details { font-size: .86rem; color: var(--ink-2); }
+summary { cursor: pointer; color: var(--accent); width: fit-content; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; width: 100%; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink-3); font-weight: 500; font-size: .78rem; }
+
+/* cost console */
+.console { display: grid; grid-template-columns: minmax(230px, 300px) 1fr; gap: 22px; }
+@media (max-width: 760px) { .console { grid-template-columns: 1fr; } }
+.knobs { display: flex; flex-direction: column; gap: 16px; }
+.knob { display: flex; flex-direction: column; gap: 4px; }
+.knob label { display: flex; justify-content: space-between; font-size: .88rem; color: var(--ink-2); gap: 8px; }
+.knob output { font-family: var(--mono); color: var(--ink); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.bars { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.bar-row { display: grid; grid-template-columns: 1fr; gap: 4px; }
+.bar-row .lab { display: flex; justify-content: space-between; gap: 10px; font-size: .88rem; flex-wrap: wrap; }
+.bar-row .lab b { font-family: var(--mono); font-weight: 500; }
+.track { background: var(--surface-2); border-radius: 4px; height: 14px; }
+.fill { height: 14px; border-radius: 0 4px 4px 0; background: var(--base); min-width: 2px; }
+.fill.served { background: var(--s1); }
+.sub { font-size: .8rem; color: var(--ink-3); }
+.verdict { background: var(--accent-soft); border-radius: 6px; padding: 12px 14px; font-size: .92rem; }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card p { font-size: .92rem; color: var(--ink-2); }
+.mix { display: flex; height: 16px; gap: 2px; }
+.mix span { display: block; border-radius: 3px; min-width: 3px; }
+ul.plain { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 5px; font-size: .92rem; color: var(--ink-2); }
+footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--line); padding-top: 18px; }
+@media (prefers-reduced-motion: no-preference) { .fill { transition: width .25s ease; } }
+</style>
+
+<div class="wrap">
+<header class="top">
+  <span class="eyebrow">Real-time fraud decisions · FastAPI · Redis · Postgres · XGBoost</span>
+  <h1>Fraud Decision Engine</h1>
+  <p class="lede">An API that answers one question per purchase in a few milliseconds: approve it, ask for an extra check, or decline it. This page walks through what it does, how the model was evaluated, what a better model was actually worth, and what is watched once it is live.</p>
+  <div class="facts" id="facts"></div>
+  <p class="note">Every number here comes from the project's own evaluation files on the public Fraud_Data set (151,112 purchases, one per user). Test period: the last 20% by time, never used for training.</p>
+</header>
+
+<section>
+  <span class="eyebrow">What happens to one request</span>
+  <h2>Rules first, then a model, then a cost-based decision</h2>
+  <p>A purchase is posted to <code>/api/transactions</code>. Cheap, certain checks run first and can end the request before the model is called. Whatever happens, the decision is written to an audit table with the features, the score and the rule that decided.</p>
+  <div class="pipe">
+    <div class="stage"><span class="k">1 · Features</span><h3>Who is this, really?</h3><ul><li>Redis counters over event time: accounts per device, devices per account, accounts per IP</li><li>IP to country from a 5M-row table</li><li>Postgres fallback when Redis has no history</li></ul></div>
+    <div class="stage"><span class="k">2 · Hard rules</span><h3>Certain enough to decline</h3><ul><li>Purchase under 60 s after signup</li><li>Second account on a device within an hour</li><li>Sanctioned country</li></ul><div class="out"><span class="pill deny">deny</span></div></div>
+    <div class="stage"><span class="k">3 · Model</span><h3>XGBoost, 42 features</h3><ul><li>Score compared with two thresholds picked by cost</li><li>Rate-limiter rules run in shadow mode: counted, never applied</li></ul><div class="out"><span class="pill allow">allow</span><span class="pill review">review</span><span class="pill deny">deny</span></div></div>
+    <div class="stage"><span class="k">4 · Record</span><h3>Audit, then update</h3><ul><li>One row per decision: features, score, rule, model version</li><li>Counters updated after the response</li><li>Idempotency key so a retry never decides twice</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Seven requests, sent to the running system</span>
+  <h2>What it decides, and why</h2>
+  <p>These are the stories in the repo's demo script. Each one is a real request against the live stack; the decision and feature values are read back from the audit row.</p>
+  <div class="tabs" role="tablist" id="story-tabs"></div>
+  <div class="story" id="story"></div>
+</section>
+
+<section>
+  <span class="eyebrow">Evaluation</span>
+  <h2>Four algorithms tied. One feature moved all of them.</h2>
+  <p>Each model is trained on the past and scored on the next month, seven times over (a rolling-origin evaluation). Switch between the two feature sets: the lines stay bunched together, and the whole bunch moves.</p>
+  <div class="panel">
+    <div class="panel-head">
+      <h3 id="roll-title">PR-AUC by scored month</h3>
+      <div class="seg" id="roll-seg">
+        <button type="button" id="seg-before" aria-pressed="false">41 features</button>
+        <button type="button" id="seg-after" aria-pressed="true">42 features (served)</button>
+      </div>
+    </div>
+    <div class="legend" id="roll-legend"></div>
+    <div class="chart" id="roll-chart"></div>
+    <p class="note" id="roll-note"></p>
+    <details><summary>Show the numbers as a table</summary><div class="tbl" id="roll-table"></div></details>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>The added feature</h3><p><code>did_other_uid_all</code>: how many <em>other</em> accounts have ever used this device. Every earlier device counter forgot after 90 days.</p><p class="num" id="cov"></p></div>
+    <div class="card"><h3>Measured with a paired bootstrap</h3><p id="abl"></p></div>
+    <div class="card"><h3>What did not help</h3><p>Signup hour and weekday, raw age, seconds from signup to purchase, whether the device or IP appeared in the January bot attack, and delayed fraud labels per device. All within ±0.002 of the baseline.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">What the better model is worth</span>
+  <h2>Better ranking was worth $0 until there was a third decision</h2>
+  <p>The fraud the new feature finds sits at about 23% precision. A decline at that precision barely pays for the good customers it turns away, so behind allow or deny the better model caught four times the fraud for the same total cost. The engine got a middle outcome, <span class="pill review">review</span>, and picks both thresholds by cost. Move the assumptions and the policy is re-picked on validation data and scored on the test period, exactly as the training script does it.</p>
+  <div class="panel">
+    <div class="console">
+      <div class="knobs">
+        <div class="knob"><label for="k-fd">Cost of declining a good customer <output id="o-fd"></output></label><input type="range" id="k-fd" min="2" max="30" step="1" value="10"></div>
+        <div class="knob"><label for="k-rc">Cost of one review <output id="o-rc"></output></label><input type="range" id="k-rc" min="1" max="12" step="0.5" value="5"></div>
+        <div class="knob"><label for="k-cr">Fraud a review stops <output id="o-cr"></output></label><input type="range" id="k-cr" min="40" max="100" step="5" value="100"></div>
+        <p class="sub" id="breakeven"></p>
+      </div>
+      <div class="bars" id="bars"></div>
+    </div>
+    <div class="verdict" id="verdict"></div>
+    <p class="note">Total cost = fraud dollars that get through + declines of good customers + every review. Thresholds: the cheapest pair on validation, then the gentlest policy within 1% of it. The review cost and catch rate are assumptions, which is why they are sliders.</p>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Once it is live</span>
+  <h2>What is watched, and what is not yet</h2>
+  <div class="grid2">
+    <div class="card"><h3>A local replay, 200 requests per second</h3><div class="mix" id="mix" role="img"></div><p class="num" id="mix-text"></p><p class="num">Latency: p50 7 ms · p95 11–13 ms · p99 16–21 ms on one laptop, eight workers.</p></div>
+    <div class="card"><h3>On the Grafana dashboard</h3><ul class="plain"><li>Decision mix: allow, review, deny over time</li><li>Decisions by rule, and shadow-rule hits</li><li>Score distribution against the two served thresholds</li><li>Share of traffic from devices other accounts have used</li><li>Latency per step: features, model, database write</li></ul></div>
+    <div class="card"><h3>Not built yet</h3><ul class="plain"><li>Drift metric on features and score, with alerts</li><li>A label endpoint, so live precision can be measured and the real review catch rate replaces the slider above</li><li>Reason codes per decision</li><li>A real-database test in CI</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Things that went wrong, and what they taught</span>
+  <h2>Five findings worth an interview question</h2>
+  <div class="grid2">
+    <div class="card"><h3>The offline numbers were right and the feature was wrong</h3><p>The first version counted every earlier purchase on the device. On this dataset each user buys once, so that equals "other accounts". Sent through the live system, a loyal customer's second purchase went to review. Found by a hand-made request the day it shipped; fixed by making the feature mean what the model had learned.</p></div>
+    <div class="card"><h3>Early stopping that stopped at tree 1</h3><p>XGBoost's and CatBoost's built-in PR-AUC over-credit a one-tree model (0.088 where scikit-learn says 0.077). One fold kept a single tree, which made two other algorithms look significantly better. Tree counts are now picked with scikit-learn's metric.</p></div>
+    <div class="card"><h3>A ship gate that passed a worthless model</h3><p>The gate compared ranking quality only. A model passed it while saving no money. The gate now also requires the new policy to cost no more than the served one, with an interval on the difference.</p></div>
+    <div class="card"><h3>Training and serving compute the same thing</h3><p>Counters use the purchase's own time, not the server clock, so a replay of history fills windows exactly as training did. A test replays 5,000 real rows through the API code and compares every feature.</p></div>
+    <div class="card"><h3>January was a bot attack, not a pattern</h3><p>7,600 purchases within a second of signup, all fraud, all in one month. A model trained on them learns "January means fraud". They are handled by a rule and removed from training.</p></div>
+    <div class="card"><h3>Limits stated up front</h3><p>Public, simulated-looking data. Scores are not probabilities. Review cost and catch rate are assumed. The score is not monotonic in the device feature above five accounts; a constraint fixes that at a small accuracy cost and is an open decision.</p></div>
+  </div>
+</section>
+
+<footer>Served model <span class="mono" id="ver"></span>. Built from the repository's evaluation outputs; regenerate with <code>python -m scripts.export_demo_data</code>.</footer>
+</div>
+
+<script>
+const D = /*TOUR_DATA*/null;
+const $ = id => document.getElementById(id);
+const fmt = (n, d = 0) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const usd = n => "$" + fmt(Math.round(n));
+const pct = (x, d = 1) => (100 * x).toFixed(d) + "%";
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+/* ---------- headline facts ---------- */
+(function () {
+  const t = D.served_test, prev = 0.092;
+  $("facts").innerHTML = [
+    [t.pr_auc.toFixed(3), `test PR-AUC, up from ${prev} (random guessing: 0.046)`],
+    ["7", "decision stories verified on the live stack"],
+    ["192", "automated tests, including training/serving parity"],
+    ["~20 ms", "p99 latency at 200 requests per second"],
+  ].map(([b, s]) => `<div class="fact"><b>${b}</b><span>${s}</span></div>`).join("");
+  $("ver").textContent = D.model_version;
+})();
+
+/* ---------- stories ---------- */
+const STORIES = [
+  { tab: "Normal customer", d: "allow", rule: "none", score: "0.42",
+    req: { user_id: "u-normal", device_id: "d-normal", signup: "30 days before", purchase_value: 42, ip: "United States" },
+    feats: { did_uid_1h: 1, did_other_uid_all: 0, ip_country: "United States" },
+    why: "No hard rule fires and the score is below the review threshold of 0.80." },
+  { tab: "Bot signup", d: "deny", rule: "signup_burst", score: "not run",
+    req: { user_id: "u-bot", device_id: "d-bot", signup: "1 second before", purchase_value: 42, ip: "United States" },
+    feats: { seconds_since_signup: 1, did_uid_1h: 1 },
+    why: "Under 60 seconds from signup to purchase is scripted. In the training data all 7,600 such purchases were fraud and the fastest real customer took 137 seconds. The model is never called." },
+  { tab: "Shared device", d: "deny", rule: "device_many_users_1h", score: "not run",
+    req: { user_id: "u-share-b", device_id: "d-share (used by u-share-a 10 min ago)", signup: "15 days before", purchase_value: 42, ip: "United States" },
+    feats: { did_uid_1h: 2, did_other_uid_all: 1 },
+    why: "Two different accounts on one device inside an hour. The January bot attack used 760 devices with 10 accounts each; a bot that waits past the 60-second rule still trips this one." },
+  { tab: "Sanctioned country", d: "deny", rule: "ip_country_block", score: "not run",
+    req: { user_id: "u-ofac", device_id: "d-ofac", signup: "45 days before", purchase_value: 42, ip: "resolves to Cuba" },
+    feats: { ip_country: "Cuba" },
+    why: "A compliance rule, not a fraud score. It is not tuned on cost and it runs before the model." },
+  { tab: "Device returns, new account", d: "review", rule: "model_score_review", score: "0.85",
+    req: { user_id: "u-new", device_id: "d-return (used by u-old 120 days ago)", signup: "25 days before", purchase_value: 42, ip: "United States" },
+    feats: { did_uid_90d: 1, did_other_uid_all: 1, did_txn_cnt_all: 1 },
+    why: "The 90-day counters have forgotten the device. The all-time feature has not: one other account used it. Such devices were 5% of traffic and 23% fraud. Too risky to approve, not risky enough to decline, so the caller is asked to step up." },
+  { tab: "Loyal customer", d: "allow", rule: "none", score: "0.35",
+    req: { user_id: "u-loyal", device_id: "d-loyal (own device, 3rd purchase)", signup: "200 days before", purchase_value: 42, ip: "United States" },
+    feats: { did_txn_cnt_all: 2, did_other_uid_all: 0 },
+    why: "The device has history but no other account has used it. The first version of the feature counted purchases and sent this customer to review at a score of 0.81." },
+  { tab: "Retry, same key", d: "allow", rule: "served from cache", score: "not re-run",
+    req: { "Idempotency-Key": "demo-normal (sent twice)", user_id: "u-normal", device_id: "d-normal", purchase_value: 42 },
+    feats: { transaction_id: "same as the first response", audit_rows_written: 1 },
+    why: "The key is claimed in Redis before processing. A retry after a timeout gets the stored answer: no second audit row, no double-counted velocity." },
+];
+function showStory(i) {
+  const s = STORIES[i];
+  [...$("story-tabs").children].forEach((b, j) => b.setAttribute("aria-selected", j === i));
+  const req = Object.entries(s.req).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(",\n");
+  $("story").innerHTML =
+    `<div><span class="eyebrow">Request</span><pre class="req">POST /api/transactions\n{\n${esc(req)}\n}</pre></div>
+     <div><span class="eyebrow">Decision</span>
+       <div><span class="pill ${s.d}">${s.d}</span></div>
+       <dl class="kv"><dt>decision_rule</dt><dd>${esc(s.rule)}</dd><dt>model_score</dt><dd>${esc(s.score)}</dd>
+       ${Object.entries(s.feats).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+       <p style="font-size:.94rem">${esc(s.why)}</p></div>`;
+}
+$("story-tabs").innerHTML = STORIES.map((s, i) => `<button type="button" role="tab" id="story-tab-${i}">${esc(s.tab)}</button>`).join("");
+[...$("story-tabs").children].forEach((b, i) => b.addEventListener("click", () => showStory(i)));
+showStory(4);
+
+/* ---------- rolling-origin chart ---------- */
+const MODELS = [["xgboost", "XGBoost", "--s1"], ["lightgbm", "LightGBM", "--s2"], ["catboost", "CatBoost", "--s3"], ["random_forest", "Random forest", "--s4"]];
+let rollKey = "rolling_after";
+function drawRoll() {
+  const R = D[rollKey], F = R.folds, W = 720, H = 300, m = { l: 44, r: 16, t: 12, b: 34 };
+  const yMax = 0.18, x = i => m.l + i * (W - m.l - m.r) / (F.length - 1), y = v => H - m.b - v / yMax * (H - m.t - m.b);
+  let g = "";
+  for (let v = 0; v <= yMax + 1e-9; v += 0.03) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--ink-3)">${v.toFixed(2)}</text>`;
+  F.forEach((f, i) => g += `<text x="${x(i)}" y="${H - 12}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${f.scored}</text>`);
+  g += `<polyline fill="none" stroke="var(--base)" stroke-width="1.5" stroke-dasharray="5 4" points="${F.map((f, i) => `${x(i)},${y(f.base_rate)}`).join(" ")}"/>`;
+  MODELS.forEach(([k, , c]) => {
+    g += `<polyline fill="none" stroke="var(${c})" stroke-width="2" stroke-linejoin="round" points="${F.map((f, i) => `${x(i)},${y(f[k])}`).join(" ")}"/>`;
+    F.forEach((f, i) => g += `<circle cx="${x(i)}" cy="${y(f[k])}" r="3.5" fill="var(${c})" stroke="var(--surface)" stroke-width="1.5"/>`);
+  });
+  g += `<line id="cross" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-3)" stroke-width="1" visibility="hidden"/>`;
+  const c = $("roll-chart");
+  c.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="PR-AUC by scored month for four models">${g}</svg><div class="tip" hidden></div>`;
+  const svg = c.querySelector("svg"), tip = c.querySelector(".tip"), cross = svg.querySelector("#cross");
+  const move = e => {
+    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W;
+    const i = Math.max(0, Math.min(F.length - 1, Math.round((px - m.l) / ((W - m.l - m.r) / (F.length - 1)))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+    const rows = MODELS.map(([k, n, col]) => [F[i][k], `<i style="background:var(${col})"></i>${n} <b>${F[i][k].toFixed(3)}</b>`]).sort((a, b) => b[0] - a[0]).map(r => r[1]);
+    tip.innerHTML = `<b>Scored ${F[i].scored}</b><br>${rows.join("<br>")}<br>random guessing ${F[i].base_rate.toFixed(3)}`;
+    tip.hidden = false;
+    const left = x(i) / W * r.width;
+    tip.style.left = Math.min(Math.max(left + 12, 0), r.width - tip.offsetWidth - 4) + "px"; tip.style.top = "8px";
+    if (left + 12 + tip.offsetWidth > r.width) tip.style.left = Math.max(left - tip.offsetWidth - 12, 0) + "px";
+  };
+  svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move);
+  svg.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); });
+  $("roll-legend").innerHTML = MODELS.map(([k, n, col]) => `<span><i style="background:var(${col})"></i>${n} <span class="num">(mean ${R.summary[k].mean_pr_auc.toFixed(3)})</span></span>`).join("") + `<span><i style="background:var(--base)"></i>random guessing (fraud rate)</span>`;
+  const s = R.summary, spread = Math.max(...MODELS.slice(0, 3).map(([k]) => s[k].mean_pr_auc)) - Math.min(...MODELS.slice(0, 3).map(([k]) => s[k].mean_pr_auc));
+  $("roll-note").textContent = rollKey === "rolling_after"
+    ? `With the device-history feature: the three boosters are within ${spread.toFixed(3)} of each other on average, and all sit about 0.03 above where they were. The gain grows through the year because device history accumulates.`
+    : `Before the feature: the three boosters are within ${spread.toFixed(3)} of each other on average (paired difference vs XGBoost: −0.001, interval −0.005 to +0.002). No algorithm change moved the number.`;
+  $("roll-table").innerHTML = `<table><thead><tr><th>Scored</th>${MODELS.map(m => `<th>${m[1]}</th>`).join("")}<th>Fraud rate</th></tr></thead><tbody>${F.map(f => `<tr><td>${f.scored}</td>${MODELS.map(([k]) => `<td>${f[k].toFixed(3)}</td>`).join("")}<td>${f.base_rate.toFixed(3)}</td></tr>`).join("")}</tbody></table>`;
+  $("seg-before").setAttribute("aria-pressed", rollKey === "rolling_before");
+  $("seg-after").setAttribute("aria-pressed", rollKey === "rolling_after");
+}
+$("seg-before").addEventListener("click", () => { rollKey = "rolling_before"; drawRoll(); });
+$("seg-after").addEventListener("click", () => { rollKey = "rolling_after"; drawRoll(); });
+drawRoll();
+
+(function () {
+  const c = D.ablation.coverage, a = D.ablation.summary["+did_other_uid_all"], b = D.ablation.summary.baseline;
+  $("cov").innerHTML = `<b>${pct(c.share_of_scored_rows_on_a_seen_device)}</b> of orders come from such a device, and <b>${pct(c.fraud_rate_seen_device)}</b> of those are fraud, against ${pct(c.fraud_rate_new_device)} elsewhere.`;
+  $("abl").innerHTML = `Mean PR-AUC over seven folds: <b class="num">${b.mean_pr_auc.toFixed(3)} → ${a.mean_pr_auc.toFixed(3)}</b>. Difference <b class="num">+${a.vs_baseline.mean_diff.toFixed(3)}</b>, 95% interval <span class="num">+${a.vs_baseline.ci95[0].toFixed(3)} to +${a.vs_baseline.ci95[1].toFixed(3)}</span>. Both models are scored on the same resampled orders, so shared noise cancels.`;
+})();
+
+/* ---------- cost console ---------- */
+function pick(c, fd, rc, cr) {
+  const v = c.validation, k = v.n.length, tot = D.validation.fraud_value;
+  const rp = new Float64Array(k), dp = new Float64Array(k);
+  for (let i = 0; i < k; i++) { rp[i] = -cr * v.fraud_value[i] + rc * v.n[i]; dp[i] = -(1 - cr) * v.fraud_value[i] + fd * v.legit[i] - rc * v.n[i]; }
+  let best = Infinity;
+  for (let d = 0; d < k; d++) for (let r = 0; r <= d; r++) { const x = tot + rp[r] + dp[d]; if (x < best) best = x; }
+  const lim = best * 1.01 + 1e-9; let R = 0, Dn = 0, key = null;
+  for (let d = 0; d < k; d++) for (let r = 0; r <= d; r++) {
+    const x = tot + rp[r] + dp[d]; if (x > lim) continue;
+    const kk = [v.n[r], v.n[d], x];
+    if (!key || kk[0] < key[0] || (kk[0] === key[0] && (kk[1] < key[1] || (kk[1] === key[1] && kk[2] < key[2])))) { key = kk; R = r; Dn = d; }
+  }
+  const t = c.test;
+  return { reviewT: c.thresholds[R], denyT: c.thresholds[Dn], reviewed: t.n[R] - t.n[Dn], denied: t.n[Dn],
+    fraudReviewed: t.fraud[R] - t.fraud[Dn], fraudDenied: t.fraud[Dn], legitReviewed: t.legit[R] - t.legit[Dn], falseDeclines: t.legit[Dn],
+    cost: D.test.fraud_value - t.fraud_value[R] + (1 - cr) * (t.fraud_value[R] - t.fraud_value[Dn]) + fd * t.legit[Dn] + rc * (t.n[R] - t.n[Dn]) };
+}
+function describe(p) {
+  const n = D.test.orders, parts = [];
+  if (p.reviewed) parts.push(`reviews ${pct(p.reviewed / n)} of orders (${fmt(p.fraudReviewed)} frauds, ${fmt(p.legitReviewed)} good customers)`);
+  if (p.denied) parts.push(`declines ${pct(p.denied / n, p.denied / n < 0.001 ? 2 : 1)} (${fmt(p.fraudDenied)} frauds, ${fmt(p.falseDeclines)} good customers)`);
+  return parts.length ? parts.join("; ") : "does nothing: no action pays for itself";
+}
+function drawCost() {
+  const fd = +$("k-fd").value, rc = +$("k-rc").value, cr = +$("k-cr").value / 100;
+  $("o-fd").textContent = "$" + fd; $("o-rc").textContent = "$" + rc.toFixed(2); $("o-cr").textContent = Math.round(cr * 100) + "%";
+  const avg = D.test.avg_fraud_value, nothing = D.test.fraud_value;
+  $("breakeven").textContent = `Average fraud is $${avg.toFixed(0)}. A decline pays above ${pct(fd / (fd + avg), 0)} precision; a review pays above ${pct(Math.min(1, rc / (cr * avg)), 0)}. The new feature's catches sit near 23%.`;
+  const rows = [["Do nothing", null, nothing, "", "every fraud gets through"]];
+  if (D.cost_curves.previous) { const p = pick(D.cost_curves.previous, fd, rc, cr); rows.push(["Previous model (41 features)", p, p.cost, "", describe(p)]); }
+  const s = pick(D.cost_curves.served, fd, rc, cr); rows.push(["Served model (42 features)", s, s.cost, "served", describe(s)]);
+  $("bars").innerHTML = rows.map(([lab, , cost, cls, sub]) =>
+    `<div class="bar-row"><div class="lab"><span>${lab}</span><b class="num">${usd(cost)}</b></div><div class="track"><div class="fill ${cls}" style="width:${(100 * cost / nothing).toFixed(1)}%"></div></div><div class="sub">${sub}</div></div>`).join("");
+  const prev = rows.length === 3 ? rows[1][2] : nothing, save = prev - s.cost;
+  $("verdict").innerHTML = save > 0.005 * nothing
+    ? `At these costs the served model is <b>${usd(save)} cheaper</b> than the previous model over the test period (${pct(save / prev)}), and ${usd(nothing - s.cost)} cheaper than doing nothing.`
+    : `At these costs the two models cost about the same (${usd(Math.abs(save))} apart). The better ranking only turns into money when some action is cheap enough for 23%-precision catches.`;
+}
+["k-fd", "k-rc", "k-cr"].forEach(id => $(id).addEventListener("input", drawCost));
+drawCost();
+
+/* ---------- live snapshot ---------- */
+(function () {
+  const mix = [["allow", 10974, "--allow"], ["review", 300, "--review"], ["deny", 696, "--deny"]], tot = mix.reduce((a, m) => a + m[1], 0);
+  $("mix").innerHTML = mix.map(([n, v, c]) => `<span title="${n}: ${fmt(v)}" style="background:var(${c});flex:${v}"></span>`).join("");
+  $("mix").setAttribute("aria-label", mix.map(([n, v]) => `${n} ${pct(v / tot)}`).join(", "));
+  $("mix-text").innerHTML = mix.map(([n, v]) => `<span class="pill ${n}">${n}</span> ${fmt(v)} (${pct(v / tot)})`).join(" &nbsp; ") + `<br>Of the declines, 646 were the signup-burst rule, 48 the country rule and 2 the shared-device rule: the model itself declined nothing.`;
+})();
+</script>

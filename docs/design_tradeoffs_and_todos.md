@@ -971,11 +971,11 @@ trees): test PR-AUC 0.141 [0.125, 0.160] vs served 0.092 [0.081, 0.107]; paired 
 +0.049 [+0.040, +0.059]; ROC-AUC 0.641 vs 0.557. Ship gate passed.
 
 **Decision 3, not shipping yet.** At the current costs (false decline $10, average fraud
-$37, break-even precision 27%) the new model's validation-chosen threshold declines 6.2% of
+$37, break-even precision for a decline 21% = $10 / ($10 + $37)) the new model's validation-chosen threshold declines 6.2% of
 traffic instead of 1.2%, catching 435 frauds instead of 106 with 1,438 false declines
 instead of 259, for the same total cost ($49.7k both). The newly found fraud sits in a band
-of about 23% precision: profitable for a $5 review or step-up (total cost $42.1k vs $49.4k),
-not for a decline. Shipping it behind allow/deny would quintuple declines for nothing.
+of about 23% precision, barely above that break-even: clearly profitable for a $5 review or
+step-up (break-even 13.5%; total cost $42.1k vs $49.4k), next to worthless for a decline. Shipping it behind allow/deny would quintuple declines for nothing.
 Served model unchanged: `xgboost-20261109211048-5ba3793`. The serving code for the feature
 is merged and safe: the API computes and stores the value, the served model ignores it.
 
@@ -996,9 +996,10 @@ describe what is deployed.
 
 ## Third decision `review` between allow and deny (2026-11-15)
 
-**Problem:** the better model's extra catches sit at about 23% precision. A decline pays
-only above 27% ($10 per wrongly declined order / $37 average fraud), so behind allow/deny
-the model was worth nothing (previous section). Fraud teams handle this band with a cheaper
+**Problem:** the better model's extra catches sit at about 23% precision. A decline breaks
+even at 21% ($10 / ($10 + $37 average fraud)), so each of those declines earns under a
+dollar and behind allow/deny the model was worth nothing extra (previous section). A $5
+review breaks even at 13.5% ($5 / $37). Fraud teams handle this band with a cheaper
 action than a decline.
 
 **Decision:** `fraud_decision` is now `allow`, `review` or `deny`. `review` means "do not
