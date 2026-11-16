@@ -38,6 +38,7 @@ from app.decisions.models import COUNTRY_ONEHOT
 from app.decisions.rules import SIGNUP_BURST_SECONDS
 from training.build_features import (
     ROOT,
+    amount_vs_user_avg,
     build_feature_frame,
     load_transactions,
     spend_spike_features,
@@ -77,8 +78,8 @@ DATASETS = {
 
 def add_derived(v: pd.DataFrame, purchase_value: pd.Series) -> pd.DataFrame:
     """The two derived velocity features from build_feature_frame()."""
-    user_avg_30d = v["purchase_amt_30d"] / v["purchase_cnt_30d"].clip(lower=1)
-    v["amount_vs_user_avg_30d"] = purchase_value / user_avg_30d.clip(lower=1)
+    v["amount_vs_user_avg_30d"] = amount_vs_user_avg(
+        purchase_value, v["purchase_amt_30d"], v["purchase_cnt_30d"])
     v["high_amount_vs_hist"] = (
         (v["pur_median_amt_90d"] > 0) & (purchase_value > 2 * v["pur_median_amt_90d"])
     ).astype(int)

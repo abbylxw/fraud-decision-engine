@@ -193,7 +193,8 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         FEATURE_FALLBACK.labels(source="purchase_history").inc()
         purchase = await _purchase_counts_from_db(t.user_id, db, as_of=ct)
 
-    last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else 0.0
+    # -1 = no earlier purchase by this user (0 would also mean "again this very second").
+    last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else -1.0
 
     # All-time device history: transactions ever (did_txn_cnt_all) and OTHER accounts ever
     # (did_other_uid_all, the buyer excluded: a loyal customer on their own device is 0).
@@ -216,8 +217,14 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
 
     # --- Derived features ---
     days_since_signup = get_days_since_signup(t)
-    _user_avg_30d = purchase['amt_30d'] / max(purchase['cnt_30d'], 1)
-    amount_vs_user_avg_30d = t.purchase_value / max(_user_avg_30d, 1.0)
+    # This purchase against the user's own 30-day average; 1.0 ("their usual") when they
+    # have no purchase in the window. Same definition as
+    # training/build_features.py::amount_vs_user_avg (it used to equal the purchase amount
+    # for first-time buyers; docs/feature_audit.md).
+    if purchase['cnt_30d'] > 0:
+        amount_vs_user_avg_30d = t.purchase_value / max(purchase['amt_30d'] / purchase['cnt_30d'], 1.0)
+    else:
+        amount_vs_user_avg_30d = 1.0
     high_amount_vs_hist = int(
         purchase['median_amt_90d'] > 0 and
         t.purchase_value > 2 * purchase['median_amt_90d']

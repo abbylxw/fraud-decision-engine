@@ -197,6 +197,25 @@ def test_all_time_device_features_use_only_earlier_rows():
     assert (full[:, 0] == df.groupby("device_id").cumcount().to_numpy()[:half]).all()
 
 
+def test_user_history_features_on_repeat_users():
+    """The synthetic data has repeat users, so these two features take real values here
+    (on Fraud_Data they are constant and the parity test would compare constants)."""
+    df = synthetic_transactions()
+    X = build_feature_frame(df)
+    first = ~df["user_id"].duplicated().to_numpy()
+    assert (X.loc[first, "amount_vs_user_avg_30d"] == 1.0).all()
+    assert (X.loc[first, "time_since_last_txn_uid"] == -1.0).all()
+    assert (X.loc[~first, "time_since_last_txn_uid"] >= 0).all()
+    has_recent = (X["purchase_cnt_30d"] > 0).to_numpy()
+    assert has_recent.sum() > 100
+    expected = df.loc[has_recent, "purchase_value"] / (
+        X.loc[has_recent, "purchase_amt_30d"] / X.loc[has_recent, "purchase_cnt_30d"]).clip(lower=1)
+    assert np.allclose(X.loc[has_recent, "amount_vs_user_avg_30d"], expected)
+    assert (X.loc[~has_recent, "amount_vs_user_avg_30d"] == 1.0).all()
+    # The old definition: equal to the purchase amount when there is no history.
+    assert not (X.loc[first, "amount_vs_user_avg_30d"] == df.loc[first, "purchase_value"]).all()
+
+
 def test_other_accounts_excludes_the_buyer():
     """The synthetic data has repeat users (unlike Fraud_Data), so the two features differ:
     other accounts <= earlier transactions, strictly fewer when the buyer has been on the

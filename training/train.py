@@ -90,7 +90,18 @@ CANDIDATE_FEATURES = [
     "country_txn_count_24h", "country_txn_count_7d", "country_txn_count_30d",
     "amount_vs_user_avg_30d", "age_account_gap", "high_amount_vs_hist", "age_group",
 ]
-DROP_ALWAYS = {"month_of_year": "test months never appear in training; memorises January"}
+# Computed, stored and available to rules, but never model inputs. The reason is written
+# into model_meta.json ("dropped_features"). Feature audit: docs/feature_audit.md.
+_COUNTS_OWN_PURCHASES = ("counts every earlier purchase on the device, the buyer's own included; "
+                         "on Fraud_Data it equals did_uid_<window> - 1, on repeat customers it "
+                         "flags loyalty as risk (same flaw as did_txn_cnt_all)")
+_RAW_VOLUME = ("raw traffic-volume counter: its scale is the request rate, not anything about "
+               "this purchase (30d mean 1,719 in March, 3,433 in June; PSI 5.8 on a short replay)")
+DROP_ALWAYS = {
+    "month_of_year": "test months never appear in training; memorises January",
+    **{f"did_txn_cnt_{w}": _COUNTS_OWN_PURCHASES for w in ("2h", "24h", "7d", "30d")},
+    **{f"country_txn_count_{w}": _RAW_VOLUME for w in ("24h", "7d", "30d")},
+}
 
 # The soft rate-limiter rules combine "elevated model score" with a velocity signal.
 # "Elevated" is defined on this model's own score scale as the riskiest 3% of validation

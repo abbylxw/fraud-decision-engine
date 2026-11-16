@@ -51,4 +51,4 @@ class TestSparkov:
         # Card 111: first purchase sees no history, second sees the first ($10).
         assert v["purchase_cnt_24h"].tolist() == [0, 1, 0]
         assert v["purchase_amt_24h"].tolist() == [0, 10.0, 0]
-        assert v["time_since_last_txn_uid"].tolist() == [0, 1800, 0]
+        assert v["time_since_last_txn_uid"].tolist() == [-1, 1800, -1]   # -1 = no history

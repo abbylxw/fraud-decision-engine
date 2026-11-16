@@ -22,12 +22,15 @@ from collections.abc import Sequence
 
 # Model inputs worth watching: the ones the model leans on (model_meta.json top_features)
 # plus two request fields whose distribution says "the traffic itself changed".
-# country_txn_count_30d and amount_vs_user_avg_30d were added after the first live run: the
-# score drifted (PSI 0.63) while none of the first six inputs did, and these two turned out
-# to be the cause. A score alert that cannot name its cause is half an alert.
-MONITORED_FEATURES = ("did_other_uid_all", "did_uid_90d", "did_uid_30d",
-                      "purchase_value", "days_since_signup", "age_account_gap",
-                      "country_txn_count_30d", "amount_vs_user_avg_30d")
+# Only features that are inputs of the served model get a reference (train.py filters this
+# list). History: on the first live run the score drifted (PSI 0.63) while none of the
+# monitored inputs did; the cause was two unmonitored inputs, country_txn_count_30d and
+# amount_vs_user_avg_30d. Both were flawed and are no longer model inputs
+# (docs/feature_audit.md), but the lesson stands: monitor every kind of input the model
+# has, not only the ones that look important.
+MONITORED_FEATURES = ("did_other_uid_all", "did_uid_90d", "did_uid_30d", "ip_uid_7d",
+                      "purchase_value", "days_since_signup", "age_account_gap", "hour_of_day",
+                      "amount_vs_user_avg_30d")
 SCORE_BUCKETS = 10      # deciles of the validation score: each expected share is ~10%
 FEATURE_BUCKETS = 5     # quintiles, before small buckets are merged
 MIN_SHARE = 0.01        # a bucket expected to hold < 1% of traffic makes PSI jumpy: merge it

@@ -283,6 +283,32 @@ class TestDeviceAllTimeHistory:
         assert (f.did_txn_cnt_all, f.did_other_uid_all) == (1, 1)
 
 
+class TestUserHistoryFeatures:
+    """Features that compare a purchase with the SAME user's past. Fraud_Data has no repeat
+    users, so these were wrong for months without any metric noticing
+    (docs/feature_audit.md)."""
+
+    async def test_first_purchase_has_neutral_ratio_and_no_last_purchase(self, redis):
+        f = await build_features(_txn(purchase_value=250.0), _mock_db(), redis)
+        # Not 250.0: with no history the ratio is "their usual", not the amount itself.
+        assert f.amount_vs_user_avg_30d == 1.0
+        assert f.time_since_last_txn_uid == -1.0
+
+    async def test_ratio_is_this_purchase_over_the_users_own_average(self, redis):
+        for i, (days, amount) in enumerate(((10, 20.0), (5, 60.0))):
+            earlier = _txn(purchase_time=PURCHASE_TIME - timedelta(days=days), purchase_value=amount)
+            await _record(redis, earlier, f"t{i}")
+        f = await build_features(_txn(purchase_value=120.0), _mock_db(), redis)
+        assert f.purchase_cnt_30d == 2
+        assert f.amount_vs_user_avg_30d == 3.0          # 120 / mean(20, 60)
+        assert f.time_since_last_txn_uid == 5 * 86400.0
+
+    async def test_same_second_repeat_is_zero_not_minus_one(self, redis):
+        await _record(redis, _txn(), "t0")
+        f = await build_features(_txn(), _mock_db(), redis)
+        assert f.time_since_last_txn_uid == 0.0
+
+
 class TestDeviceManyUsers1hRedisPath:
     """device_many_users_1h on real build_features() output (fakeredis), not hand-set values."""
 

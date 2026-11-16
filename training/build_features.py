@@ -138,7 +138,9 @@ def velocity_features(df: pd.DataFrame) -> pd.DataFrame:
 
         for w in ["5min", "10min", "1h", "2h", "24h", "7d", "30d"]:
             f[f"did_txn_cnt_{w}"] = _count_since(did_txn_t[did], ts - WINDOWS[w])
-        f["time_since_last_txn_uid"] = ts - uid_last_ts.get(uid, ts)
+        # -1 = this user has no earlier purchase. (It used to be 0, which also means
+        # "bought again this very second"; one value for two opposite situations.)
+        f["time_since_last_txn_uid"] = ts - uid_last_ts[uid] if uid in uid_last_ts else -1.0
         # All-time device history (no window): every earlier transaction on this device,
         # whoever the user was. did_txn_t is never purged in this replay, so it holds the
         # device's full history. -1 = the device has never been seen before.
@@ -226,6 +228,19 @@ def spend_spike_features(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def amount_vs_user_avg(purchase_value, amt_30d, cnt_30d):
+    """This purchase divided by the user's own average purchase over the last 30 days.
+    1.0 ("exactly their usual") when the user has no purchase in that window.
+
+    Until 2026-11-15 a missing average was taken as 1, which made the feature EQUAL to the
+    purchase amount for every first-time buyer. On Fraud_Data that is every row, so the
+    model learned it as a second amount column and read a repeat customer's ratio of ~1 as
+    "a one-dollar purchase" (found by the score-drift alert; docs/feature_audit.md).
+    Same expression as app/decisions/features/__init__.py; the parity test compares them."""
+    avg = (amt_30d / cnt_30d.clip(lower=1)).clip(lower=1)
+    return (purchase_value / avg).where(cnt_30d > 0, 1.0)
+
+
 def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     """All features, encoded exactly the way the live API encodes them.
     Columns are a superset of SERVED_FEATURES; select with X[SERVED_FEATURES]."""
@@ -250,8 +265,8 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     X = pd.concat([raw, onehot, velocity_features(df)], axis=1)
 
     # Derived features (notebook cell 11)
-    user_avg_30d = X["purchase_amt_30d"] / X["purchase_cnt_30d"].clip(lower=1)
-    X["amount_vs_user_avg_30d"] = X["purchase_value"] / user_avg_30d.clip(lower=1)
+    X["amount_vs_user_avg_30d"] = amount_vs_user_avg(
+        X["purchase_value"], X["purchase_amt_30d"], X["purchase_cnt_30d"])
     X["high_amount_vs_hist"] = (
         (X["pur_median_amt_90d"] > 0) & (X["purchase_value"] > 2 * X["pur_median_amt_90d"])
     ).astype(int)

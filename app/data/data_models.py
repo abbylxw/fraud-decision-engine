@@ -101,7 +101,7 @@ class Features(Transaction):
     amount_vs_user_avg_30d:   float = 1.0
     age_account_gap:          float = 0.0
     high_amount_vs_hist:      int   = 0
-    time_since_last_txn_uid:  float = 0.0
+    time_since_last_txn_uid:  float = -1.0   # -1 = no earlier purchase by this user
     country_txn_count_24h:   int = 0
     country_txn_count_7d:    int = 0
     country_txn_count_30d:   int = 0
