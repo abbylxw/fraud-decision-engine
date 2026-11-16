@@ -212,6 +212,33 @@ devices. A drop to zero: the all-time device history is not being read.
 Normal for a moment during a rolling deploy. Longer means a worker or container did not
 restart, and two requests for the same purchase can get different decisions.
 
+### What the first live run showed (2026-11-15)
+
+Two real findings in the first hour, both from a "normal" replay on the local stack:
+
+1. **The score-drift alert went pending at PSI 0.62, and none of the six monitored inputs
+   had moved.** The alert was right and could not say why. The cause was two inputs that
+   were not monitored: `country_txn_count_30d` (30 on average live, 3,395 at training time)
+   and `amount_vs_user_avg_30d` (1.04 live, 37 at training). Both were added to the
+   monitored list; the feature-drift panel now shows them at PSI 5.8 and 7.5 next to the
+   score. Lesson: monitor every input the model weights, not the ones that seem important.
+2. **Why those two differ is itself a finding.** The local database is full of replayed
+   traffic, so customers there have purchase history; in Fraud_Data nobody does.
+   `amount_vs_user_avg_30d` divides the purchase by the customer's own average, and for a
+   first-time customer that average is taken as 1, so on the training data the feature *is*
+   the purchase amount. The model learned it as a second amount column, and reads a loyal
+   customer's ratio of about 1 as "a one-dollar purchase". This is the same class of flaw
+   as `did_txn_cnt_all` (docs/feature_ablation.md §8): right on one-purchase-per-user data,
+   wrong on real traffic. It is not fixed yet (it needs a feature change on both the
+   training and serving side and a retrain); it is recorded as the next model fix.
+
+On data the model has not been polluted by, the picture is calm: computed offline on the
+untouched test months, score PSI is 0.03 in September, October and November. One input does
+drift there, `days_since_signup` (PSI 0.36 rising to 5.2), because in this dataset all
+signups happen before September, so accounts only get older. The score does not follow.
+That is the "input drifts, score steady" case in the runbook, and a reminder that feature
+drift is a prompt to look, not a verdict.
+
 ## 4. Routing
 
 Alertmanager groups alerts by name, waits 30 seconds to batch related ones, and repeats a

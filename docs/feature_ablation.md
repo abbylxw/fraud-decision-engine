@@ -1,7 +1,7 @@
 # Feature study: all-time device history (`did_other_uid_all`, first built as `did_txn_cnt_all`)
 
-Date: 2026-11-15. Status: **shipped** as `xgboost-20261115162923-3b6394a` with a `review`
-decision band. Read in order: sections 1 to 6 are the study as first written (the feature is
+Date: 2026-11-15. Status: **shipped** (currently `xgboost-20261115170732-a5e527a`, with the
+monotone constraint of section 8) with a `review` decision band. Read in order: sections 1 to 6 are the study as first written (the feature is
 called `did_txn_cnt_all` there and the conclusion is "do not ship behind allow/deny");
 section 7 adds the review band that made it worth shipping; section 8 is the flaw found by
 live testing the day it shipped, and the corrected feature that is served now.
@@ -298,10 +298,26 @@ never lower the score (`monotone_constraints`); measured:
 Paired on test: PR-AUC −0.006 [−0.010, −0.001] for the constraint, cost difference
 [−$605, +$200] (no difference). Only 9 test rows have four or more other accounts, and 3 of
 them are fraud. So the constraint costs a little ranking quality on this data, costs no
-money, and closes a hole the data barely tests. It was **not shipped** because the standing
-rule for an automatic re-ship was "numbers within noise of the approved model" and PR-AUC is
-the project's selection metric; it is an open decision, and the argument for it is that the
-loss is an artefact of one bot attack in the training window.
+money, and closes a hole the data barely tests. It was first left out because the standing
+rule for an automatic re-ship was "numbers within noise of the approved model"; Xiaowan
+then approved it and it **is shipped**: `monotone_constraints` on `did_other_uid_all`,
+test PR-AUC 0.136 [0.121, 0.153], review ≥ 0.762 (6.4% of orders, 448 frauds, 1,495
+legitimate), policy cost **$44,554**. A device with six other accounts spread over months
+now scores 0.83 and is reviewed (`scripts/demo.py`, story 7), and
+`tests/test_served_model.py` checks that the served score never falls as the count rises.
+LightGBM and CatBoost stay unconstrained comparison candidates; over the rolling folds they
+are within noise of the constrained XGBoost (−0.002 [−0.005, +0.002] and
+−0.001 [−0.004, +0.003]).
+
+**A model that trained but could not be served.** The first constrained model was shipped
+with the constraint as a `{feature: direction}` dictionary. It trained, scored and passed
+both gates. The API then failed to score with it: on load it sets `n_jobs=1`, and XGBoost
+rejects the dictionary form when parameters are re-applied to a loaded model. The local
+stack had not been rebuilt, so nothing live broke, but the file in the repository was
+unusable and all 192 tests passed, because every test replaced the model with a mock. Fixes:
+the constraint is converted to one number per column before fitting; `--ship` now saves to
+a temporary file, reloads it the way the API does, and requires identical scores before
+replacing the served model; and four tests score through the real `model.joblib`.
 
 **What this section is worth as a lesson.** The offline numbers were right and the feature
 was still wrong, because the dataset could not express the case that broke it. It was found

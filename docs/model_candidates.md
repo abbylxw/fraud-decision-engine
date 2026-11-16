@@ -9,7 +9,9 @@ accuracy.
 > **Update 2026-11-15.** Sections 3 to 6 describe the comparison on the 41 served features.
 > A later feature study added one feature (other accounts ever seen on the device, served as
 > `did_other_uid_all`) and all four algorithms rose together from about 0.09 to about 0.14
-> test PR-AUC (see [feature_ablation.md](feature_ablation.md)). That model is the one served. The hyper-parameters now in
+> test PR-AUC (see [feature_ablation.md](feature_ablation.md)). That model is the one served,
+> with one addition: XGBoost is constrained so its score never falls as that count rises
+> (0.136 on test). LightGBM and CatBoost are compared unconstrained. The hyper-parameters now in
 > `train.make_candidates` were re-tuned with that feature, so they differ from the ones in
 > the section 4 table; the conclusions here are unchanged and, if anything, stronger.
 

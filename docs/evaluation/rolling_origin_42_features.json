@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-15T15:35:31",
+  "generated_at": "2026-11-15T17:13:21",
   "design": "expanding window; boosters early-stop on the month before the scored period, by scikit-learn average precision; hyper-parameters fixed (train.make_candidates); bot rows removed",
   "n_boot": 1000,
   "folds": [
@@ -26,13 +26,13 @@
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.0723,
+          "pr_auc": 0.0726,
           "ci95": [
-            0.0619,
-            0.086
+            0.0622,
+            0.0856
           ],
-          "lift": 1.52,
-          "trees": 120,
+          "lift": 1.53,
+          "trees": 90,
           "rank": 2
         },
         "lightgbm": {
@@ -77,17 +77,17 @@
           ],
           "lift": 2.26,
           "trees": null,
-          "rank": 4
+          "rank": 3
         },
         "xgboost": {
-          "pr_auc": 0.1023,
+          "pr_auc": 0.1006,
           "ci95": [
-            0.0879,
-            0.1209
+            0.0858,
+            0.1206
           ],
-          "lift": 2.3,
-          "trees": 30,
-          "rank": 2
+          "lift": 2.26,
+          "trees": 20,
+          "rank": 4
         },
         "lightgbm": {
           "pr_auc": 0.1008,
@@ -97,7 +97,7 @@
           ],
           "lift": 2.26,
           "trees": 27,
-          "rank": 3
+          "rank": 2
         },
         "catboost": {
           "pr_auc": 0.1024,
@@ -134,13 +134,13 @@
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1047,
+          "pr_auc": 0.1039,
           "ci95": [
-            0.0913,
-            0.1216
+            0.0896,
+            0.1211
           ],
-          "lift": 2.27,
-          "trees": 310,
+          "lift": 2.25,
+          "trees": 250,
           "rank": 2
         },
         "lightgbm": {
@@ -188,13 +188,13 @@
           "rank": 3
         },
         "xgboost": {
-          "pr_auc": 0.1379,
+          "pr_auc": 0.1294,
           "ci95": [
-            0.1178,
-            0.161
+            0.1108,
+            0.1524
           ],
-          "lift": 3.09,
-          "trees": 100,
+          "lift": 2.9,
+          "trees": 110,
           "rank": 1
         },
         "lightgbm": {
@@ -229,7 +229,7 @@
       "scored_frauds": 663,
       "base_rate": 0.0462,
       "features": 42,
-      "winner": "xgboost",
+      "winner": "catboost",
       "models": {
         "random_forest": {
           "pr_auc": 0.1307,
@@ -242,14 +242,14 @@
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1429,
+          "pr_auc": 0.1404,
           "ci95": [
-            0.121,
-            0.1706
+            0.119,
+            0.1688
           ],
-          "lift": 3.09,
-          "trees": 170,
-          "rank": 1
+          "lift": 3.04,
+          "trees": 90,
+          "rank": 2
         },
         "lightgbm": {
           "pr_auc": 0.1394,
@@ -269,7 +269,7 @@
           ],
           "lift": 3.05,
           "trees": 120,
-          "rank": 2
+          "rank": 1
         }
       }
     },
@@ -296,13 +296,13 @@
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1372,
+          "pr_auc": 0.136,
           "ci95": [
-            0.1157,
-            0.1663
+            0.1138,
+            0.1642
           ],
-          "lift": 3.05,
-          "trees": 70,
+          "lift": 3.02,
+          "trees": 60,
           "rank": 2
         },
         "lightgbm": {
@@ -350,13 +350,13 @@
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1681,
+          "pr_auc": 0.1652,
           "ci95": [
-            0.1266,
-            0.2167
+            0.1267,
+            0.2136
           ],
-          "lift": 3.56,
-          "trees": 140,
+          "lift": 3.5,
+          "trees": 180,
           "rank": 1
         },
         "lightgbm": {
@@ -386,52 +386,52 @@
     "random_forest": {
       "mean_pr_auc": 0.1145,
       "mean_lift": 2.5,
-      "mean_rank": 3.86,
+      "mean_rank": 3.71,
       "folds_won": 0
     },
     "xgboost": {
-      "mean_pr_auc": 0.1236,
-      "mean_lift": 2.7,
-      "mean_rank": 1.57,
-      "folds_won": 3
+      "mean_pr_auc": 0.1212,
+      "mean_lift": 2.64,
+      "mean_rank": 2.0,
+      "folds_won": 2
     },
     "lightgbm": {
       "mean_pr_auc": 0.1188,
       "mean_lift": 2.59,
-      "mean_rank": 2.57,
+      "mean_rank": 2.43,
       "folds_won": 2
     },
     "catboost": {
       "mean_pr_auc": 0.1199,
       "mean_lift": 2.61,
-      "mean_rank": 2.0,
-      "folds_won": 2
+      "mean_rank": 1.86,
+      "folds_won": 3
     }
   },
   "paired_mean_diff_vs_xgboost": {
     "random_forest": {
-      "mean_diff": -0.0088,
+      "mean_diff": -0.0063,
       "ci95": [
-        -0.0132,
-        -0.0043
+        -0.0105,
+        -0.0021
       ],
-      "share_of_resamples_challenger_ahead": 0.0
+      "share_of_resamples_challenger_ahead": 0.002
     },
     "lightgbm": {
-      "mean_diff": -0.0045,
+      "mean_diff": -0.002,
       "ci95": [
-        -0.0078,
-        -0.0011
+        -0.0054,
+        0.0016
       ],
-      "share_of_resamples_challenger_ahead": 0.004
+      "share_of_resamples_challenger_ahead": 0.148
     },
     "catboost": {
-      "mean_diff": -0.0034,
+      "mean_diff": -0.0009,
       "ci95": [
-        -0.0069,
-        0.0005
+        -0.0042,
+        0.0028
       ],
-      "share_of_resamples_challenger_ahead": 0.042
+      "share_of_resamples_challenger_ahead": 0.303
     }
   }
 }

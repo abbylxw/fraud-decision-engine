@@ -153,7 +153,7 @@ footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--lin
 </section>
 
 <section>
-  <span class="eyebrow">Seven requests, sent to the running system</span>
+  <span class="eyebrow">Eight requests, sent to the running system</span>
   <h2>What it decides, and why</h2>
   <p>These are the stories in the repo's demo script. Each one is a real request against the live stack; the decision and feature values are read back from the audit row.</p>
   <div class="tabs" role="tablist" id="story-tabs"></div>
@@ -205,24 +205,27 @@ footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--lin
 
 <section>
   <span class="eyebrow">Once it is live</span>
-  <h2>What is watched, and what is not yet</h2>
+  <h2>What is watched, what alerts, and what is not covered yet</h2>
   <div class="grid2">
-    <div class="card"><h3>A local replay, 200 requests per second</h3><div class="mix" id="mix" role="img"></div><p class="num" id="mix-text"></p><p class="num">Latency: p50 7 ms · p95 11–13 ms · p99 16–21 ms on one laptop, eight workers.</p></div>
+    <div class="card"><h3>A local replay, 200 requests per second</h3><div class="mix" id="mix" role="img"></div><p class="num" id="mix-text"></p><p class="num">Latency: p50 7 ms · p95 12 ms · p99 18 ms on one laptop, eight workers.</p></div>
     <div class="card"><h3>On the Grafana dashboard</h3><ul class="plain"><li>Decision mix: allow, review, deny over time</li><li>Decisions by rule, and shadow-rule hits</li><li>Score distribution against the two served thresholds</li><li>Share of traffic from devices other accounts have used</li><li>Latency per step: features, model, database write</li></ul></div>
-    <div class="card"><h3>Not built yet</h3><ul class="plain"><li>Drift metric on features and score, with alerts</li><li>A label endpoint, so live precision can be measured and the real review catch rate replaces the slider above</li><li>Reason codes per decision</li><li>A real-database test in CI</li></ul></div>
+    <div class="card"><h3>20 alerts, each with a runbook</h3><ul class="plain"><li>Broken: API or a dependency down, error rate, latency</li><li>Quietly wrong: Redis lost its keys, features falling back to Postgres, review rate under half of expected</li><li>World changed: signup attack, deny-rate jump, score drift and feature drift (PSI against training-time buckets)</li><li>Rules are unit-tested with promtool in CI; a drill sends a bot burst and watches the alert reach Alertmanager in under three minutes</li></ul></div>
+    <div class="card"><h3>The first thing drift monitoring caught</h3><p>On its first live replay the score-drift alert went pending at PSI 0.62. The cause was real: two inputs looked nothing like training, because this test database is full of replayed repeat customers. One of them, the ratio of a purchase to the customer's own average, equals the purchase amount for every first-time buyer, so the model had learned it as a second copy of the amount. Next in line to be fixed.</p></div>
+    <div class="card"><h3>Not covered yet</h3><ul class="plain"><li>Whether decisions are <em>right</em>: that needs labels, and there is no label endpoint yet. Drift says the inputs changed, not that the model is wrong.</li><li>A real notification channel (the config ships with empty receivers, no secrets in git)</li><li>Reason codes per decision</li><li>A real-database test in CI</li></ul></div>
   </div>
 </section>
 
 <section>
   <span class="eyebrow">Things that went wrong, and what they taught</span>
-  <h2>Five findings worth an interview question</h2>
+  <h2>Findings worth an interview question</h2>
   <div class="grid2">
     <div class="card"><h3>The offline numbers were right and the feature was wrong</h3><p>The first version counted every earlier purchase on the device. On this dataset each user buys once, so that equals "other accounts". Sent through the live system, a loyal customer's second purchase went to review. Found by a hand-made request the day it shipped; fixed by making the feature mean what the model had learned.</p></div>
     <div class="card"><h3>Early stopping that stopped at tree 1</h3><p>XGBoost's and CatBoost's built-in PR-AUC over-credit a one-tree model (0.088 where scikit-learn says 0.077). One fold kept a single tree, which made two other algorithms look significantly better. Tree counts are now picked with scikit-learn's metric.</p></div>
+    <div class="card"><h3>A model that trained but could not be served</h3><p>A constraint saved in one form trained and scored fine, then failed the moment the API adjusted a setting on the loaded model. No test used the real model file. Shipping now reloads the saved file the way the API does and compares scores first, and four tests run against the real file.</p></div>
     <div class="card"><h3>A ship gate that passed a worthless model</h3><p>The gate compared ranking quality only. A model passed it while saving no money. The gate now also requires the new policy to cost no more than the served one, with an interval on the difference.</p></div>
     <div class="card"><h3>Training and serving compute the same thing</h3><p>Counters use the purchase's own time, not the server clock, so a replay of history fills windows exactly as training did. A test replays 5,000 real rows through the API code and compares every feature.</p></div>
     <div class="card"><h3>January was a bot attack, not a pattern</h3><p>7,600 purchases within a second of signup, all fraud, all in one month. A model trained on them learns "January means fraud". They are handled by a rule and removed from training.</p></div>
-    <div class="card"><h3>Limits stated up front</h3><p>Public, simulated-looking data. Scores are not probabilities. Review cost and catch rate are assumed. The score is not monotonic in the device feature above five accounts; a constraint fixes that at a small accuracy cost and is an open decision.</p></div>
+    <div class="card"><h3>Limits stated up front</h3><p>Public, simulated-looking data. Scores are not probabilities. Review cost and catch rate are assumed. Every feature was designed on data where each customer buys once; two have already been found to mean something else on repeat customers, and the rest are owed the same check.</p></div>
   </div>
 </section>
 
@@ -242,8 +245,8 @@ const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", 
   const t = D.served_test, prev = 0.092;
   $("facts").innerHTML = [
     [t.pr_auc.toFixed(3), `test PR-AUC, up from ${prev} (random guessing: 0.046)`],
-    ["7", "decision stories verified on the live stack"],
-    ["192", "automated tests, including training/serving parity"],
+    ["8", "decision stories verified on the live stack"],
+    ["257 + 13", "automated tests, plus alert-rule tests"],
     ["~20 ms", "p99 latency at 200 requests per second"],
   ].map(([b, s]) => `<div class="fact"><b>${b}</b><span>${s}</span></div>`).join("");
   $("ver").textContent = D.model_version;
@@ -251,10 +254,10 @@ const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", 
 
 /* ---------- stories ---------- */
 const STORIES = [
-  { tab: "Normal customer", d: "allow", rule: "none", score: "0.42",
+  { tab: "Normal customer", d: "allow", rule: "none", score: "0.50",
     req: { user_id: "u-normal", device_id: "d-normal", signup: "30 days before", purchase_value: 42, ip: "United States" },
     feats: { did_uid_1h: 1, did_other_uid_all: 0, ip_country: "United States" },
-    why: "No hard rule fires and the score is below the review threshold of 0.80." },
+    why: "No hard rule fires and the score is below the review threshold of 0.76." },
   { tab: "Bot signup", d: "deny", rule: "signup_burst", score: "not run",
     req: { user_id: "u-bot", device_id: "d-bot", signup: "1 second before", purchase_value: 42, ip: "United States" },
     feats: { seconds_since_signup: 1, did_uid_1h: 1 },
@@ -267,14 +270,18 @@ const STORIES = [
     req: { user_id: "u-ofac", device_id: "d-ofac", signup: "45 days before", purchase_value: 42, ip: "resolves to Cuba" },
     feats: { ip_country: "Cuba" },
     why: "A compliance rule, not a fraud score. It is not tuned on cost and it runs before the model." },
-  { tab: "Device returns, new account", d: "review", rule: "model_score_review", score: "0.85",
+  { tab: "Device returns, new account", d: "review", rule: "model_score_review", score: "0.83",
     req: { user_id: "u-new", device_id: "d-return (used by u-old 120 days ago)", signup: "25 days before", purchase_value: 42, ip: "United States" },
     feats: { did_uid_90d: 1, did_other_uid_all: 1, did_txn_cnt_all: 1 },
     why: "The 90-day counters have forgotten the device. The all-time feature has not: one other account used it. Such devices were 5% of traffic and 23% fraud. Too risky to approve, not risky enough to decline, so the caller is asked to step up." },
-  { tab: "Loyal customer", d: "allow", rule: "none", score: "0.35",
+  { tab: "Loyal customer", d: "allow", rule: "none", score: "0.47",
     req: { user_id: "u-loyal", device_id: "d-loyal (own device, 3rd purchase)", signup: "200 days before", purchase_value: 42, ip: "United States" },
     feats: { did_txn_cnt_all: 2, did_other_uid_all: 0 },
     why: "The device has history but no other account has used it. The first version of the feature counted purchases and sent this customer to review at a score of 0.81." },
+  { tab: "Slow device farm", d: "review", rule: "model_score_review", score: "0.83",
+    req: { user_id: "u-farm-new", device_id: "d-farm (6 other accounts, 95 to 220 days ago)", signup: "20 days before", purchase_value: 42, ip: "United States" },
+    feats: { did_uid_1h: 1, did_uid_90d: 1, did_other_uid_all: 6 },
+    why: "Too slow for the one-hour rule and outside every 90-day counter. An earlier model scored five or more other accounts as low risk (0.52, allow), because in training such devices were leftovers of the January bot attack. The served model is constrained so that more other accounts can never lower the score." },
   { tab: "Retry, same key", d: "allow", rule: "served from cache", score: "not re-run",
     req: { "Idempotency-Key": "demo-normal (sent twice)", user_id: "u-normal", device_id: "d-normal", purchase_value: 42 },
     feats: { transaction_id: "same as the first response", audit_rows_written: 1 },
@@ -390,9 +397,9 @@ drawCost();
 
 /* ---------- live snapshot ---------- */
 (function () {
-  const mix = [["allow", 10974, "--allow"], ["review", 300, "--review"], ["deny", 696, "--deny"]], tot = mix.reduce((a, m) => a + m[1], 0);
+  const mix = [["allow", 5425, "--allow"], ["review", 205, "--review"], ["deny", 345, "--deny"]], tot = mix.reduce((a, m) => a + m[1], 0);
   $("mix").innerHTML = mix.map(([n, v, c]) => `<span title="${n}: ${fmt(v)}" style="background:var(${c});flex:${v}"></span>`).join("");
   $("mix").setAttribute("aria-label", mix.map(([n, v]) => `${n} ${pct(v / tot)}`).join(", "));
-  $("mix-text").innerHTML = mix.map(([n, v]) => `<span class="pill ${n}">${n}</span> ${fmt(v)} (${pct(v / tot)})`).join(" &nbsp; ") + `<br>Of the declines, 646 were the signup-burst rule, 48 the country rule and 2 the shared-device rule: the model itself declined nothing.`;
+  $("mix-text").innerHTML = mix.map(([n, v]) => `<span class="pill ${n}">${n}</span> ${fmt(v)} (${pct(v / tot)})`).join(" &nbsp; ") + `<br>Of the declines, 322 were the signup-burst rule and 23 the country rule: the model itself declined nothing.`;
 })();
 </script>

@@ -1113,6 +1113,65 @@ arrival-order, not event-time; the two all-time Redis keys never expire.
 - Backfill script for `did:txn_all:*` / `did:uids_all:*` after a Redis flush (the fallback
   does it lazily, one device at a time).
 
+## Monitoring and alerting; monotone model shipped (2026-11-15)
+
+Runbook and full description: `docs/monitoring.md`. Decisions and their reasons:
+
+**1. Prometheus rule files + Alertmanager, not Grafana-managed alerts.** Rules are plain
+files in the repository: reviewed in a diff, unit-tested with `promtool test rules` in CI
+(13 scenarios), and independent of the dashboard tool. Cost: one more container
+(Alertmanager) and alert state shown in Grafana through a query on `ALERTS` instead of
+Grafana's own alert UI.
+
+**2. Drift computed in PromQL from bucket counters, not a batch job.** Training writes
+bucket edges and expected shares for the score (deciles) and eight inputs to
+`model_meta.json`; the API counts each scored request into its buckets; a recording rule
+computes PSI over a 1-hour window. No new service, minute-level freshness, same alerting
+path as everything else. Trade-offs accepted: a handful of buckets per feature (buckets
+under 1% of traffic are merged, so rare-value shifts are invisible), only monitored
+features, no joint distributions, and a 1-hour memory. One-hot country inputs are not
+drift-monitored (the country panel shows the mix).
+
+**3. Dependency health by in-process probes** (each worker pings Postgres and Redis every
+10 s) rather than exporter sidecars. Fewer containers and it measures what matters, "can
+the API reach it". It does not give database internals (connections, replication lag,
+memory); `postgres_exporter` and `redis_exporter` are the upgrade.
+
+**4. Thresholds are stated starting points.** Each alert's level and its reasoning are in the
+runbook. Absolute where a level is meaningful everywhere (1% errors, PSI 0.10 / 0.25),
+relative to the alert's own history or to the training-time expectation where it depends on
+traffic (deny rate, fallback rate, review rate). Every ratio alert has a minimum-traffic
+guard and a `for` duration.
+
+**5. No notification channel in git.** Receivers are named and empty; the config shows where
+a Slack receiver goes. A webhook URL is a secret.
+
+**6. Monotone constraint shipped** (`xgboost-20261115170732-a5e527a`): test PR-AUC 0.136
+(−0.006), policy cost $44,554 (−$174, interval [−$592, +$193]), review ≥ 0.762. Details
+and the reasoning in `docs/feature_ablation.md` §8.
+
+**7. Incident: a model that trained but could not be served** (same section). Process
+changes that came out of it: `--ship` reloads the saved file the way the API does and
+compares scores before replacing the served model; `tests/test_served_model.py` uses the
+real model file.
+
+**8. Verified live:** all rule groups healthy in Prometheus; `scripts/alert_drill.py`
+(3 bot signups per second) took `FraudSignupBurstAttack` to pending in 45 s and firing in
+161 s, and it arrived in Alertmanager one second later; load test with the new counters and
+probes: p50 7 ms, p95 12 ms, p99 18 ms at 200 RPS, unchanged.
+
+**TODOs:**
+- **`amount_vs_user_avg_30d` is the purchase amount for every first-time customer**
+  (average taken as 1), so the model reads a repeat customer's ratio of ~1 as a $1 purchase.
+  Found by the drift alert on its first live run. Fix on both sides (ratio 1.0 when there is
+  no history), retrain, ship. Then audit the remaining inputs for the same flaw.
+- `country_txn_count_30d` differs by two orders of magnitude between a full-history replay
+  and a short one: decide whether a country volume counter belongs in the model at all.
+- Label endpoint, then live precision/recall and the measured review catch rate.
+- A real notification receiver; exporter sidecars; `scripts/demo.py` and the drill in CI
+  against a Compose stack.
+- A batch drift job over the audit table (all features, longer windows) once labels exist.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.
