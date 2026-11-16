@@ -1,0 +1,42 @@
+# Alertmanager: decides who hears about a firing alert, how alerts are grouped, and which
+# ones are muted while a bigger one is firing. UI: http://localhost:9093
+#
+# No notification channel is configured in git, on purpose: a Slack webhook or PagerDuty key
+# is a secret. The receivers below are named but empty, so alerts are grouped, routed and
+# visible in the UI and in Grafana, and nothing is sent anywhere. To send for real, fill in
+# a receiver from an untracked file or an environment-specific copy, for example:
+#
+#   receivers:
+#     - name: critical
+#       slack_configs:
+#         - api_url_file: /run/secrets/slack_webhook_url
+#           channel: "#fraud-oncall"
+#           title: '{{ .CommonAnnotations.summary }}'
+#           text: '{{ .CommonAnnotations.description }} Runbook: {{ .CommonAnnotations.runbook_url }}'
+#           send_resolved: true
+
+route:
+  receiver: warning
+  group_by: [alertname]
+  group_wait: 30s        # wait for related alerts before the first notification
+  group_interval: 5m     # at most one update per group every 5 minutes
+  repeat_interval: 4h    # remind while it keeps firing
+  routes:
+    - matchers: [severity="critical"]
+      receiver: critical
+      repeat_interval: 1h
+    - matchers: [severity="info"]
+      receiver: quiet
+
+# If the API is down, every other alert about it is noise: mute them until it is back.
+inhibit_rules:
+  - source_matchers: [alertname="FraudApiDown"]
+    target_matchers: [alertname=~"Fraud.+", alertname!="FraudApiDown"]
+  # A critical score-drift alert makes its own warning redundant.
+  - source_matchers: [alertname="FraudScoreDriftCritical"]
+    target_matchers: [alertname="FraudScoreDriftWarning"]
+
+receivers:
+  - name: critical   # act now: page the on-call person
+  - name: warning    # look today: team channel
+  - name: quiet      # context only: nowhere

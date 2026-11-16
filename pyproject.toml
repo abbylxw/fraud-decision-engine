@@ -47,6 +47,7 @@ dev = [
     "pytest==9.2.0",
     "pytest-asyncio==1.4.1.post1",
     "fakeredis==2.40.0",
+    "pyyaml==6.0.3",   # tests read the Prometheus alert rules
     "ruff==0.17.4",
 ]
 

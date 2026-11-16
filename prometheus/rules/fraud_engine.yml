@@ -1,0 +1,274 @@
+# Recording and alerting rules for the fraud decision engine.
+#
+# Every alert has: severity (critical = act now, warning = look today, info = context),
+# a summary, a description with the current value, and a runbook link into
+# docs/monitoring.md, where each alert's meaning, threshold reasoning and first checks live.
+# Unit tests: prometheus/tests/alerts_test.yml (promtool test rules).
+#
+# Conventions:
+#   * Ratio alerts carry a minimum-traffic guard: a ratio over a handful of requests is noise.
+#   * Thresholds are starting points chosen from this project's replays, not tuned on
+#     production traffic; the reasoning for each is in the runbook.
+
+groups:
+  - name: fraud_engine_recording
+    interval: 30s
+    rules:
+      - record: fraud:requests:rate5m
+        expr: sum(rate(fraud_requests_total[5m]))
+      - record: fraud:decisions:rate5m
+        expr: sum(rate(fraud_decisions_total[5m]))
+      - record: fraud:error_ratio:rate5m
+        expr: >
+          sum(rate(fraud_request_errors_total{kind="error"}[5m]))
+          / sum(rate(fraud_requests_total[5m]))
+      - record: fraud:latency_p99:rate5m
+        expr: histogram_quantile(0.99, sum by (le) (rate(fraud_request_duration_seconds_bucket[5m])))
+      - record: fraud:latency_p50:rate5m
+        expr: histogram_quantile(0.50, sum by (le) (rate(fraud_request_duration_seconds_bucket[5m])))
+      # Share of all decisions that were allow / review / deny.
+      - record: fraud:decision_share:rate5m
+        expr: >
+          sum by (decision) (rate(fraud_decisions_total[5m]))
+          / on() group_left() sum(rate(fraud_decisions_total[5m]))
+      - record: fraud:decision_share:rate30m
+        expr: >
+          sum by (decision) (rate(fraud_decisions_total[30m]))
+          / on() group_left() sum(rate(fraud_decisions_total[30m]))
+      # Share of all decisions made by each rule or score band.
+      - record: fraud:rule_share:rate5m
+        expr: >
+          sum by (decision_rule) (rate(fraud_decision_rule_total{decision_rule!="none"}[5m]))
+          / on() group_left() sum(rate(fraud_decisions_total[5m]))
+      - record: fraud:conflict_ratio:rate10m
+        expr: >
+          sum(rate(fraud_idempotency_conflicts_total[10m]))
+          / sum(rate(fraud_requests_total[10m]))
+      # Share of requests whose features came from Postgres because Redis had no data.
+      - record: fraud:fallback_ratio:rate10m
+        expr: >
+          sum by (source) (rate(fraud_feature_fallback_total[10m]))
+          / on() group_left() sum(rate(fraud_requests_total[10m]))
+      - record: fraud:shared_device_share:rate1h
+        expr: sum(rate(fraud_shared_device_total[1h])) / sum(rate(fraud_decisions_total[1h]))
+
+  - name: fraud_engine_drift
+    interval: 1m
+    rules:
+      # Live share of scored requests in each bucket of the score / each monitored feature.
+      - record: fraud:drift_live_share:rate1h
+        expr: >
+          sum by (feature, bucket) (rate(fraud_drift_bucket_total[1h]))
+          / on(feature) group_left()
+          sum by (feature) (rate(fraud_drift_bucket_total[1h]))
+      - record: fraud:drift_reference_share
+        expr: max by (feature, bucket) (fraud_drift_reference_share)
+      # PSI = sum over buckets of (live - expected) * ln(live / expected). Shares are floored
+      # at 0.0001 so an empty bucket does not produce ln(0). 0 = same distribution.
+      - record: fraud:drift_psi:rate1h
+        expr: >
+          sum by (feature) (
+            (clamp_min(fraud:drift_live_share:rate1h, 0.0001)
+              - on(feature, bucket) clamp_min(fraud:drift_reference_share, 0.0001))
+            * on(feature, bucket)
+            ln(clamp_min(fraud:drift_live_share:rate1h, 0.0001)
+              / on(feature, bucket) clamp_min(fraud:drift_reference_share, 0.0001))
+          )
+      # Scored requests in the last hour: the traffic guard for the drift alerts.
+      - record: fraud:scored:increase1h
+        expr: sum(increase(fraud_drift_bucket_total{feature="model_score"}[1h]))
+
+  - name: fraud_engine_availability
+    rules:
+      - alert: FraudApiDown
+        expr: up{job="fraud_engine"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "The fraud API is not answering Prometheus scrapes"
+          description: "No scrape of {{ $labels.instance }} has succeeded for 2 minutes. Callers are getting no fraud decisions."
+          runbook_url: "docs/monitoring.md#fraudapidown"
+
+      - alert: FraudDependencyDown
+        expr: min by (dependency) (fraud_dependency_up) == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "The API cannot reach {{ $labels.dependency }}"
+          description: "At least one API worker has failed its {{ $labels.dependency }} probe for 1 minute."
+          runbook_url: "docs/monitoring.md#frauddependencydown"
+
+      - alert: FraudHighErrorRate
+        expr: fraud:error_ratio:rate5m > 0.01 and fraud:requests:rate5m > 0.2
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "More than 1% of fraud requests are failing"
+          description: "{{ $value | humanizePercentage }} of requests ended in an unhandled error over the last 5 minutes."
+          runbook_url: "docs/monitoring.md#fraudhigherrorrate"
+
+      - alert: FraudLatencyP99High
+        expr: fraud:latency_p99:rate5m > 0.25 and fraud:requests:rate5m > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p99 latency is above 250 ms"
+          description: "p99 of POST /api/transactions is {{ $value | humanizeDuration }} (normal: about 20 ms at 200 requests/s)."
+          runbook_url: "docs/monitoring.md#fraudlatencyp99high"
+
+      - alert: FraudBackgroundTaskFailures
+        expr: sum(increase(fraud_background_task_failures_total[10m])) > 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "Velocity counter updates are failing"
+          description: "{{ $value | humanize }} post-response updates failed in 10 minutes. Decisions are still returned, but counters are going stale."
+          runbook_url: "docs/monitoring.md#fraudbackgroundtaskfailures"
+
+      - alert: FraudRedisDataLoss
+        expr: fraud_redis_keys < 0.5 * max_over_time(fraud_redis_keys[1h]) and max_over_time(fraud_redis_keys[1h]) > 1000
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Redis lost more than half of its keys"
+          description: "Redis holds {{ $value | humanize }} keys, less than half of its 1-hour maximum. Velocity history is gone; features fall back to Postgres or to zero."
+          runbook_url: "docs/monitoring.md#fraudredisdataloss"
+
+      - alert: FraudRedisFallbackSurge
+        expr: >
+          fraud:fallback_ratio:rate10m{source=~"purchase_history|device_history"} > 0.2
+          and fraud:fallback_ratio:rate10m{source=~"purchase_history|device_history"}
+              > 3 * avg_over_time(fraud:fallback_ratio:rate10m{source=~"purchase_history|device_history"}[1d])
+          and on() fraud:requests:rate5m > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Far more {{ $labels.source }} lookups than usual are falling back to Postgres"
+          description: "{{ $value | humanizePercentage }} of requests read {{ $labels.source }} from Postgres, over 3 times the 1-day average."
+          runbook_url: "docs/monitoring.md#fraudredisfallbacksurge"
+
+      - alert: FraudIdempotencyConflicts
+        expr: fraud:conflict_ratio:rate10m > 0.02 and on() fraud:requests:rate5m > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 2% of requests are duplicate keys still in flight"
+          description: "{{ $value | humanizePercentage }} of requests got a 409. A client is retrying faster than requests finish, or reusing keys."
+          runbook_url: "docs/monitoring.md#fraudidempotencyconflicts"
+
+      - alert: FraudNoTraffic
+        expr: sum(rate(fraud_requests_total[15m])) == 0
+        for: 15m
+        labels: {severity: info}
+        annotations:
+          summary: "No fraud requests for 30 minutes"
+          description: "The API is up but has received nothing. Expected on a development machine; in production it means the caller stopped asking."
+          runbook_url: "docs/monitoring.md#fraudnotraffic"
+
+  - name: fraud_engine_decisions
+    rules:
+      - alert: FraudSignupBurstAttack
+        expr: fraud:rule_share:rate5m{decision_rule="signup_burst"} > 0.10 and on() fraud:decisions:rate5m > 0.2
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "A scripted signup attack is in progress"
+          description: "{{ $value | humanizePercentage }} of decisions are signup_burst denials (purchases under 60 s after signup). The rule is holding; this is to make the attack visible."
+          runbook_url: "docs/monitoring.md#fraudsignupburstattack"
+
+      - alert: FraudSharedDeviceRule
+        expr: fraud:rule_share:rate5m{decision_rule="device_many_users_1h"} > 0.01 and on() fraud:decisions:rate5m > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Many devices are being used by several accounts within an hour"
+          description: "{{ $value | humanizePercentage }} of decisions are device_many_users_1h denials. Either a device farm, or a device id that stopped being unique."
+          runbook_url: "docs/monitoring.md#fraudshareddevicerule"
+
+      - alert: FraudDenyRateHigh
+        expr: >
+          fraud:decision_share:rate5m{decision="deny"} > 0.02
+          and fraud:decision_share:rate5m{decision="deny"}
+              > 3 * avg_over_time(fraud:decision_share:rate5m{decision="deny"}[1d])
+          and on() fraud:decisions:rate5m > 0.2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "The deny rate is over 3 times its 1-day average"
+          description: "{{ $value | humanizePercentage }} of decisions are denials. Check which rule in the 'Decisions by rule' panel."
+          runbook_url: "docs/monitoring.md#frauddenyratehigh"
+
+      - alert: FraudReviewRateHigh
+        expr: >
+          fraud:decision_share:rate30m{decision="review"}
+            > on() 2 * max(fraud_expected_rate{kind="review_rate"})
+          and on() sum(increase(fraud_decisions_total[30m])) > 500
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "The model is sending over twice the expected share of orders to review"
+          description: "{{ $value | humanizePercentage }} of decisions are reviews. Every review costs money and friction; the threshold was chosen for the validation-time rate."
+          runbook_url: "docs/monitoring.md#fraudreviewratehigh"
+
+      - alert: FraudReviewRateLow
+        expr: >
+          (fraud:decision_share:rate30m{decision="review"} or on() vector(0))
+            < on() 0.5 * max(fraud_expected_rate{kind="review_rate"})
+          and on() max(fraud_expected_rate{kind="review_rate"}) > 0
+          and on() sum(increase(fraud_decisions_total[30m])) > 500
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "The model is reviewing under half the expected share of orders"
+          description: "Review share is {{ $value | humanizePercentage }}. The model may have gone quiet: a feature stuck at a default would do this, and fraud would pass unseen."
+          runbook_url: "docs/monitoring.md#fraudreviewratelow"
+
+  - name: fraud_engine_model
+    rules:
+      - alert: FraudScoreDriftWarning
+        expr: fraud:drift_psi:rate1h{feature="model_score"} > 0.10 and on() fraud:scored:increase1h > 1000
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "The model's score distribution has shifted (PSI above 0.10)"
+          description: "Score PSI against the validation-time distribution is {{ $value | printf \"%.3f\" }}. 0.10 is the conventional 'watch' level."
+          runbook_url: "docs/monitoring.md#fraudscoredrift"
+
+      - alert: FraudScoreDriftCritical
+        expr: fraud:drift_psi:rate1h{feature="model_score"} > 0.25 and on() fraud:scored:increase1h > 1000
+        for: 1h
+        labels: {severity: critical}
+        annotations:
+          summary: "The model's score distribution has shifted strongly (PSI above 0.25)"
+          description: "Score PSI is {{ $value | printf \"%.3f\" }}. The thresholds were chosen for a different distribution; review and decline rates no longer mean what they did."
+          runbook_url: "docs/monitoring.md#fraudscoredrift"
+
+      - alert: FraudFeatureDrift
+        expr: fraud:drift_psi:rate1h{feature!="model_score"} > 0.25 and on() fraud:scored:increase1h > 1000
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "Model input {{ $labels.feature }} has drifted (PSI above 0.25)"
+          description: "PSI of {{ $labels.feature }} against training-time data is {{ $value | printf \"%.3f\" }}. Either the traffic changed or the feature pipeline broke."
+          runbook_url: "docs/monitoring.md#fraudfeaturedrift"
+
+      - alert: FraudSharedDeviceShareShift
+        expr: >
+          (fraud:shared_device_share:rate1h > on() 2 * max(fraud_expected_rate{kind="shared_device_share"})
+           or fraud:shared_device_share:rate1h < on() 0.5 * max(fraud_expected_rate{kind="shared_device_share"}))
+          and on() sum(increase(fraud_decisions_total[1h])) > 1000
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "The share of orders from devices used by other accounts has moved by more than 2x"
+          description: "Shared-device share is {{ $value | humanizePercentage }}. This is the model's strongest input; device ids may have changed meaning."
+          runbook_url: "docs/monitoring.md#fraudshareddeviceshareshift"
+
+      - alert: FraudModelVersionSkew
+        expr: count(count by (version) (fraud_model_info)) > 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than one model version is serving"
+          description: "{{ $value }} model versions are answering requests. Expected for a few minutes during a deploy, not for 10."
+          runbook_url: "docs/monitoring.md#fraudmodelversionskew"

@@ -2,7 +2,7 @@
 A guided demo of the fraud decision engine against the running Docker stack.
 
     docker compose up -d --build        # API on :8000, Grafana on :3000
-    python scripts/demo.py              # seven stories, then a short traffic replay
+    python scripts/demo.py              # eight stories, then a short traffic replay
     python scripts/demo.py --no-replay  # stories only
 
 Each story sends one or two real requests to POST /api/transactions and prints what the
@@ -17,7 +17,10 @@ Together they show each layer: hard rules, the model's review band, and idempote
        with a different account                 -> review (model, feature did_other_uid_all)
     6. A loyal customer, third purchase on
        their own device                         -> allow  (history, but no OTHER account)
-    7. The same request sent twice              -> one decision, served from cache
+    7. A device six other accounts have used,
+       spread over months                       -> review (the model must not relax as
+                                                   the count grows: monotone constraint)
+    8. The same request sent twice              -> one decision, served from cache
 
 Story 5 returns "review" only when the served model has a review band (model_meta.json
 has review_threshold); with an older model it prints the score and says so.
@@ -165,7 +168,20 @@ def run_stories(d: Demo):
            "(did_other_uid_all=0). The first version of this feature counted transactions and "
            "sent this customer to review; live testing caught it the day it shipped.")
 
-    d.story(7, "The same request sent twice (a client retry after a timeout)")
+    d.story(7, "A device that six other accounts have used over the past months")
+    for i, days in enumerate((220, 190, 160, 130, 110, 95)):
+        d.send(payload(f"u-farm-{i}-{r}", f"d-farm-{r}", now - timedelta(days=days),
+                       timedelta(days=20)))
+    print("  (six different accounts bought on this device, 95 to 220 days ago: no rule fired,")
+    print("   they were more than an hour apart)")
+    body = payload(f"u-farm-new-{r}", f"d-farm-{r}", now, timedelta(days=20))
+    d.show("device farm, slow", body, d.send(body), "review",
+           "Too slow for the 1-hour hard rule, and outside every 90-day counter. The first "
+           "model scored five or more other accounts as LOW risk (0.52, allow), because in "
+           "training such devices were leftovers of the January bot attack. The served model "
+           "is constrained so that more other accounts can never lower the score.")
+
+    d.story(8, "The same request sent twice (a client retry after a timeout)")
     body = payload(f"u-normal-{r}", f"d-normal-{r}", now, timedelta(days=30))
     again = d.send(body, key=f"demo-{r}-normal")
     same = again["transaction_id"] == first["transaction_id"]

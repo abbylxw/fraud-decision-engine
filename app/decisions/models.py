@@ -28,6 +28,10 @@ _meta = json.loads(_meta_path.read_text()) if _meta_path.exists() else {}
 # metadata because a threshold only means something for the model it was tuned on.
 THRESHOLD: float = _meta.get("threshold", 0.7)
 MODEL_VERSION: str = _meta.get("model_version", "legacy-notebook-rf")
+# What the score and the main features looked like on validation data when this model was
+# trained; live traffic is compared with it for drift (app/monitoring.py). None for a model
+# shipped before drift monitoring existed.
+MONITORING_REFERENCE: dict | None = _meta.get("monitoring_reference")
 # Scores in [REVIEW_THRESHOLD, THRESHOLD) get the decision "review": too risky to
 # auto-approve, not risky enough for a decline to pay for itself (training/train.py picks
 # both by cost on validation). A model shipped before the review band existed has no

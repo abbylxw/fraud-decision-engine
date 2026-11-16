@@ -1,0 +1,222 @@
+# Unit tests for prometheus/rules/fraud_engine.yml.
+#
+#   docker run --rm -v "$PWD/prometheus:/p:ro" --entrypoint promtool \
+#       prom/prometheus:v2.51.0 test rules /p/tests/alerts_test.yml
+#
+# Each test feeds made-up metric series to the rules and checks whether an alert is firing
+# at a given minute. Series notation: 'a+bxn' = start at a, add b each minute, n times;
+# 'vxn' = the value v repeated. Firing is checked through the built-in ALERTS series, so the
+# tests do not have to repeat every annotation text.
+rule_files:
+  - ../rules/fraud_engine.yml
+evaluation_interval: 1m
+
+tests:
+  # ---------------------------------------------------------------- availability
+  - name: API down for more than 2 minutes fires; everything else in this file is quiet
+    interval: 1m
+    input_series:
+      - series: 'up{job="fraud_engine", instance="api:8000"}'
+        values: '1x2 0x10'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudApiDown", alertstate="firing"}) or vector(0)
+        eval_time: 3m          # down for 1 minute: still pending
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="FraudApiDown", alertstate="firing", severity="critical"}) or vector(0)
+        eval_time: 6m
+        exp_samples: [{labels: '{}', value: 1}]
+
+  - name: a dependency probe failing for a minute fires, naming the dependency
+    interval: 1m
+    input_series:
+      - series: 'fraud_dependency_up{dependency="redis"}'
+        values: '1x3 0x10'
+      - series: 'fraud_dependency_up{dependency="postgres"}'
+        values: '1x13'
+    promql_expr_test:
+      - expr: count by (dependency) (ALERTS{alertname="FraudDependencyDown", alertstate="firing"})
+        eval_time: 6m
+        exp_samples: [{labels: '{dependency="redis"}', value: 1}]
+
+  - name: 5% errors fires, 0.2% does not
+    interval: 1m
+    input_series:
+      - series: 'fraud_requests_total'
+        values: '0+600x30'                      # 10 requests per second
+      - series: 'fraud_request_errors_total{kind="error"}'
+        values: '0+1x10 10+30x20'               # 0.17% for 10 minutes, then 5%
+      - series: 'fraud_request_errors_total{kind="cancelled"}'
+        values: '0+100x30'                      # clients going away are not our errors
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudHighErrorRate", alertstate="firing"}) or vector(0)
+        eval_time: 9m
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="FraudHighErrorRate", alertstate="firing"}) or vector(0)
+        eval_time: 25m
+        exp_samples: [{labels: '{}', value: 1}]
+
+  - name: an error ratio over almost no traffic does not fire (minimum-traffic guard)
+    interval: 1m
+    input_series:
+      - series: 'fraud_requests_total'
+        values: '0+2x30'                        # 2 requests per minute
+      - series: 'fraud_request_errors_total{kind="error"}'
+        values: '0+1x30'                        # half of them fail
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudHighErrorRate"}) or vector(0)
+        eval_time: 25m
+        exp_samples: [{labels: '{}', value: 0}]
+
+  - name: Redis losing most of its keys fires
+    interval: 1m
+    input_series:
+      - series: 'fraud_redis_keys'
+        values: '100000x30 20000x10'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudRedisDataLoss", alertstate="firing"}) or vector(0)
+        eval_time: 29m
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="FraudRedisDataLoss", alertstate="firing"}) or vector(0)
+        eval_time: 35m
+        exp_samples: [{labels: '{}', value: 1}]
+
+  - name: failed velocity updates fire
+    interval: 1m
+    input_series:
+      - series: 'fraud_background_task_failures_total{task="update_velocity_counters"}'
+        values: '0x5 0+3x10'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudBackgroundTaskFailures", alertstate="firing"}) or vector(0)
+        eval_time: 10m
+        exp_samples: [{labels: '{}', value: 1}]
+
+  # ---------------------------------------------------------------- decisions
+  - name: a signup attack (every decision a signup_burst denial) fires within minutes
+    interval: 1m
+    input_series:
+      - series: 'fraud_decisions_total{decision="allow"}'
+        values: '0+570x10 5700x10'
+      - series: 'fraud_decisions_total{decision="deny"}'
+        values: '0+30x10 300+600x10'
+      - series: 'fraud_decision_rule_total{decision_rule="signup_burst", decision="deny"}'
+        values: '0+30x10 300+600x10'            # 5% of decisions, then 100%
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudSignupBurstAttack"}) or vector(0)
+        eval_time: 9m                           # 5% is this dataset's replay level: quiet
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="FraudSignupBurstAttack", alertstate="firing"}) or vector(0)
+        eval_time: 16m
+        exp_samples: [{labels: '{}', value: 1}]
+
+  - name: review rate at 4x the expected rate fires high; no reviews at all fires low
+    interval: 1m
+    input_series:
+      - series: 'fraud_expected_rate{kind="review_rate"}'
+        values: '0.05x200'
+      - series: 'fraud_decisions_total{decision="allow"}'
+        values: '0+800x80 64000+1000x100'
+      - series: 'fraud_decisions_total{decision="review"}'
+        values: '0+200x80 16000x100'            # 20% for 80 minutes, then none
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudReviewRateHigh", alertstate="firing"}) or vector(0)
+        eval_time: 75m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="FraudReviewRateLow", alertstate="firing"}) or vector(0)
+        eval_time: 75m
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="FraudReviewRateLow", alertstate="firing"}) or vector(0)
+        eval_time: 170m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="FraudReviewRateHigh", alertstate="firing"}) or vector(0)
+        eval_time: 170m
+        exp_samples: [{labels: '{}', value: 0}]
+
+  - name: review rate near the expected rate is quiet
+    interval: 1m
+    input_series:
+      - series: 'fraud_expected_rate{kind="review_rate"}'
+        values: '0.05x100'
+      - series: 'fraud_decisions_total{decision="allow"}'
+        values: '0+940x100'
+      - series: 'fraud_decisions_total{decision="review"}'
+        values: '0+60x100'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"FraudReviewRate.+"}) or vector(0)
+        eval_time: 90m
+        exp_samples: [{labels: '{}', value: 0}]
+
+  # ---------------------------------------------------------------- model
+  - name: score distribution matching the reference has PSI 0 and is quiet
+    interval: 1m
+    input_series:
+      - series: 'fraud_drift_reference_share{feature="model_score", bucket="0"}'
+        values: '0.5x200'
+      - series: 'fraud_drift_reference_share{feature="model_score", bucket="1"}'
+        values: '0.5x200'
+      - series: 'fraud_drift_bucket_total{feature="model_score", bucket="0"}'
+        values: '0+500x200'
+      - series: 'fraud_drift_bucket_total{feature="model_score", bucket="1"}'
+        values: '0+500x200'
+    promql_expr_test:
+      - expr: fraud:drift_psi:rate1h{feature="model_score"}
+        eval_time: 150m
+        exp_samples: [{labels: 'fraud:drift_psi:rate1h{feature="model_score"}', value: 0}]
+      - expr: count(ALERTS{alertname=~"FraudScoreDrift.+"}) or vector(0)
+        eval_time: 150m
+        exp_samples: [{labels: '{}', value: 0}]
+
+  - name: a 10/90 split against a 50/50 reference is a strong drift (PSI 0.88) and fires both levels
+    interval: 1m
+    input_series:
+      - series: 'fraud_drift_reference_share{feature="model_score", bucket="0"}'
+        values: '0.5x200'
+      - series: 'fraud_drift_reference_share{feature="model_score", bucket="1"}'
+        values: '0.5x200'
+      - series: 'fraud_drift_bucket_total{feature="model_score", bucket="0"}'
+        values: '0+100x200'
+      - series: 'fraud_drift_bucket_total{feature="model_score", bucket="1"}'
+        values: '0+900x200'
+    promql_expr_test:
+      # (0.1-0.5)*ln(0.1/0.5) + (0.9-0.5)*ln(0.9/0.5) = 0.6438 + 0.2351
+      - expr: round(fraud:drift_psi:rate1h{feature="model_score"}, 0.001)
+        eval_time: 150m
+        exp_samples: [{labels: '{feature="model_score"}', value: 0.879}]
+      - expr: count(ALERTS{alertname="FraudScoreDriftWarning", alertstate="firing"}) or vector(0)
+        eval_time: 150m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="FraudScoreDriftCritical", alertstate="firing", severity="critical"}) or vector(0)
+        eval_time: 150m
+        exp_samples: [{labels: '{}', value: 1}]
+
+  - name: an empty live bucket does not break PSI, and a drifted feature is named
+    interval: 1m
+    input_series:
+      - series: 'fraud_drift_reference_share{feature="did_other_uid_all", bucket="0"}'
+        values: '0.95x200'
+      - series: 'fraud_drift_reference_share{feature="did_other_uid_all", bucket="1"}'
+        values: '0.05x200'
+      - series: 'fraud_drift_bucket_total{feature="did_other_uid_all", bucket="0"}'
+        values: '0x200'                         # nobody is on a fresh device any more
+      - series: 'fraud_drift_bucket_total{feature="did_other_uid_all", bucket="1"}'
+        values: '0+1000x200'
+      - series: 'fraud_drift_bucket_total{feature="model_score", bucket="0"}'
+        values: '0+1000x200'                    # traffic guard counts scored requests
+    promql_expr_test:
+      - expr: count by (feature) (ALERTS{alertname="FraudFeatureDrift", alertstate="firing"})
+        eval_time: 150m
+        exp_samples: [{labels: '{feature="did_other_uid_all"}', value: 1}]
+
+  - name: two model versions serving for 10 minutes fires
+    interval: 1m
+    input_series:
+      - series: 'fraud_model_info{version="xgboost-a"}'
+        values: '1x30'
+      - series: 'fraud_model_info{version="xgboost-b"}'
+        values: '_x5 1x25'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="FraudModelVersionSkew", alertstate="firing"}) or vector(0)
+        eval_time: 4m
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="FraudModelVersionSkew", alertstate="firing"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{labels: '{}', value: 1}]

@@ -32,5 +32,15 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v
 
+      - name: Check and unit-test the alert rules
+        run: |
+          docker run --rm -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/prometheus/rules:/etc/prometheus/rules:ro" \
+            --entrypoint promtool prom/prometheus:v2.51.0 check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/prometheus:/p:ro" \
+            --entrypoint promtool prom/prometheus:v2.51.0 test rules /p/tests/alerts_test.yml
+          docker run --rm -v "$PWD/alertmanager:/etc/alertmanager:ro" \
+            --entrypoint amtool prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml
+
       - name: Build Docker image
         run: docker build -t fraud-decision-engine .

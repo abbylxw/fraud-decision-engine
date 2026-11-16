@@ -27,6 +27,7 @@ from app.decisions import execute_hard_rules, execute_shadow_rules, execute_soft
 from app.decisions.features import build_features, event_ts, update_velocity_counters
 from app.decisions.models import MODEL_VERSION, REVIEW_THRESHOLD, THRESHOLD
 from app.decisions.models import score as model_score
+from app.telemetry import REQUEST_ERRORS, observe_drift, probe_dependencies
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -180,7 +181,10 @@ async def lifespan(app: FastAPI):
     _configure_logging()
     app.state.redis = Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
     app.state.executor = ThreadPoolExecutor()
+    # Watches Postgres and Redis for the life of the worker (fraud_dependency_up).
+    probe = asyncio.create_task(probe_dependencies(engine, app.state.redis), name="probe")
     yield
+    probe.cancel()
     # Let in-flight velocity updates finish before the Redis client closes.
     if _background_tasks:
         await asyncio.wait(_background_tasks, timeout=5)
@@ -238,6 +242,7 @@ async def run_process(transaction: Transaction,
         with STEP_LATENCY.labels(step="model_inference").time():
             prob = await loop.run_in_executor(executor, model_score, features)
         MODEL_SCORE.observe(prob)
+        observe_drift(features, prob)
         soft_decision, soft_rule = execute_soft_rules(transaction, features, prob)
         fraud_decision = soft_decision
         decision_rule = soft_rule
@@ -371,7 +376,10 @@ async def process_transaction(
     _t0 = asyncio.get_event_loop().time()
     try:
         response = await run_process(transaction, db, redis, executor)
-    except BaseException:
+    except BaseException as exc:
+        # Count it: a client that went away (cancelled) is not the same as a failure of ours.
+        REQUEST_ERRORS.labels(
+            kind="cancelled" if isinstance(exc, asyncio.CancelledError) else "error").inc()
         # Nothing was committed (the DB write is the last step that can fail), so release
         # the key and let the client retry instead of getting 409s for 30 seconds.
         try:

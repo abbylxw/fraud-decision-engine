@@ -5,6 +5,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.data_models import Features, Transaction
+from app.telemetry import FEATURE_FALLBACK
 
 from .db import get_did_days_on_file, get_ip_country
 from .request import (
@@ -94,6 +95,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         ip_country = ip_cached
     else:
         logger.warning("cache.miss", extra={"key": _ip_key, "fallback": "db"})
+        FEATURE_FALLBACK.labels(source="ip_country").inc()
         ip_country = await get_ip_country(t.ip_address, db)
         await redis.set(_ip_key, ip_country, ex=86400)
 
@@ -101,6 +103,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         did_days_on_file = int(did_cached)
     else:
         logger.warning("cache.miss", extra={"key": _did_key, "fallback": "db"})
+        FEATURE_FALLBACK.labels(source="device_pair").inc()
         did_days_on_file = await get_did_days_on_file(
             t.device_id, t.user_id, db,
             as_of_date=datetime.fromtimestamp(ct, tz=timezone.utc).date())
@@ -187,6 +190,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         }
         purchase = _parse_purchase_entries(all_entries, suc_entries, pur_windows)
     else:
+        FEATURE_FALLBACK.labels(source="purchase_history").inc()
         purchase = await _purchase_counts_from_db(t.user_id, db, as_of=ct)
 
     last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else 0.0
@@ -202,6 +206,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         did_txn_cnt_all = int(r[38])
         did_other_uid_all = int(r[39]) - int(bool(r[40]))
     else:
+        FEATURE_FALLBACK.labels(source="device_history").inc()
         history = await _device_history_from_db(t.device_id, db, as_of=ct)
         did_txn_cnt_all = int(r[38]) if r[38] is not None else sum(history.values())
         did_other_uid_all = len(set(history) - {t.user_id})

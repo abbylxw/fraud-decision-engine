@@ -461,6 +461,376 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Health and drift",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Alerts firing or pending",
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 8,
+        "h": 7
+      },
+      "description": "Straight from Prometheus (the ALERTS series), so it works without Grafana-managed alerting. Rules: prometheus/rules/fraud_engine.yml. What each one means and what to check first: docs/monitoring.md. Empty = nothing is wrong.",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "ALERTS{alertstate=~\"firing|pending\"}",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "Value": true,
+              "instance": true,
+              "job": true
+            },
+            "indexByName": {
+              "alertname": 0,
+              "alertstate": 1,
+              "severity": 2
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Dependencies (1 = reachable)",
+      "gridPos": {
+        "x": 8,
+        "y": 51,
+        "w": 4,
+        "h": 7
+      },
+      "description": "Each API worker probes Postgres and Redis every 10 s; this is the worst live worker.",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "min by (dependency) (fraud_dependency_up)",
+          "legendFormat": "{{dependency}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "up",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Error rate and 409 conflicts (% of requests)",
+      "type": "timeseries",
+      "description": "Alerts: FraudHighErrorRate above 1%, FraudIdempotencyConflicts above 2%.",
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:error_ratio:rate5m * 100",
+          "legendFormat": "unhandled errors"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:conflict_ratio:rate10m * 100",
+          "legendFormat": "idempotency conflicts (409)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "title": "Features answered by Postgres instead of Redis (% of requests)",
+      "type": "timeseries",
+      "description": "Normal for first-seen users and devices. A jump on known traffic means Redis lost data (see also the Redis keys panel).",
+      "gridPos": {
+        "x": 18,
+        "y": 51,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:fallback_ratio:rate10m * 100",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 25,
+      "title": "Score drift (PSI vs validation-time distribution)",
+      "type": "timeseries",
+      "description": "Population Stability Index of the model score over the last hour against the ten validation-time deciles. 0 = same distribution.",
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:drift_psi:rate1h{feature=\"model_score\"}",
+          "legendFormat": "score PSI (1 h window)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "vector(0.10)",
+          "legendFormat": "watch (0.10)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "vector(0.25)",
+          "legendFormat": "act (0.25)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 26,
+      "title": "Feature drift (PSI per monitored model input)",
+      "type": "timeseries",
+      "description": "A drifting input with a steady score means the model is not using that range; a drifting input AND score needs a look at the feature pipeline first.",
+      "gridPos": {
+        "x": 8,
+        "y": 58,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:drift_psi:rate1h{feature!=\"model_score\"}",
+          "legendFormat": "{{feature}}"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "vector(0.25)",
+          "legendFormat": "act (0.25)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 27,
+      "title": "Review rate: live vs expected at training time (%)",
+      "type": "timeseries",
+      "description": "Alerts fire when live is more than 2x or less than half of expected, with enough traffic.",
+      "gridPos": {
+        "x": 16,
+        "y": 58,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:decision_share:rate30m{decision=\"review\"} * 100",
+          "legendFormat": "live (30 min)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_expected_rate{kind=\"review_rate\"}) * 100",
+          "legendFormat": "expected"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:shared_device_share:rate1h * 100",
+          "legendFormat": "shared-device share (1 h)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_expected_rate{kind=\"shared_device_share\"}) * 100",
+          "legendFormat": "expected shared-device share"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 28,
+      "title": "Live score-bucket shares (each expected at 10%)",
+      "type": "timeseries",
+      "description": "The ten buckets are the validation-time deciles of the score, so on unchanged traffic every line sits at 10%.",
+      "gridPos": {
+        "x": 0,
+        "y": 65,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:drift_live_share:rate1h{feature=\"model_score\"} * 100",
+          "legendFormat": "decile {{bucket}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 29,
+      "title": "Redis keys",
+      "type": "timeseries",
+      "description": "All velocity state lives in Redis. FraudRedisDataLoss fires when this halves within an hour.",
+      "gridPos": {
+        "x": 12,
+        "y": 65,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud_redis_keys",
+          "legendFormat": "keys"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 30,
+      "title": "Latency p50 / p99 (recorded)",
+      "type": "timeseries",
+      "description": "FraudLatencyP99High fires above 250 ms for 10 minutes.",
+      "gridPos": {
+        "x": 18,
+        "y": 65,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:latency_p50:rate5m",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:latency_p99:rate5m",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      }
     }
   ]
 }
