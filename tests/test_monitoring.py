@@ -168,13 +168,71 @@ class TestErrorCounter:
         redis.delete.assert_awaited_with("idem:err-test")
 
 
+class TestGoldenSignals:
+    """Latency and traffic are the request histogram and counter that already existed.
+    These cover the two that were missing: errors by status code, and saturation."""
+
+    def _post(self, payload, key):
+        redis = AsyncMock()
+        redis.set = AsyncMock(return_value=True)
+        app.dependency_overrides[get_db] = lambda: AsyncMock()
+        app.dependency_overrides[get_redis] = lambda: redis
+        try:
+            with TestClient(app, raise_server_exceptions=False) as client:
+                return client.post("/api/transactions", json=payload,
+                                   headers={"Idempotency-Key": key})
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_an_invalid_request_is_counted_as_422(self):
+        # Validation rejects it before the handler runs, so only the middleware sees it.
+        before = sample("fraud_http_responses_total", status="422")
+        resp = self._post({"user_id": "u"}, "bad-payload")
+        assert resp.status_code == 422
+        assert sample("fraud_http_responses_total", status="422") == before + 1
+
+    def test_a_failure_of_ours_is_counted_as_500_and_nothing_stays_in_flight(self):
+        payload = {"user_id": "u", "signup_time": "2024-01-01T00:00:00Z",
+                   "purchase_time": "2025-03-14T12:00:00Z", "purchase_value": 10.0,
+                   "device_id": "d", "source": "SEO", "browser": "Chrome", "sex": "M",
+                   "age": 30, "ip_address": 1}
+        before = sample("fraud_http_responses_total", status="500")
+        with patch("app.main.build_features", new_callable=AsyncMock, side_effect=RuntimeError("x")):
+            resp = self._post(payload, "boom")
+        assert resp.status_code == 500
+        assert sample("fraud_http_responses_total", status="500") == before + 1
+        assert sample("fraud_inflight_requests") == 0
+
+    def test_other_paths_are_not_counted(self):
+        total = lambda: sum(s.value for m in REGISTRY.collect() for s in m.samples  # noqa: E731
+                            if s.name == "fraud_http_responses_total")
+        before = total()
+        with TestClient(app) as client:
+            client.get("/metrics/")
+        assert total() == before
+
+    async def test_event_loop_lag_is_seen_when_the_loop_is_blocked(self):
+        import asyncio
+        import time
+        telemetry._LoopLag.worst = 0.0
+        watcher = asyncio.create_task(telemetry.watch_event_loop())
+        await asyncio.sleep(0.05)
+        time.sleep(0.7)            # block the loop: the watcher's 0.5 s sleep wakes up late
+        await asyncio.sleep(0.05)
+        watcher.cancel()
+        assert telemetry._LoopLag.worst > 0.1
+
+    def test_memory_reading_is_plausible(self):
+        assert 10 * 2**20 < telemetry._memory_bytes() < 64 * 2**30
+
+
 # ---------------------------------------------------------------------------
 # The alert rules are actionable
 # ---------------------------------------------------------------------------
 
 class TestAlertRules:
     def test_there_are_alerts(self):
-        assert len(ALERTS) >= 15
+        assert len(ALERTS) >= 29
 
     @pytest.mark.parametrize("rule", ALERTS, ids=lambda r: r["alert"])
     def test_alert_can_be_acted_on(self, rule):

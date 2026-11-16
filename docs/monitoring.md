@@ -13,6 +13,28 @@ to the sections of this page, so it doubles as the runbook.
 Local addresses: Prometheus `localhost:9090` (Alerts and Rules pages), Alertmanager
 `localhost:9093`, Grafana `localhost:3000`.
 
+## 0. What is monitored, in one table
+
+Three layers, each with metrics, a dashboard row and alerts.
+
+| Layer | Question it answers | Signals | Alerts |
+|---|---|---|---|
+| **Four golden signals** (the standard checklist for any service) | Is the service healthy? | **Latency**: p50 and p99 of a decision, and per step. **Traffic**: requests per second against its 1-day average, requests in flight. **Errors**: our failures (5xx, unhandled errors), invalid requests (422), duplicates in flight (409). **Saturation**: worker CPU, event-loop lag, Postgres pool and server connections, Redis memory. | `FraudLatencyP99High`, `FraudLatencyP50High`, `FraudTrafficSurge`, `FraudTrafficDrop`, `FraudNoTraffic`, `FraudHighErrorRate`, `FraudClientErrorRate`, `FraudIdempotencyConflicts`, `FraudEventLoopLag`, `FraudWorkerCpuSaturated`, `FraudDbPoolSaturated`, `FraudPostgresConnectionsHigh`, `FraudRedisMemoryHigh` |
+| **Dependencies and feature data** | Can it reach what it needs, and is the data behind the features still there? | Postgres and Redis probes, Redis key count, share of features answered by Postgres, failed counter updates | `FraudApiDown`, `FraudDependencyDown`, `FraudRedisDataLoss`, `FraudRedisFallbackSurge`, `FraudBackgroundTaskFailures` |
+| **Action rates** | Is it telling callers to do roughly what it usually does? | Share of allow / review / deny against the 1-day normal and the training-time expectation; share per rule | `FraudAllowRateDrop`, `FraudReviewRateHigh`, `FraudReviewRateLow`, `FraudDenyRateHigh`, `FraudSignupBurstAttack`, `FraudSharedDeviceRule` |
+| **Model and feature drift** | Does live traffic still look like what the model was trained on? | PSI of the score and of eight model inputs against training-time buckets; shared-device share; model version | `FraudScoreDriftWarning`, `FraudScoreDriftCritical`, `FraudFeatureDrift`, `FraudSharedDeviceShareShift`, `FraudModelVersionSkew` |
+
+29 alerts in total. Grafana rows, in the same order: "Golden signals", "Health and drift",
+"Decisions and model".
+
+**Decision accuracy is deliberately not monitored.** Live traffic has no labels (nobody
+tells the engine which orders turned out to be fraud), so live precision and recall cannot
+be computed. That is a decision, not a gap to fill: **action rates are the proxy.** If the
+engine starts reviewing twice as many orders, or half as many, or approving ten points
+fewer, something changed, and the drift panels say whether it was the traffic or the
+pipeline. Accuracy is measured offline, on labelled history, each time a model is trained
+(`training/train.py`, `training/rolling_eval.py`).
+
 ## 1. What can go wrong, and how each failure is seen
 
 A fraud engine fails in three different ways, and each needs its own kind of signal.
@@ -26,14 +48,13 @@ A fraud engine fails in three different ways, and each needs its own kind of sig
 The second and third rows are why "the dashboard looks fine" is not enough for a model in
 production: the service is healthy and the decisions are bad.
 
-### What is not covered
+### What these signals cannot say
 
-**There is no live measure of whether decisions are right.** That needs labels (which
-orders turned out to be fraud), and there is no label endpoint yet. Drift alerts say "the
-inputs or the scores no longer look like training time"; they do not say "the model is
-wrong", and a model can also become wrong with no drift at all, if fraudsters change what
-fraud looks like while the traffic mix stays the same. Closing this is the next roadmap item
-(`docs/production_readiness.md`).
+Drift and action-rate alerts say "the inputs, the scores or the decisions no longer look
+like before". They do not say "the decisions are wrong", and a model can become wrong with
+no drift at all, if fraudsters change what fraud looks like while the traffic mix stays the
+same. Catching that needs labels, which live traffic does not have; it is caught at the
+next offline evaluation on labelled history, not by an alert.
 
 ## 2. Metrics added for alerting
 
@@ -48,6 +69,13 @@ fraud looks like while the traffic mix stays the same. Closing this is the next 
 | `fraud_drift_bucket_total{feature,bucket}` | Scored requests by bucket of the model score (`feature="model_score"`) or of a monitored input. |
 | `fraud_drift_reference_share{feature,bucket}` | The share of traffic training expected in that bucket. |
 | `fraud_model_threshold{band}`, `fraud_shared_device_total{decision}` | The served thresholds; requests from devices other accounts have used. |
+| `fraud_http_responses_total{status}` | Every response of `POST /api/transactions` by status code (201, 409, 422, 500). |
+| `fraud_inflight_requests` | Requests being processed right now, all workers. |
+| `fraud_event_loop_lag_seconds` | How late a 0.5 s timer fires in the busiest worker. Each worker serves all its requests on one thread; lag means that thread is blocked. |
+| `fraud_worker_cpu_utilization{pid}`, `fraud_worker_memory_bytes{pid}` | CPU (1 = one full core) and memory per worker. |
+| `fraud_db_pool_in_use`, `fraud_db_pool_capacity` | Postgres connections checked out of the API's pools, and the pools' size. |
+| `fraud_postgres_connections`, `fraud_postgres_max_connections` | Connections open on the Postgres server and its limit. |
+| `fraud_redis_memory_used_bytes`, `fraud_redis_memory_max_bytes` | Redis memory and its limit (0 = none configured). |
 
 ### How drift is measured
 
@@ -148,7 +176,82 @@ different purchases. Check first: latency (slow requests cause retry storms); wh
 Expected on a development machine. In production it means the caller stopped asking, which
 is someone else's outage but this system's blind spot.
 
-### Decisions
+### Golden signals: latency, traffic, errors, saturation
+
+`FraudLatencyP99High`, `FraudHighErrorRate`, `FraudIdempotencyConflicts` and
+`FraudNoTraffic` are described under Availability above; the rest are here.
+
+#### FraudLatencyP50High
+*Warning. Median latency above 100 ms for 10 minutes.*
+Normal is about 7 ms. A slow p99 with a normal median means a few requests hit something
+slow (a fallback query); a slow median means everything is slow. Check first: the
+saturation panel (CPU, event-loop lag, pool), then the step-latency breakdown.
+
+#### FraudTrafficSurge
+*Warning. Request rate over 3 times its 1-day average, and above 5 per second, for 10
+minutes.*
+A sale, a client retry storm, or an attack. The alert is about getting ahead of it: check
+the saturation panel now (measured ceiling: about 400 requests per second on a laptop,
+`docs/performance_2026-11.md`), then who is sending (country panel, idempotency conflicts
+for a retry storm, signup-burst share for an attack).
+
+#### FraudTrafficDrop
+*Warning. Request rate below 30% of its 1-day average for 15 minutes.*
+The API is up and fewer orders are reaching it. Usually an upstream problem; the risk for
+fraud is that orders are being approved without being checked. Check first: is the caller
+failing open? Any deploy upstream? `FraudClientErrorRate` (requests arriving but rejected
+do not count as decisions).
+
+#### FraudClientErrorRate
+*Warning. More than 5% of requests rejected as invalid (422) for 10 minutes.*
+A caller is sending payloads the API does not accept (a missing required field, a renamed
+one). Those orders get no decision. Check first: the API logs for the validation error;
+which field; whether a client release went out. 409s are excluded (they have their own
+alert).
+
+#### FraudEventLoopLag
+*Warning. A worker's event loop runs more than 100 ms late for 5 minutes.*
+Each worker handles all its requests on a single thread, taking turns. If one piece of work
+does not give the turn back (a slow synchronous call, CPU-heavy work on the loop), every
+request on that worker waits. Lag shows this before the latency percentiles do. Check
+first: worker CPU; whether model scoring is still running in the thread pool; recent code
+on the request path that does blocking I/O.
+
+#### FraudWorkerCpuSaturated
+*Warning. Workers average over 85% of a core each for 10 minutes.*
+The workers themselves are the bottleneck. Check first: request rate against the ceiling;
+`n_jobs` of the served model (must be 1 per worker, `app/decisions/models.py`); then scale
+out.
+
+#### FraudDbPoolSaturated
+*Warning. Over 80% of the API's pooled Postgres connections in use for 5 minutes.*
+At 100% a request waits for a connection before it can write its audit row. Check first:
+slow queries holding connections (the fallback lookups, the audit insert), pool size
+(`pool_size=5`, `max_overflow=6` per worker).
+
+#### FraudPostgresConnectionsHigh
+*Warning. Postgres at over 80% of `max_connections` for 5 minutes.*
+At the limit new connections are refused and requests fail outright. Check first: who else
+is connected (`pg_stat_activity`); 8 workers × 11 connections is 88 on its own, so the
+default limit of 100 leaves little room for a second API instance or an analyst.
+
+#### FraudRedisMemoryHigh
+*Warning. Redis above 85% of its memory limit for 5 minutes.*
+At the limit Redis evicts keys or rejects writes, and either way velocity history is lost
+(`FraudRedisDataLoss` follows). Does not fire when no limit is set, which is the case in
+the local Compose file. Check first: key count growth (the all-time device keys never
+expire), the eviction policy.
+
+### Action rates
+
+What the engine tells callers to do, watched against its own recent normal and against what
+training expected. With no labels on live traffic, this is the proxy for decision quality.
+
+#### FraudAllowRateDrop
+*Warning. Allow share at least 10 points below its 1-day average for 15 minutes.*
+The catch-all: more customers than usual are being reviewed or declined, whichever rule or
+score band is responsible. Check first: "Decisions by rule" for which one moved; then that
+rule's own alert, or the drift panels if it is the model's review band.
 
 #### FraudSignupBurstAttack
 *Warning. More than 10% of decisions are `signup_burst` denials for 2 minutes.*
@@ -178,7 +281,7 @@ client is replaying old traffic.
 
 #### FraudReviewRateLow
 *Warning. Review share under half the expectation for 30 minutes.*
-The dangerous direction: the model has gone quiet and fraud passes unseen. A feature stuck
+The dangerous direction: the model has gone quiet and fraud passes unseen, and with no labels on live traffic this rate is the only thing that will show it. A feature stuck
 at its default (Redis data loss, a renamed request field) does exactly this.
 Check first: `FraudRedisDataLoss`; the `did_other_uid_all` drift line; the audit table for
 recent values of the model's top features.
@@ -229,8 +332,9 @@ Two real findings in the first hour, both from a "normal" replay on the local st
    the purchase amount. The model learned it as a second amount column, and reads a loyal
    customer's ratio of about 1 as "a one-dollar purchase". This is the same class of flaw
    as `did_txn_cnt_all` (docs/feature_ablation.md §8): right on one-purchase-per-user data,
-   wrong on real traffic. It is not fixed yet (it needs a feature change on both the
-   training and serving side and a retrain); it is recorded as the next model fix.
+   wrong on real traffic. It was fixed the same day: the ratio is now 1.0 when the customer has no
+   history, and an audit of all 42 inputs removed seven more that count a customer's own
+   purchases or raw traffic volume (`docs/feature_audit.md`).
 
 On data the model has not been polluted by, the picture is calm: computed offline on the
 untouched test months, score PSI is 0.03 in September, October and November. One input does
@@ -251,7 +355,7 @@ file shows where a Slack receiver goes.
 
 ## 5. Testing
 
-- `promtool test rules` runs 13 scenarios against the rules: each important alert fires on
+- `promtool test rules` runs 19 scenarios against the rules: each important alert fires on
   series that should trigger it and stays quiet on normal ones, the PSI arithmetic is
   checked against a hand-computed value, and the minimum-traffic guard is exercised. It runs
   in CI together with `promtool check config` and `amtool check-config`.
@@ -269,6 +373,9 @@ file shows where a Slack receiver goes.
   the standard checklist for the "it is broken" row.
 - *Population Stability Index* and *Kolmogorov–Smirnov test*: two common drift measures.
 - *Alert fatigue* and *symptom-based alerting*: why each alert here has a `for` duration, a
-  traffic guard and a runbook, and why there are 20 alerts and not 100.
+  traffic guard and a runbook, and why there are 29 alerts and not 300.
 - *Concept drift vs data drift*: the difference between "inputs changed" (seen here) and
   "the relationship between inputs and fraud changed" (needs labels).
+- *USE method* (utilisation, saturation, errors, per resource) by Brendan Gregg: the
+  companion to the golden signals for the saturation row.
+- *asyncio event loop* and why one blocking call stalls every request on a worker.

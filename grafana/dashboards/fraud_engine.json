@@ -831,6 +831,272 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Golden signals: latency, traffic, errors, saturation",
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 41,
+      "title": "1. Latency (p50 / p99)",
+      "type": "timeseries",
+      "description": "How long a decision takes. Alerts: FraudLatencyP99High above 250 ms, FraudLatencyP50High above 100 ms.",
+      "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:latency_p50:rate5m",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:latency_p99:rate5m",
+          "legendFormat": "p99"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "vector(0.25)",
+          "legendFormat": "p99 alert (250 ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 42,
+      "title": "2. Traffic (requests/s) against its 1-day average",
+      "type": "timeseries",
+      "description": "How much is being asked. Alerts: FraudTrafficSurge above 3x the average, FraudTrafficDrop below 30%, FraudNoTraffic.",
+      "gridPos": {
+        "x": 6,
+        "y": 73,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:requests:rate5m",
+          "legendFormat": "now (5 min rate)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:requests:avg1d",
+          "legendFormat": "1-day average"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(fraud_inflight_requests)",
+          "legendFormat": "in flight"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 43,
+      "title": "3. Errors (% of responses)",
+      "type": "timeseries",
+      "description": "How often it fails, and whose fault. Alerts: FraudHighErrorRate above 1%, FraudClientErrorRate above 5%, FraudIdempotencyConflicts above 2%.",
+      "gridPos": {
+        "x": 12,
+        "y": 73,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:http_status_share:rate5m{status=~\"5..\"} * 100",
+          "legendFormat": "our errors (5xx)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:http_status_share:rate5m{status=\"422\"} * 100",
+          "legendFormat": "invalid requests (422)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:http_status_share:rate5m{status=\"409\"} * 100",
+          "legendFormat": "duplicates in flight (409)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:error_ratio:rate5m * 100",
+          "legendFormat": "unhandled errors"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 44,
+      "title": "4. Saturation (% of capacity)",
+      "type": "timeseries",
+      "description": "How full each thing that can run out is. Alerts at 80-85%. Redis memory shows nothing when no limit is configured.",
+      "gridPos": {
+        "x": 18,
+        "y": 73,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:worker_cpu_utilization:avg * 100",
+          "legendFormat": "worker CPU (avg)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_worker_cpu_utilization) * 100",
+          "legendFormat": "worker CPU (busiest)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:db_pool_utilization * 100",
+          "legendFormat": "Postgres pool in use"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:postgres_connection_utilization * 100",
+          "legendFormat": "Postgres connections / max"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:redis_memory_utilization * 100",
+          "legendFormat": "Redis memory / limit"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 45,
+      "title": "Event-loop lag (worst worker)",
+      "type": "timeseries",
+      "description": "Each worker serves all its requests on one thread. Lag is how late a 0.5 s timer fires: the earliest sign of an overloaded worker, before latency percentiles move.",
+      "gridPos": {
+        "x": 0,
+        "y": 80,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_event_loop_lag_seconds)",
+          "legendFormat": "lag"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "vector(0.1)",
+          "legendFormat": "alert (100 ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 46,
+      "title": "Worker memory",
+      "type": "timeseries",
+      "description": "Resident memory per worker. No alert (no limit is configured); a steady climb is a leak.",
+      "gridPos": {
+        "x": 8,
+        "y": 80,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud_worker_memory_bytes",
+          "legendFormat": "worker {{pid}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 47,
+      "title": "Action rates against their 1-day normal (%)",
+      "type": "timeseries",
+      "description": "What the engine tells callers to do. With no labels on live traffic this is the proxy for decision quality. Alerts: FraudAllowRateDrop, FraudReviewRateHigh / Low, FraudDenyRateHigh.",
+      "gridPos": {
+        "x": 16,
+        "y": 80,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:decision_share:rate5m * 100",
+          "legendFormat": "{{decision}} now"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "fraud:decision_share:avg1d * 100",
+          "legendFormat": "{{decision}} 1-day avg"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "max(fraud_expected_rate{kind=\"review_rate\"}) * 100",
+          "legendFormat": "review expected at training time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      }
     }
   ]
 }

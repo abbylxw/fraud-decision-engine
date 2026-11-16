@@ -27,7 +27,7 @@ from app.decisions import execute_hard_rules, execute_shadow_rules, execute_soft
 from app.decisions.features import build_features, event_ts, update_velocity_counters
 from app.decisions.models import MODEL_VERSION, REVIEW_THRESHOLD, THRESHOLD
 from app.decisions.models import score as model_score
-from app.telemetry import REQUEST_ERRORS, observe_drift, probe_dependencies
+from app.telemetry import INFLIGHT_REQUESTS, REQUEST_ERRORS, observe_drift, probe_dependencies
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -111,6 +111,11 @@ MODEL_THRESHOLD.labels(band="deny").set(THRESHOLD)
 SHARED_DEVICE_TOTAL = Counter(
     "fraud_shared_device_total",
     "Requests from a device previously used by other accounts, by decision", ["decision"])
+# Every response of POST /api/transactions by status code: 201 decided, 409 duplicate in
+# flight, 422 the client sent a bad request, 500 we failed. The "errors" golden signal for
+# both sides: ours (5xx) and the caller's (4xx).
+HTTP_RESPONSES = Counter(
+    "fraud_http_responses_total", "Responses of POST /api/transactions by status code", ["status"])
 IDEMPOTENCY_HITS = Counter(
     "fraud_idempotency_hits_total", "Requests served from idempotency cache")
 IDEMPOTENCY_CONFLICTS = Counter(
@@ -194,6 +199,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/metrics", _metrics_app())
+
+
+class _CountResponses:
+    """Counts each /api/transactions response by status code. A plain ASGI wrapper (not
+    BaseHTTPMiddleware) so it adds no task or buffering per request. It sees what the
+    handler cannot: a 422 is rejected by validation before the handler runs, and a 500 is
+    produced after it raised."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] != "/api/transactions":
+            return await self.inner(scope, receive, send)
+        status = "500"   # if the app raises before sending anything, the server answers 500
+
+        async def counting_send(message):
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = str(message["status"])
+            await send(message)
+
+        try:
+            await self.inner(scope, receive, counting_send)
+        finally:
+            HTTP_RESPONSES.labels(status=status).inc()
+
+
+app.add_middleware(_CountResponses)
 
 
 # --- Dependency providers ---
@@ -374,6 +408,7 @@ async def process_transaction(
         return DecisionResponse.model_validate_json(existing)
 
     _t0 = asyncio.get_event_loop().time()
+    INFLIGHT_REQUESTS.inc()
     try:
         response = await run_process(transaction, db, redis, executor)
     except BaseException as exc:
@@ -387,6 +422,8 @@ async def process_transaction(
         except Exception:
             logger.exception("idempotency.release_failed", extra={"idempotency_key": idempotency_key})
         raise
+    finally:
+        INFLIGHT_REQUESTS.dec()
     REQUEST_LATENCY.observe(asyncio.get_event_loop().time() - _t0)
     await redis.set(idem_key, response.model_dump_json(), ex=IDEMPOTENCY_TTL_SECONDS)
     return response

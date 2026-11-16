@@ -5,6 +5,14 @@
 # docs/monitoring.md, where each alert's meaning, threshold reasoning and first checks live.
 # Unit tests: prometheus/tests/alerts_test.yml (promtool test rules).
 #
+# Coverage, by what the alerts are for:
+#   * The four golden signals (Google SRE book): latency, traffic, errors, saturation
+#     -> groups fraud_engine_latency_traffic_errors and fraud_engine_saturation
+#   * Dependencies and data the features need -> fraud_engine_availability
+#   * Action rates (what the engine tells callers to do: allow / review / deny), the proxy
+#     for decision quality, since live traffic has no labels -> fraud_engine_decisions
+#   * Model and feature drift -> fraud_engine_model
+#
 # Conventions:
 #   * Ratio alerts carry a minimum-traffic guard: a ratio over a handful of requests is noise.
 #   * Thresholds are starting points chosen from this project's replays, not tuned on
@@ -49,6 +57,26 @@ groups:
         expr: >
           sum by (source) (rate(fraud_feature_fallback_total[10m]))
           / on() group_left() sum(rate(fraud_requests_total[10m]))
+      # Traffic against its own recent normal.
+      - record: fraud:requests:avg1d
+        expr: avg_over_time(fraud:requests:rate5m[1d])
+      # Share of responses by HTTP status (201 / 409 / 422 / 500).
+      - record: fraud:http_status_share:rate5m
+        expr: >
+          sum by (status) (rate(fraud_http_responses_total[5m]))
+          / on() group_left() sum(rate(fraud_http_responses_total[5m]))
+      # Saturation ratios: 1 = full.
+      - record: fraud:db_pool_utilization
+        expr: sum(fraud_db_pool_in_use) / sum(fraud_db_pool_capacity)
+      - record: fraud:postgres_connection_utilization
+        expr: max(fraud_postgres_connections) / max(fraud_postgres_max_connections)
+      - record: fraud:worker_cpu_utilization:avg
+        expr: avg(fraud_worker_cpu_utilization)
+      - record: fraud:redis_memory_utilization
+        expr: max(fraud_redis_memory_used_bytes) / (max(fraud_redis_memory_max_bytes) > 0)
+      # Each action's share against its own 1-day normal.
+      - record: fraud:decision_share:avg1d
+        expr: avg_over_time(fraud:decision_share:rate5m[1d])
       - record: fraud:shared_device_share:rate1h
         expr: sum(rate(fraud_shared_device_total[1h])) / sum(rate(fraud_decisions_total[1h]))
 
@@ -165,6 +193,100 @@ groups:
           description: "The API is up but has received nothing. Expected on a development machine; in production it means the caller stopped asking."
           runbook_url: "docs/monitoring.md#fraudnotraffic"
 
+  # ------------------------------------------------------------------------------------
+  # Golden signals 1-3: latency, traffic, errors. (FraudHighErrorRate and
+  # FraudLatencyP99High are in the availability group above.)
+  # ------------------------------------------------------------------------------------
+  - name: fraud_engine_latency_traffic_errors
+    rules:
+      - alert: FraudLatencyP50High
+        expr: fraud:latency_p50:rate5m > 0.1 and fraud:requests:rate5m > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "The typical request takes over 100 ms"
+          description: "Median latency is {{ $value | humanizeDuration }} (normal: about 7 ms). A slow median means everything is slow, not a few unlucky requests."
+          runbook_url: "docs/monitoring.md#fraudlatencyp50high"
+
+      - alert: FraudTrafficSurge
+        expr: fraud:requests:rate5m > 3 * fraud:requests:avg1d and fraud:requests:rate5m > 5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Request rate is over 3 times its 1-day average"
+          description: "{{ $value | humanize }} requests/s. A sale, a retry storm, or an attack; check saturation before it turns into latency."
+          runbook_url: "docs/monitoring.md#fraudtrafficsurge"
+
+      - alert: FraudTrafficDrop
+        expr: fraud:requests:rate5m < 0.3 * fraud:requests:avg1d and fraud:requests:avg1d > 1
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Request rate fell below 30% of its 1-day average"
+          description: "{{ $value | humanize }} requests/s. The API is up; fewer orders are being sent to it. Usually an upstream problem, and orders may be going through unchecked."
+          runbook_url: "docs/monitoring.md#fraudtrafficdrop"
+
+      - alert: FraudClientErrorRate
+        expr: >
+          sum(fraud:http_status_share:rate5m{status=~"4..", status!="409"}) > 0.05
+          and on() fraud:requests:rate5m > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 5% of requests are rejected as invalid (4xx)"
+          description: "{{ $value | humanizePercentage }} of requests fail validation. A caller is sending payloads the API does not accept, so those orders get no fraud decision."
+          runbook_url: "docs/monitoring.md#fraudclienterrorrate"
+
+  # ------------------------------------------------------------------------------------
+  # Golden signal 4: saturation. How full is each thing that can run out.
+  # ------------------------------------------------------------------------------------
+  - name: fraud_engine_saturation
+    rules:
+      - alert: FraudEventLoopLag
+        expr: max(fraud_event_loop_lag_seconds) > 0.1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "An API worker's event loop is running over 100 ms late"
+          description: "Worst event-loop lag is {{ $value | humanizeDuration }}. Something is blocking a worker's single request thread; latency follows."
+          runbook_url: "docs/monitoring.md#fraudeventlooplag"
+
+      - alert: FraudWorkerCpuSaturated
+        expr: fraud:worker_cpu_utilization:avg > 0.85
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "API workers are using over 85% of a CPU core each on average"
+          description: "Average worker CPU is {{ $value | humanizePercentage }}. The workers are the bottleneck; more traffic will queue."
+          runbook_url: "docs/monitoring.md#fraudworkercpusaturated"
+
+      - alert: FraudDbPoolSaturated
+        expr: fraud:db_pool_utilization > 0.8
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Over 80% of the API's Postgres connections are in use"
+          description: "{{ $value | humanizePercentage }} of pooled connections are checked out. At 100% requests wait for a connection."
+          runbook_url: "docs/monitoring.md#frauddbpoolsaturated"
+
+      - alert: FraudPostgresConnectionsHigh
+        expr: fraud:postgres_connection_utilization > 0.8
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Postgres is at over 80% of max_connections"
+          description: "{{ $value | humanizePercentage }} of the server's connection slots are taken. At 100% new connections are refused and requests fail."
+          runbook_url: "docs/monitoring.md#fraudpostgresconnectionshigh"
+
+      - alert: FraudRedisMemoryHigh
+        expr: fraud:redis_memory_utilization > 0.85
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Redis is using over 85% of its memory limit"
+          description: "{{ $value | humanizePercentage }} of maxmemory is used. At the limit Redis evicts keys or rejects writes; either way velocity history is lost."
+          runbook_url: "docs/monitoring.md#fraudredismemoryhigh"
+
   - name: fraud_engine_decisions
     rules:
       - alert: FraudSignupBurstAttack
@@ -184,6 +306,18 @@ groups:
           summary: "Many devices are being used by several accounts within an hour"
           description: "{{ $value | humanizePercentage }} of decisions are device_many_users_1h denials. Either a device farm, or a device id that stopped being unique."
           runbook_url: "docs/monitoring.md#fraudshareddevicerule"
+
+      - alert: FraudAllowRateDrop
+        expr: >
+          fraud:decision_share:rate5m{decision="allow"}
+            < fraud:decision_share:avg1d{decision="allow"} - 0.10
+          and on() fraud:decisions:rate5m > 0.2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "The engine is approving at least 10 points fewer orders than its 1-day normal"
+          description: "Allow share is {{ $value | humanizePercentage }}. More customers than usual are being reviewed or declined; the 'Decisions by rule' panel shows which rule or score band is responsible."
+          runbook_url: "docs/monitoring.md#fraudallowratedrop"
 
       - alert: FraudDenyRateHigh
         expr: >
