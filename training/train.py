@@ -123,15 +123,15 @@ def make_candidates(neg_pos_ratio):
     each algorithm's validation winner. (An earlier sweep needed an extra "reject configs
     under 50 trees" rule; that was XGBoost's own early stopping misfiring, fixed in
     candidates.fit_candidate on 2026-11-15, and the same config wins without the rule.)
-    Validation PR-AUC (sweep of 2026-11-15, with did_txn_cnt_all): RF 0.129, XGBoost 0.149,
-    LightGBM 0.148, CatBoost 0.143; the top three configs of each booster are within 0.002
-    of each other, i.e. noise. All boosters are shallow:
+    Validation PR-AUC (third sweep of 2026-11-15, on the audited 34-feature set with the
+    monotone constraint): RF 0.125, XGBoost 0.142, LightGBM 0.142, CatBoost 0.143; the top
+    three configs of each booster are within 0.003 of each other, i.e. noise. All boosters are shallow:
     the signal left after the January bot rows are removed is weak (mostly device sharing)
     and deep trees overfit it within a handful of rounds.
     """
     return {
         "random_forest": RandomForestClassifier(
-            n_estimators=200, max_depth=16, min_samples_leaf=20,
+            n_estimators=200, max_depth=16, min_samples_leaf=50,
             class_weight="balanced", n_jobs=-1, random_state=SEED,
         ),
         "xgboost": XGBClassifier(
@@ -144,13 +144,13 @@ def make_candidates(neg_pos_ratio):
             random_state=SEED, n_jobs=-1,
         ),
         "lightgbm": LGBMClassifier(
-            n_estimators=1000, num_leaves=7, learning_rate=0.03, min_child_samples=100,
+            n_estimators=1000, num_leaves=31, learning_rate=0.03, min_child_samples=50,
             subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
             scale_pos_weight=neg_pos_ratio, metric="average_precision",
             random_state=SEED, n_jobs=-1, verbose=-1,
         ),
         "catboost": CatBoostClassifier(
-            iterations=1000, depth=3, learning_rate=0.05, l2_leaf_reg=10,
+            iterations=1000, depth=4, learning_rate=0.05, l2_leaf_reg=10,
             scale_pos_weight=neg_pos_ratio, random_seed=SEED, verbose=False, thread_count=-1,
             allow_writing_files=False,
         ),
@@ -341,6 +341,15 @@ def main():
     served_cost = report["previous_model"]["as_served"]["total_cost"]
     pr_ok, cost_ok = new_pr >= old_ci[0], new_cost <= served_cost
     gate_ok = pr_ok and cost_ok
+    # Ranking quality against the served model on the same resampled test orders.
+    rng = np.random.default_rng(SEED)
+    pr_diffs = []
+    for _ in range(args.n_boot):
+        i = rng.integers(0, len(yt), len(yt))
+        pr_diffs.append(average_precision_score(yt[i], p_new[i])
+                        - average_precision_score(yt[i], p_old[i]))
+    pr_diff_ci = [round(float(np.percentile(pr_diffs, 2.5)), 4),
+                  round(float(np.percentile(pr_diffs, 97.5)), 4)]
     # How sure is the cost difference? Paired bootstrap over test orders, thresholds fixed.
     cost_diff_ci = cost_difference_ci(
         yt, vt, p_new, (review_threshold, threshold),
@@ -351,6 +360,7 @@ def main():
         "pr_auc_ok": bool(pr_ok), "cost_ok": bool(cost_ok),
         "new_policy_cost": new_cost, "served_policy_cost": served_cost,
         "cost_difference_ci95": cost_diff_ci,   # new - served; reported, not part of the rule
+        "pr_auc_difference_ci95": pr_diff_ci,   # new - served, paired; reported
         "passed": bool(gate_ok)}
 
     # How much the conclusion depends on the two assumptions about review.
@@ -445,7 +455,8 @@ def main():
     print(f"  top features: {meta['top_features']}")
     print(f"  ship gate: PR-AUC ok={pr_ok}, cost ok={cost_ok} "
           f"(${new_cost:,.0f} vs served ${served_cost:,.0f}; difference "
-          f"${new_cost - served_cost:,.0f}, 95% CI {cost_diff_ci}) -> passed: {gate_ok}")
+          f"${new_cost - served_cost:,.0f}, 95% CI {cost_diff_ci}; paired PR-AUC difference "
+          f"95% CI {pr_diff_ci}) -> passed: {gate_ok}")
     print(f"Wrote {out.relative_to(ROOT)}/model_meta.json")
 
     if args.ship:

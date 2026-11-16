@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-15T15:28:09",
+  "generated_at": "2026-11-15T17:33:09",
   "selection_metric": "validation PR-AUC (test rows never used)",
   "train_rows": 98178,
   "validation_rows": 15111,
@@ -35,15 +35,7 @@
     "did_uid_90d",
     "ip_uid_24h",
     "ip_uid_7d",
-    "did_txn_cnt_2h",
-    "did_txn_cnt_24h",
-    "did_txn_cnt_7d",
-    "did_txn_cnt_30d",
-    "did_txn_cnt_all",
-    "country_txn_count_24h",
-    "country_txn_count_7d",
-    "country_txn_count_30d",
-    "amount_vs_user_avg_30d",
+    "did_other_uid_all",
     "age_account_gap",
     "age_group"
   ],
@@ -51,66 +43,66 @@
     "random_forest": [
       {
         "max_depth": 16,
-        "min_samples_leaf": 20,
-        "validation_pr_auc": 0.1287,
-        "trees": null,
-        "fit_seconds": 1.8
-      },
-      {
-        "max_depth": 12,
-        "min_samples_leaf": 20,
-        "validation_pr_auc": 0.1262,
-        "trees": null,
-        "fit_seconds": 1.6
-      },
-      {
-        "max_depth": 12,
-        "min_samples_leaf": 100,
-        "validation_pr_auc": 0.1258,
-        "trees": null,
-        "fit_seconds": 1.6
-      },
-      {
-        "max_depth": 12,
         "min_samples_leaf": 50,
-        "validation_pr_auc": 0.1257,
-        "trees": null,
-        "fit_seconds": 1.5
-      },
-      {
-        "max_depth": 16,
-        "min_samples_leaf": 50,
-        "validation_pr_auc": 0.1255,
-        "trees": null,
-        "fit_seconds": 1.8
-      },
-      {
-        "max_depth": 8,
-        "min_samples_leaf": 100,
-        "validation_pr_auc": 0.1244,
+        "validation_pr_auc": 0.1247,
         "trees": null,
         "fit_seconds": 1.2
       },
       {
-        "max_depth": 8,
+        "max_depth": 12,
         "min_samples_leaf": 20,
-        "validation_pr_auc": 0.1242,
+        "validation_pr_auc": 0.124,
         "trees": null,
         "fit_seconds": 1.1
       },
       {
-        "max_depth": 16,
-        "min_samples_leaf": 100,
-        "validation_pr_auc": 0.1236,
+        "max_depth": 8,
+        "min_samples_leaf": 20,
+        "validation_pr_auc": 0.1235,
         "trees": null,
-        "fit_seconds": 1.6
+        "fit_seconds": 0.8
       },
       {
         "max_depth": 8,
         "min_samples_leaf": 50,
-        "validation_pr_auc": 0.1231,
+        "validation_pr_auc": 0.1235,
         "trees": null,
-        "fit_seconds": 1.1
+        "fit_seconds": 0.8
+      },
+      {
+        "max_depth": 16,
+        "min_samples_leaf": 20,
+        "validation_pr_auc": 0.1232,
+        "trees": null,
+        "fit_seconds": 1.2
+      },
+      {
+        "max_depth": 12,
+        "min_samples_leaf": 100,
+        "validation_pr_auc": 0.1223,
+        "trees": null,
+        "fit_seconds": 1.0
+      },
+      {
+        "max_depth": 12,
+        "min_samples_leaf": 50,
+        "validation_pr_auc": 0.1216,
+        "trees": null,
+        "fit_seconds": 1.0
+      },
+      {
+        "max_depth": 8,
+        "min_samples_leaf": 100,
+        "validation_pr_auc": 0.1205,
+        "trees": null,
+        "fit_seconds": 0.8
+      },
+      {
+        "max_depth": 16,
+        "min_samples_leaf": 100,
+        "validation_pr_auc": 0.1205,
+        "trees": null,
+        "fit_seconds": 1.2
       }
     ],
     "xgboost": [
@@ -118,461 +110,461 @@
         "max_depth": 3,
         "learning_rate": 0.05,
         "min_child_weight": 100,
-        "validation_pr_auc": 0.1488,
-        "trees": 200,
+        "validation_pr_auc": 0.1424,
+        "trees": 40,
         "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.03,
-        "min_child_weight": 100,
-        "validation_pr_auc": 0.1484,
-        "trees": 630,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.05,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1477,
-        "trees": 510,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.1,
-        "min_child_weight": 100,
-        "validation_pr_auc": 0.1477,
-        "trees": 330,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.03,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1468,
-        "trees": 330,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.1,
-        "min_child_weight": 100,
-        "validation_pr_auc": 0.1462,
-        "trees": 110,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.03,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1459,
-        "trees": 320,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.1,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1452,
-        "trees": 110,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.05,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1442,
-        "trees": 300,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.03,
-        "min_child_weight": 100,
-        "validation_pr_auc": 0.144,
-        "trees": 530,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.1,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1431,
-        "trees": 650,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 3,
-        "learning_rate": 0.03,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1428,
-        "trees": 200,
-        "fit_seconds": 2.2
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.05,
-        "min_child_weight": 100,
-        "validation_pr_auc": 0.1423,
-        "trees": 100,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 2,
-        "learning_rate": 0.03,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.142,
-        "trees": 600,
-        "fit_seconds": 1.8
       },
       {
         "max_depth": 2,
         "learning_rate": 0.03,
         "min_child_weight": 100,
-        "validation_pr_auc": 0.1417,
+        "validation_pr_auc": 0.1402,
         "trees": 180,
-        "fit_seconds": 1.8
+        "fit_seconds": 1.7
       },
       {
-        "max_depth": 2,
-        "learning_rate": 0.05,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1412,
-        "trees": 550,
-        "fit_seconds": 1.8
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.1,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1408,
-        "trees": 20,
-        "fit_seconds": 3.0
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1399,
+        "trees": 40,
+        "fit_seconds": 2.0
       },
       {
         "max_depth": 2,
         "learning_rate": 0.05,
         "min_child_weight": 100,
-        "validation_pr_auc": 0.1405,
-        "trees": 130,
-        "fit_seconds": 1.8
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.05,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1405,
-        "trees": 210,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.03,
-        "min_child_weight": 1,
         "validation_pr_auc": 0.1396,
-        "trees": 190,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 5,
-        "learning_rate": 0.05,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1395,
-        "trees": 10,
-        "fit_seconds": 3.0
-      },
-      {
-        "max_depth": 2,
-        "learning_rate": 0.1,
-        "min_child_weight": 50,
-        "validation_pr_auc": 0.1389,
-        "trees": 60,
-        "fit_seconds": 1.8
-      },
-      {
-        "max_depth": 2,
-        "learning_rate": 0.05,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1383,
-        "trees": 600,
-        "fit_seconds": 1.8
-      },
-      {
-        "max_depth": 2,
-        "learning_rate": 0.1,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1382,
-        "trees": 300,
-        "fit_seconds": 1.9
-      },
-      {
-        "max_depth": 2,
-        "learning_rate": 0.03,
-        "min_child_weight": 1,
-        "validation_pr_auc": 0.1376,
-        "trees": 250,
-        "fit_seconds": 1.8
+        "trees": 80,
+        "fit_seconds": 1.7
       },
       {
         "max_depth": 2,
         "learning_rate": 0.1,
         "min_child_weight": 100,
-        "validation_pr_auc": 0.1376,
-        "trees": 200,
-        "fit_seconds": 1.8
+        "validation_pr_auc": 0.1394,
+        "trees": 60,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1392,
+        "trees": 40,
+        "fit_seconds": 2.1
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1386,
+        "trees": 120,
+        "fit_seconds": 2.1
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.1,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1386,
+        "trees": 80,
+        "fit_seconds": 2.1
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1381,
+        "trees": 40,
+        "fit_seconds": 2.1
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.05,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1379,
+        "trees": 60,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1378,
+        "trees": 40,
+        "fit_seconds": 2.0
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.1,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1378,
+        "trees": 60,
+        "fit_seconds": 2.1
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.05,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1377,
+        "trees": 60,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1375,
+        "trees": 180,
+        "fit_seconds": 2.8
       },
       {
         "max_depth": 5,
         "learning_rate": 0.1,
         "min_child_weight": 1,
-        "validation_pr_auc": 0.1348,
+        "validation_pr_auc": 0.1373,
+        "trees": 40,
+        "fit_seconds": 2.9
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1371,
+        "trees": 20,
+        "fit_seconds": 2.9
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.1,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1366,
+        "trees": 60,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1365,
+        "trees": 40,
+        "fit_seconds": 2.8
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.03,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.136,
+        "trees": 180,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.136,
+        "trees": 140,
+        "fit_seconds": 2.8
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.03,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1357,
+        "trees": 180,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.1,
+        "min_child_weight": 50,
+        "validation_pr_auc": 0.1356,
         "trees": 10,
         "fit_seconds": 3.0
+      },
+      {
+        "max_depth": 3,
+        "learning_rate": 0.1,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1354,
+        "trees": 60,
+        "fit_seconds": 2.0
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1354,
+        "trees": 20,
+        "fit_seconds": 2.9
+      },
+      {
+        "max_depth": 2,
+        "learning_rate": 0.1,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1349,
+        "trees": 170,
+        "fit_seconds": 1.7
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.1,
+        "min_child_weight": 100,
+        "validation_pr_auc": 0.1342,
+        "trees": 40,
+        "fit_seconds": 2.9
+      },
+      {
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 1,
+        "validation_pr_auc": 0.1336,
+        "trees": 20,
+        "fit_seconds": 2.8
       }
     ],
     "lightgbm": [
       {
-        "num_leaves": 7,
-        "learning_rate": 0.03,
-        "min_child_samples": 100,
-        "validation_pr_auc": 0.1484,
-        "trees": 376,
-        "fit_seconds": 1.0
-      },
-      {
-        "num_leaves": 7,
+        "num_leaves": 31,
         "learning_rate": 0.03,
         "min_child_samples": 50,
-        "validation_pr_auc": 0.148,
-        "trees": 373,
-        "fit_seconds": 1.0
-      },
-      {
-        "num_leaves": 31,
-        "learning_rate": 0.03,
-        "min_child_samples": 100,
-        "validation_pr_auc": 0.1473,
-        "trees": 308,
-        "fit_seconds": 2.2
-      },
-      {
-        "num_leaves": 31,
-        "learning_rate": 0.05,
-        "min_child_samples": 100,
-        "validation_pr_auc": 0.1463,
-        "trees": 164,
-        "fit_seconds": 1.4
-      },
-      {
-        "num_leaves": 15,
-        "learning_rate": 0.03,
-        "min_child_samples": 100,
-        "validation_pr_auc": 0.1449,
-        "trees": 272,
+        "validation_pr_auc": 0.1423,
+        "trees": 114,
         "fit_seconds": 1.2
       },
       {
-        "num_leaves": 15,
+        "num_leaves": 31,
         "learning_rate": 0.03,
         "min_child_samples": 20,
-        "validation_pr_auc": 0.1445,
-        "trees": 469,
-        "fit_seconds": 1.9
+        "validation_pr_auc": 0.1396,
+        "trees": 227,
+        "fit_seconds": 1.8
       },
       {
-        "num_leaves": 15,
-        "learning_rate": 0.03,
-        "min_child_samples": 50,
-        "validation_pr_auc": 0.1444,
-        "trees": 342,
-        "fit_seconds": 1.4
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.139,
+        "trees": 70,
+        "fit_seconds": 1.0
       },
       {
         "num_leaves": 7,
         "learning_rate": 0.05,
         "min_child_samples": 50,
-        "validation_pr_auc": 0.1442,
-        "trees": 166,
-        "fit_seconds": 0.6
+        "validation_pr_auc": 0.1388,
+        "trees": 131,
+        "fit_seconds": 0.5
       },
       {
         "num_leaves": 7,
         "learning_rate": 0.05,
         "min_child_samples": 100,
-        "validation_pr_auc": 0.143,
-        "trees": 178,
-        "fit_seconds": 0.6
+        "validation_pr_auc": 0.136,
+        "trees": 116,
+        "fit_seconds": 0.5
+      },
+      {
+        "num_leaves": 31,
+        "learning_rate": 0.03,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1359,
+        "trees": 220,
+        "fit_seconds": 1.7
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.03,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1357,
+        "trees": 113,
+        "fit_seconds": 0.5
       },
       {
         "num_leaves": 31,
         "learning_rate": 0.05,
-        "min_child_samples": 50,
-        "validation_pr_auc": 0.1428,
-        "trees": 88,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1357,
+        "trees": 99,
         "fit_seconds": 1.1
       },
       {
         "num_leaves": 15,
         "learning_rate": 0.05,
-        "min_child_samples": 100,
-        "validation_pr_auc": 0.1427,
-        "trees": 284,
-        "fit_seconds": 1.3
-      },
-      {
-        "num_leaves": 31,
-        "learning_rate": 0.03,
         "min_child_samples": 50,
-        "validation_pr_auc": 0.1427,
-        "trees": 186,
-        "fit_seconds": 1.6
-      },
-      {
-        "num_leaves": 15,
-        "learning_rate": 0.05,
-        "min_child_samples": 50,
-        "validation_pr_auc": 0.1422,
-        "trees": 87,
-        "fit_seconds": 0.6
-      },
-      {
-        "num_leaves": 31,
-        "learning_rate": 0.03,
-        "min_child_samples": 20,
-        "validation_pr_auc": 0.1421,
+        "validation_pr_auc": 0.1355,
         "trees": 118,
-        "fit_seconds": 1.2
+        "fit_seconds": 0.7
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.05,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1351,
+        "trees": 82,
+        "fit_seconds": 0.6
       },
       {
         "num_leaves": 31,
         "learning_rate": 0.05,
-        "min_child_samples": 20,
-        "validation_pr_auc": 0.1414,
-        "trees": 94,
-        "fit_seconds": 1.1
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1351,
+        "trees": 86,
+        "fit_seconds": 1.0
       },
       {
         "num_leaves": 7,
         "learning_rate": 0.03,
-        "min_child_samples": 20,
-        "validation_pr_auc": 0.1368,
-        "trees": 159,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1347,
+        "trees": 123,
+        "fit_seconds": 0.5
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.03,
+        "min_child_samples": 50,
+        "validation_pr_auc": 0.1347,
+        "trees": 179,
+        "fit_seconds": 1.0
+      },
+      {
+        "num_leaves": 15,
+        "learning_rate": 0.03,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.134,
+        "trees": 115,
+        "fit_seconds": 0.7
+      },
+      {
+        "num_leaves": 7,
+        "learning_rate": 0.03,
+        "min_child_samples": 100,
+        "validation_pr_auc": 0.1335,
+        "trees": 180,
         "fit_seconds": 0.6
       },
       {
         "num_leaves": 7,
         "learning_rate": 0.05,
         "min_child_samples": 20,
-        "validation_pr_auc": 0.1362,
-        "trees": 73,
+        "validation_pr_auc": 0.1335,
+        "trees": 65,
         "fit_seconds": 0.4
       },
       {
         "num_leaves": 15,
+        "learning_rate": 0.03,
+        "min_child_samples": 20,
+        "validation_pr_auc": 0.1335,
+        "trees": 107,
+        "fit_seconds": 0.7
+      },
+      {
+        "num_leaves": 15,
         "learning_rate": 0.05,
         "min_child_samples": 20,
-        "validation_pr_auc": 0.1345,
-        "trees": 122,
-        "fit_seconds": 0.8
+        "validation_pr_auc": 0.132,
+        "trees": 82,
+        "fit_seconds": 0.6
       }
     ],
     "catboost": [
       {
-        "depth": 3,
+        "depth": 4,
         "learning_rate": 0.05,
         "l2_leaf_reg": 10,
-        "validation_pr_auc": 0.1427,
-        "trees": 450,
+        "validation_pr_auc": 0.1429,
+        "trees": 20,
+        "fit_seconds": 4.3
+      },
+      {
+        "depth": 4,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1413,
+        "trees": 30,
         "fit_seconds": 4.4
       },
       {
-        "depth": 4,
-        "learning_rate": 0.03,
-        "l2_leaf_reg": 3,
-        "validation_pr_auc": 0.1394,
-        "trees": 250,
-        "fit_seconds": 4.7
-      },
-      {
-        "depth": 4,
+        "depth": 3,
         "learning_rate": 0.03,
         "l2_leaf_reg": 10,
-        "validation_pr_auc": 0.1388,
-        "trees": 530,
-        "fit_seconds": 4.7
+        "validation_pr_auc": 0.1402,
+        "trees": 70,
+        "fit_seconds": 3.9
       },
       {
-        "depth": 4,
+        "depth": 3,
         "learning_rate": 0.05,
-        "l2_leaf_reg": 10,
-        "validation_pr_auc": 0.1384,
-        "trees": 390,
-        "fit_seconds": 4.7
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1399,
+        "trees": 100,
+        "fit_seconds": 3.9
       },
       {
-        "depth": 3,
+        "depth": 4,
         "learning_rate": 0.03,
         "l2_leaf_reg": 3,
-        "validation_pr_auc": 0.138,
-        "trees": 530,
-        "fit_seconds": 4.1
-      },
-      {
-        "depth": 3,
-        "learning_rate": 0.03,
-        "l2_leaf_reg": 10,
-        "validation_pr_auc": 0.1377,
-        "trees": 530,
+        "validation_pr_auc": 0.1395,
+        "trees": 470,
         "fit_seconds": 4.2
       },
       {
         "depth": 3,
         "learning_rate": 0.05,
-        "l2_leaf_reg": 3,
-        "validation_pr_auc": 0.1375,
-        "trees": 420,
-        "fit_seconds": 4.3
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.1392,
+        "trees": 40,
+        "fit_seconds": 3.9
       },
       {
         "depth": 6,
         "learning_rate": 0.03,
-        "l2_leaf_reg": 3,
-        "validation_pr_auc": 0.1366,
-        "trees": 210,
-        "fit_seconds": 5.5
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.139,
+        "trees": 120,
+        "fit_seconds": 5.1
       },
       {
         "depth": 4,
         "learning_rate": 0.05,
         "l2_leaf_reg": 3,
-        "validation_pr_auc": 0.1359,
-        "trees": 360,
-        "fit_seconds": 4.8
+        "validation_pr_auc": 0.1382,
+        "trees": 40,
+        "fit_seconds": 4.3
       },
       {
-        "depth": 6,
+        "depth": 3,
         "learning_rate": 0.03,
-        "l2_leaf_reg": 10,
-        "validation_pr_auc": 0.1351,
-        "trees": 90,
-        "fit_seconds": 5.3
-      },
-      {
-        "depth": 6,
-        "learning_rate": 0.05,
-        "l2_leaf_reg": 10,
-        "validation_pr_auc": 0.1351,
-        "trees": 90,
-        "fit_seconds": 5.4
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.137,
+        "trees": 120,
+        "fit_seconds": 3.9
       },
       {
         "depth": 6,
         "learning_rate": 0.05,
         "l2_leaf_reg": 3,
-        "validation_pr_auc": 0.1336,
-        "trees": 190,
-        "fit_seconds": 5.4
+        "validation_pr_auc": 0.1353,
+        "trees": 60,
+        "fit_seconds": 5.1
+      },
+      {
+        "depth": 6,
+        "learning_rate": 0.05,
+        "l2_leaf_reg": 10,
+        "validation_pr_auc": 0.135,
+        "trees": 50,
+        "fit_seconds": 5.1
+      },
+      {
+        "depth": 6,
+        "learning_rate": 0.03,
+        "l2_leaf_reg": 3,
+        "validation_pr_auc": 0.1349,
+        "trees": 40,
+        "fit_seconds": 5.1
       }
     ]
   }

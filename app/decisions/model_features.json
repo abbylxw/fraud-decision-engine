@@ -30,15 +30,7 @@
   "did_uid_90d",
   "ip_uid_24h",
   "ip_uid_7d",
-  "did_txn_cnt_2h",
-  "did_txn_cnt_24h",
-  "did_txn_cnt_7d",
-  "did_txn_cnt_30d",
   "did_other_uid_all",
-  "country_txn_count_24h",
-  "country_txn_count_7d",
-  "country_txn_count_30d",
-  "amount_vs_user_avg_30d",
   "age_account_gap",
   "age_group"
 ]

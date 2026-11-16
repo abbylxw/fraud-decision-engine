@@ -54,3 +54,24 @@ def test_monitoring_reference_matches_the_model():
         assert buckets["edges"] == sorted(buckets["edges"]), name
         assert abs(sum(buckets["shares"]) - 1) < 1e-3, name
     assert set(ref["features"]) <= set(meta["features"])
+
+
+def test_no_audited_out_feature_is_a_model_input():
+    """docs/feature_audit.md: these count the buyer's own purchases or raw traffic volume.
+    They are still computed and stored, but must not come back as model inputs."""
+    features = json.loads((DECISIONS / "model_features.json").read_text())
+    banned = [f for f in features
+              if f.startswith(("did_txn_cnt_", "country_txn_count_")) or f == "did_txn_cnt_all"]
+    assert not banned
+
+
+def test_a_customers_own_history_does_not_raise_their_score(sample_transaction):
+    """A repeat customer on their own device: more of their OWN earlier purchases (device
+    transaction counts, purchase counts, a ratio of 1 to their own average) must not move
+    the score. Before the audit the same inputs made a loyal customer look risky."""
+    new = _features(sample_transaction)
+    loyal = _features(sample_transaction, did_txn_cnt_30d=6, did_txn_cnt_7d=2, did_txn_cnt_all=40,
+                      purchase_cnt_30d=6, purchase_amt_30d=600.0, purchase_cnt_90d=15,
+                      amount_vs_user_avg_30d=1.0, time_since_last_txn_uid=86400.0,
+                      country_txn_count_30d=50_000)
+    assert score(loyal) == pytest.approx(score(new), abs=1e-6)
