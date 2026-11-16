@@ -1,6 +1,6 @@
 {
-  "model_version": "xgboost-20261109211048-5ba3793",
-  "trained_at": "2026-11-09T21:10:48",
+  "model_version": "xgboost-20261115160020-9aee13e",
+  "trained_at": "2026-11-15T16:00:20",
   "algorithm": "xgboost",
   "params": {
     "objective": "binary:logistic",
@@ -13,7 +13,7 @@
     "device": null,
     "early_stopping_rounds": null,
     "enable_categorical": false,
-    "eval_metric": "aucpr",
+    "eval_metric": null,
     "feature_types": null,
     "feature_weights": null,
     "gamma": null,
@@ -27,11 +27,11 @@
     "max_delta_step": null,
     "max_depth": 3,
     "max_leaves": null,
-    "min_child_weight": 50,
+    "min_child_weight": 100,
     "missing": NaN,
     "monotone_constraints": null,
     "multi_strategy": null,
-    "n_estimators": 203,
+    "n_estimators": 200,
     "n_jobs": -1,
     "num_parallel_tree": null,
     "random_state": 42,
@@ -44,17 +44,22 @@
     "validate_parameters": null,
     "verbosity": null
   },
-  "threshold": 0.842775,
+  "threshold": 1.01,
+  "review_threshold": 0.801363,
   "threshold_basis": {
     "chosen_on": "validation",
+    "decisions": "score >= threshold: deny; review_threshold <= score < threshold: review",
     "false_decline_cost": 10.0,
+    "review_cost": 5.0,
+    "review_catch_rate": 1.0,
+    "tie_break": "least intrusive policy within 1% of the minimum validation cost (training/policy.py)",
     "missed_fraud_cost": "purchase_value"
   },
-  "elevated_score_threshold": 0.59148,
+  "elevated_score_threshold": 0.83214,
   "elevated_score_basis": {
     "chosen_on": "validation",
     "rule": "top 3% of scores",
-    "validation_precision": 0.2379,
+    "validation_precision": 0.2665,
     "used_by": "rules.rate_limiter_control (score + velocity combos)"
   },
   "training_data": {
@@ -102,6 +107,7 @@
     "did_txn_cnt_24h",
     "did_txn_cnt_7d",
     "did_txn_cnt_30d",
+    "did_txn_cnt_all",
     "country_txn_count_24h",
     "country_txn_count_7d",
     "country_txn_count_30d",
@@ -140,23 +146,123 @@
     "month_of_year": "test months never appear in training; memorises January"
   },
   "top_features": {
-    "did_uid_90d": 0.2377,
-    "did_txn_cnt_30d": 0.134,
-    "did_uid_30d": 0.0383,
-    "ipc_China": 0.0295,
-    "ipc_United_States": 0.0277,
-    "ipc_Italy": 0.0269,
-    "ipc_grp_Asia": 0.0254,
-    "ipc_Korea_Republic_of": 0.0248,
-    "country_txn_count_30d": 0.022,
-    "country_txn_count_24h": 0.0218
+    "did_txn_cnt_all": 0.2488,
+    "did_uid_30d": 0.147,
+    "did_uid_90d": 0.1438,
+    "ipc_United_States": 0.0346,
+    "ipc_Korea_Republic_of": 0.0215,
+    "ipc_grp_Asia": 0.0207,
+    "ipc_grp_Europe": 0.0194,
+    "age_account_gap": 0.0192,
+    "country_txn_count_30d": 0.0189,
+    "amount_vs_user_avg_30d": 0.0185
   },
   "validation_pr_auc": {
-    "random_forest": 0.0934,
-    "xgboost": 0.1084
+    "random_forest": 0.1287,
+    "xgboost": 0.1488,
+    "lightgbm": 0.1484,
+    "catboost": 0.1427
+  },
+  "candidates_on_test": {
+    "random_forest": {
+      "trees": null,
+      "pr_auc": 0.1308,
+      "pr_auc_ci95": [
+        0.1169,
+        0.1462
+      ],
+      "roc_auc": 0.6429
+    },
+    "xgboost": {
+      "trees": 200,
+      "pr_auc": 0.1414,
+      "pr_auc_ci95": [
+        0.1264,
+        0.1599
+      ],
+      "roc_auc": 0.6433
+    },
+    "lightgbm": {
+      "trees": 376,
+      "pr_auc": 0.1411,
+      "pr_auc_ci95": [
+        0.1267,
+        0.1577
+      ],
+      "roc_auc": 0.6462
+    },
+    "catboost": {
+      "trees": 450,
+      "pr_auc": 0.1372,
+      "pr_auc_ci95": [
+        0.1227,
+        0.154
+      ],
+      "roc_auc": 0.6451
+    }
+  },
+  "selection_rule": {
+    "incumbent": "xgboost",
+    "selected": "xgboost",
+    "reason": "highest validation PR-AUC",
+    "rule": "highest validation PR-AUC, unless the winner is a challenger whose test PR-AUC is inside the incumbent's 95% CI"
   },
   "evaluation": {
     "new_model": {
+      "test": {
+        "pr_auc": 0.141,
+        "pr_auc_ci95": [
+          0.1252,
+          0.1599
+        ],
+        "roc_auc": 0.6412,
+        "roc_auc_ci95": [
+          0.6221,
+          0.658
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0641,
+          "precision": 0.2947
+        },
+        "at_5pct_alerts": {
+          "recall": 0.2613,
+          "precision": 0.2402
+        },
+        "precision_at_50pct_recall": 0.077
+      },
+      "policy": {
+        "review_threshold": 0.8014,
+        "deny_threshold": 1.01,
+        "denied": 0,
+        "deny_rate": 0.0,
+        "reviewed": 1873,
+        "review_rate": 0.062,
+        "fraud_total": 1389,
+        "fraud_denied": 0,
+        "fraud_reviewed": 435,
+        "fraud_allowed": 954,
+        "false_declines": 0,
+        "legit_reviewed": 1438,
+        "review_precision": 0.2322,
+        "deny_precision": null,
+        "total_cost": 44728.0
+      },
+      "deny_only": {
+        "threshold": 0.8014,
+        "denied": 1873,
+        "deny_rate": 0.062,
+        "fraud_caught": 435,
+        "fraud_total": 1389,
+        "false_declines": 1438,
+        "fraud_dollars_stopped": 16032.0,
+        "total_cost": 49743.0
+      },
+      "elevated_score_on_test": {
+        "share": 0.0388,
+        "precision": 0.2491
+      }
+    },
+    "previous_model": {
       "test": {
         "pr_auc": 0.092,
         "pr_auc_ci95": [
@@ -178,69 +284,182 @@
         },
         "precision_at_50pct_recall": 0.0533
       },
-      "at_new_threshold": {
-        "threshold": 0.8428,
+      "as_served": {
+        "review_threshold": 0.8428,
+        "deny_threshold": 0.8428,
         "denied": 365,
         "deny_rate": 0.0121,
-        "fraud_caught": 106,
+        "reviewed": 0,
+        "review_rate": 0.0,
         "fraud_total": 1389,
+        "fraud_denied": 106,
+        "fraud_reviewed": 0,
+        "fraud_allowed": 1283,
         "false_declines": 259,
-        "fraud_dollars_stopped": 4271.0,
+        "legit_reviewed": 0,
+        "review_precision": null,
+        "deny_precision": 0.2904,
         "total_cost": 49714.0
       },
-      "elevated_score_on_test": {
-        "share": 0.0264,
-        "precision": 0.2318
-      }
-    },
-    "previous_model": {
-      "test": {
-        "pr_auc": 0.0483,
-        "pr_auc_ci95": [
-          0.0452,
-          0.052
-        ],
-        "roc_auc": 0.5105,
-        "roc_auc_ci95": [
-          0.4947,
-          0.5261
-        ],
-        "at_1pct_alerts": {
-          "recall": 0.0122,
-          "precision": 0.0563
-        },
-        "at_5pct_alerts": {
-          "recall": 0.0526,
-          "precision": 0.0483
-        },
-        "precision_at_50pct_recall": 0.0468
-      },
-      "at_old_threshold": {
-        "threshold": 0.8428,
-        "denied": 13479,
-        "deny_rate": 0.446,
-        "fraud_caught": 641,
-        "fraud_total": 1389,
-        "false_declines": 12838,
-        "fraud_dollars_stopped": 24739.0,
-        "total_cost": 155036.0
-      },
-      "at_new_threshold_rule": {
-        "threshold": 1.01,
+      "best_policy": {
+        "review_threshold": 0.8281,
+        "deny_threshold": 1.01,
         "denied": 0,
         "deny_rate": 0.0,
-        "fraud_caught": 0,
+        "reviewed": 551,
+        "review_rate": 0.0182,
         "fraud_total": 1389,
+        "fraud_denied": 0,
+        "fraud_reviewed": 136,
+        "fraud_allowed": 1253,
         "false_declines": 0,
-        "fraud_dollars_stopped": 0.0,
-        "total_cost": 51395.0
+        "legit_reviewed": 415,
+        "review_precision": 0.2468,
+        "deny_precision": null,
+        "total_cost": 48865.0
       }
     },
     "deny_nothing_cost": 51395.0,
     "ship_gate": {
-      "rule": "new test PR-AUC >= previous model's 95% CI lower bound",
+      "rule": "new test PR-AUC >= previous model's 95% CI lower bound AND new policy's test cost <= the served policy's test cost (same cost parameters)",
+      "pr_auc_ok": true,
+      "cost_ok": true,
+      "new_policy_cost": 44728.0,
+      "served_policy_cost": 49714.0,
+      "cost_difference_ci95": [
+        -6348.0,
+        -3777.7
+      ],
       "passed": true
-    }
+    },
+    "review_sensitivity": [
+      {
+        "review_cost": 3.0,
+        "review_catch_rate": 1.0,
+        "new": {
+          "review_rate": 0.0642,
+          "deny_rate": 0.0,
+          "total_cost": 40527.0
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.045,
+          "deny_rate": 0.0,
+          "total_cost": 47750.0
+        }
+      },
+      {
+        "review_cost": 3.0,
+        "review_catch_rate": 0.8,
+        "new": {
+          "review_rate": 0.062,
+          "deny_rate": 0.0,
+          "total_cost": 44188.4
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0181,
+          "deny_rate": 0.0021,
+          "total_cost": 48858.0
+        }
+      },
+      {
+        "review_cost": 3.0,
+        "review_catch_rate": 0.6,
+        "new": {
+          "review_rate": 0.0364,
+          "deny_rate": 0.0226,
+          "total_cost": 47479.0
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0037,
+          "deny_rate": 0.0071,
+          "total_cost": 49844.2
+        }
+      },
+      {
+        "review_cost": 5.0,
+        "review_catch_rate": 1.0,
+        "new": {
+          "review_rate": 0.062,
+          "deny_rate": 0.0,
+          "total_cost": 44728.0
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0182,
+          "deny_rate": 0.0,
+          "total_cost": 48865.0
+        }
+      },
+      {
+        "review_cost": 5.0,
+        "review_catch_rate": 0.8,
+        "new": {
+          "review_rate": 0.0483,
+          "deny_rate": 0.0106,
+          "total_cost": 47804.4
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0047,
+          "deny_rate": 0.0045,
+          "total_cost": 49897.2
+        }
+      },
+      {
+        "review_cost": 5.0,
+        "review_catch_rate": 0.6,
+        "new": {
+          "review_rate": 0.0025,
+          "deny_rate": 0.0201,
+          "total_cost": 49203.2
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0,
+          "deny_rate": 0.0071,
+          "total_cost": 50203.0
+        }
+      },
+      {
+        "review_cost": 8.0,
+        "review_catch_rate": 1.0,
+        "new": {
+          "review_rate": 0.0173,
+          "deny_rate": 0.0053,
+          "total_cost": 49467.0
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0026,
+          "deny_rate": 0.0045,
+          "total_cost": 50265.0
+        }
+      },
+      {
+        "review_cost": 8.0,
+        "review_catch_rate": 0.8,
+        "new": {
+          "review_rate": 0.0025,
+          "deny_rate": 0.0201,
+          "total_cost": 49315.6
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0,
+          "deny_rate": 0.0071,
+          "total_cost": 50203.0
+        }
+      },
+      {
+        "review_cost": 8.0,
+        "review_catch_rate": 0.6,
+        "new": {
+          "review_rate": 0.0,
+          "deny_rate": 0.0226,
+          "total_cost": 49183.0
+        },
+        "served_model_best_policy": {
+          "review_rate": 0.0,
+          "deny_rate": 0.0071,
+          "total_cost": 50203.0
+        }
+      }
+    ]
   },
   "seed": 42
 }

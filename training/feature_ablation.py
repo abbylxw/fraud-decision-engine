@@ -16,6 +16,7 @@ back at most 90 days; these have no window:
     did_secs_since_first_txn   seconds since the device's first transaction (-1 = new device)
     did_secs_since_last_txn    seconds since the device's previous transaction (-1 = new)
     did_uid_all                distinct users ever seen on the device, including this one
+    did_other_uid_all          distinct OTHER users ever seen on the device (buyer excluded)
 
 Diagnostic only: writes results/ablation_<timestamp>/ablation.json, never the served model.
 """
@@ -35,7 +36,10 @@ from training.train import CANDIDATE_FEATURES, DROP_ALWAYS, make_candidates
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-NEW = ["did_txn_cnt_all", "did_secs_since_first_txn", "did_secs_since_last_txn", "did_uid_all"]
+NEW = ["did_txn_cnt_all", "did_secs_since_first_txn", "did_secs_since_last_txn", "did_uid_all",
+       "did_other_uid_all"]
+# Feature set name -> XGBoost monotone constraint (+1 = "more of this never lowers the score").
+MONOTONE = {"+did_other_uid_all, monotone": {"did_other_uid_all": 1}}
 BASELINE = "baseline"
 
 
@@ -45,7 +49,8 @@ def feature_sets():
     for c in NEW:
         sets[f"+{c}"] = base + [c]
     sets["+count and recency (3)"] = base + NEW[:3]
-    sets["+all four"] = base + NEW
+    sets["+all four"] = base + NEW[:4]
+    sets["+did_other_uid_all, monotone"] = base + ["did_other_uid_all"]
     return sets
 
 
@@ -86,6 +91,7 @@ def main():
             feats = [c for c in cols if c not in DROP_ALWAYS and X_all.loc[tr, c].nunique() > 1]
             X = X_all[feats]
             model = make_candidates(ratio)["xgboost"]
+            model.set_params(monotone_constraints=MONOTONE.get(name))
             fit_candidate("xgboost", model, X[tr], y[tr], X[va], y[va])
             scores[name] = model.predict_proba(X[sc])[:, 1]
             row[name] = {"pr_auc": round(float(average_precision_score(y[sc], scores[name])), 4),

@@ -96,6 +96,7 @@ class Features(Transaction):
     did_txn_cnt_7d:    int = 0
     did_txn_cnt_30d:   int = 0
     did_txn_cnt_all:   int = 0   # all-time, no window
+    did_other_uid_all: int = 0   # other accounts ever seen on the device (model input)
     pur_median_amt_90d:       float = 0.0
     amount_vs_user_avg_30d:   float = 1.0
     age_account_gap:          float = 0.0

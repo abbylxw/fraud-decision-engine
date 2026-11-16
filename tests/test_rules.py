@@ -355,11 +355,15 @@ class TestRateLimiterShadow:
         f.uid_did_24h = 3
 
     def test_shadow_branches_never_deny(self, sample_transaction, sample_features):
-        # Every shadow branch fires, the score is below the model threshold: still allow.
+        # Every shadow branch fires, the score is below the deny threshold: the decision is
+        # whatever the model's score band says on its own (allow or review), never deny.
+        # (With the model shipped 2026-11-15 the elevated level sits inside the review band.)
         self._all_branches(sample_features)
         score = ELEVATED_SCORE
         assert len(execute_shadow_rules(sample_transaction, sample_features, score)) == 5
-        assert execute_soft_rules(sample_transaction, sample_features, score) == ("allow", None)
+        decision, rule = execute_soft_rules(sample_transaction, sample_features, score)
+        assert decision == model_score_threshold(score) != "deny"
+        assert rule in (None, "model_score_review")
 
     def test_soft_deny_comes_from_model_only(self, sample_transaction, sample_features):
         self._all_branches(sample_features)

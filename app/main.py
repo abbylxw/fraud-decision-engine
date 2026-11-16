@@ -104,12 +104,12 @@ MODEL_THRESHOLD = Gauge(
     multiprocess_mode="max")
 MODEL_THRESHOLD.labels(band="review").set(REVIEW_THRESHOLD)
 MODEL_THRESHOLD.labels(band="deny").set(THRESHOLD)
-# Requests from a device that has transacted before (did_txn_cnt_all > 0), by decision.
-# This is the model's strongest signal; its share of traffic is the first thing to watch
-# for drift (a jump means device ids changed meaning, or an attack is reusing devices).
-RETURNING_DEVICE_TOTAL = Counter(
-    "fraud_returning_device_total",
-    "Requests from a device with earlier transactions, by decision", ["decision"])
+# Requests from a device that other accounts have used before (did_other_uid_all > 0), by
+# decision. This is the model's strongest signal; its share of traffic is the first thing
+# to watch for drift (a jump means device ids changed meaning, or an attack reuses devices).
+SHARED_DEVICE_TOTAL = Counter(
+    "fraud_shared_device_total",
+    "Requests from a device previously used by other accounts, by decision", ["decision"])
 IDEMPOTENCY_HITS = Counter(
     "fraud_idempotency_hits_total", "Requests served from idempotency cache")
 IDEMPOTENCY_CONFLICTS = Counter(
@@ -267,8 +267,8 @@ async def run_process(transaction: Transaction,
     DECISION_RULE_TOTAL.labels(
         decision_rule=decision_rule or "none", decision=fraud_decision).inc()
     COUNTRY_REQUESTS.labels(country=features.ip_country, decision=fraud_decision).inc()
-    if features.did_txn_cnt_all > 0:
-        RETURNING_DEVICE_TOTAL.labels(decision=fraud_decision).inc()
+    if features.did_other_uid_all > 0:
+        SHARED_DEVICE_TOTAL.labels(decision=fraud_decision).inc()
     response = DecisionResponse(
         transaction_id=transaction_id,
         fraud_decision=fraud_decision,

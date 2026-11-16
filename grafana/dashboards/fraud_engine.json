@@ -402,9 +402,9 @@
     },
     {
       "id": 15,
-      "title": "Returning devices: share of traffic and their decisions (%)",
+      "title": "Shared devices: share of traffic and their decisions (%)",
       "type": "timeseries",
-      "description": "did_txn_cnt_all > 0 is the model's strongest feature (about 5% of traffic, 23% fraud in training data). A jump in the share is the first drift signal to check.",
+      "description": "did_other_uid_all > 0 (another account used this device before) is the model's strongest feature (about 5% of traffic, 23% fraud in training data). A jump in the share is the first drift signal to check.",
       "gridPos": {
         "x": 8,
         "y": 43,
@@ -414,17 +414,17 @@
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(fraud_returning_device_total[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
-          "legendFormat": "returning-device share"
+          "expr": "sum(rate(fraud_shared_device_total[1m])) / scalar(sum(rate(fraud_decisions_total[1m]))) * 100",
+          "legendFormat": "shared-device share"
         },
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(fraud_returning_device_total{decision=\"review\"}[1m])) / sum(rate(fraud_returning_device_total[1m])) * 100",
+          "expr": "sum(rate(fraud_shared_device_total{decision=\"review\"}[1m])) / sum(rate(fraud_shared_device_total[1m])) * 100",
           "legendFormat": "of those: reviewed"
         },
         {
           "datasource": "Prometheus",
-          "expr": "sum(rate(fraud_returning_device_total{decision=\"deny\"}[1m])) / sum(rate(fraud_returning_device_total[1m])) * 100",
+          "expr": "sum(rate(fraud_shared_device_total{decision=\"deny\"}[1m])) / sum(rate(fraud_shared_device_total[1m])) * 100",
           "legendFormat": "of those: denied"
         }
       ],

@@ -112,11 +112,11 @@ async def serving_features(df: pd.DataFrame, monkeypatch) -> pd.DataFrame:
     monkeypatch.setattr(serving, "get_ip_country", fake_ip_country)
     monkeypatch.setattr(serving, "get_did_days_on_file", fake_days_on_file)
     async def no_device_history(device_id, db, as_of=None):
-        # Same reasoning: no did:txn_all counter in a sequential replay = a new device.
-        return 0
+        # Same reasoning: no device history in Redis in a sequential replay = a new device.
+        return {}
 
     monkeypatch.setattr(serving, "_purchase_counts_from_db", empty_purchase_history)
-    monkeypatch.setattr(serving, "_device_txn_count_from_db", no_device_history)
+    monkeypatch.setattr(serving, "_device_history_from_db", no_device_history)
 
     redis = fake_aioredis.FakeRedis(decode_responses=True)
     out = []
@@ -180,24 +180,44 @@ async def test_parity_on_real_data(monkeypatch):
     assert_parity(build_feature_frame(df), await serving_features(df, monkeypatch))
 
 
-def test_all_time_device_count_uses_only_earlier_rows():
-    """Leakage check: did_txn_cnt_all for a row must not change when the rows AFTER it
-    change. Build features on the full frame and on its first half; the first half's
-    values must be identical."""
+ALL_TIME = ["did_txn_cnt_all", "did_other_uid_all"]
+
+
+def test_all_time_device_features_use_only_earlier_rows():
+    """Leakage check: an all-time device feature for a row must not change when the rows
+    AFTER it change. Build features on the full frame and on its first half; the first
+    half's values must be identical."""
     df = synthetic_transactions()
     half = len(df) // 2
-    full = build_feature_frame(df)["did_txn_cnt_all"].to_numpy()[:half]
-    head = build_feature_frame(df.iloc[:half].copy())["did_txn_cnt_all"].to_numpy()
+    full = build_feature_frame(df)[ALL_TIME].to_numpy()[:half]
+    head = build_feature_frame(df.iloc[:half].copy())[ALL_TIME].to_numpy()
     assert (full == head).all()
-    assert full.max() > 0   # devices repeat in the synthetic data, so the feature varies
-    # Equals the number of earlier rows on the same device.
-    assert (full == df.groupby("device_id").cumcount().to_numpy()[:half]).all()
+    assert full.max(axis=0).min() > 0   # devices repeat in the synthetic data: both vary
+    # did_txn_cnt_all equals the number of earlier rows on the same device.
+    assert (full[:, 0] == df.groupby("device_id").cumcount().to_numpy()[:half]).all()
 
 
-async def test_all_time_device_count_is_compared_by_the_parity_tests(monkeypatch):
+def test_other_accounts_excludes_the_buyer():
+    """The synthetic data has repeat users (unlike Fraud_Data), so the two features differ:
+    other accounts <= earlier transactions, strictly fewer when the buyer has been on the
+    device before, and never counting the buyer themselves."""
+    df = synthetic_transactions()
+    X = build_feature_frame(df)
+    assert (X["did_other_uid_all"] <= X["did_txn_cnt_all"]).all()
+    assert (X["did_other_uid_all"] < X["did_txn_cnt_all"]).any()
+    expected = []
+    seen: dict[str, set] = {}
+    for device, user in zip(df["device_id"], df["user_id"]):
+        expected.append(len(seen.setdefault(device, set()) - {user}))
+        seen[device].add(user)
+    assert (X["did_other_uid_all"].to_numpy() == expected).all()
+
+
+async def test_all_time_device_features_are_compared_by_the_parity_tests(monkeypatch):
     df = synthetic_transactions(n=300)
     serve = await serving_features(df, monkeypatch)
-    assert "did_txn_cnt_all" in serve.columns and serve["did_txn_cnt_all"].max() > 0
+    for c in ALL_TIME:
+        assert c in serve.columns and serve[c].max() > 0
 
 
 # ---------------------------------------------------------------------------

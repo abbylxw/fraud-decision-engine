@@ -34,6 +34,7 @@
   "did_txn_cnt_24h",
   "did_txn_cnt_7d",
   "did_txn_cnt_30d",
+  "did_txn_cnt_all",
   "country_txn_count_24h",
   "country_txn_count_7d",
   "country_txn_count_30d",

@@ -56,20 +56,23 @@ async def _purchase_counts_from_db(user_id: str, db: AsyncSession, as_of: float)
     return _parse_purchase_entries(all_entries, suc_entries, windows)
 
 
-async def _device_txn_count_from_db(device_id: str, db: AsyncSession, as_of: float) -> int:
-    """All-time number of transactions on this device up to the transaction's own time.
+async def _device_history_from_db(device_id: str, db: AsyncSession, as_of: float) -> dict[str, int]:
+    """Every account that has transacted on this device up to the transaction's own time,
+    with its number of transactions: {user_id: count}.
 
-    Fallback for did_txn_cnt_all when Redis has no did:txn_all counter for the device:
-    either the device is new (the usual case, answer 0) or Redis lost the key. An index
-    lookup on idx_transactions_device_time (db_init/008)."""
+    Fallback for the two all-time device features (did_txn_cnt_all, did_other_uid_all) when
+    Redis has no history for the device: either the device is new (the usual case, empty
+    answer) or Redis lost the keys. One index lookup on idx_transactions_device_time
+    (db_init/008) answers both features."""
     as_of_dt = datetime.fromtimestamp(as_of, tz=timezone.utc)
     res = await db.execute(text("""
-        SELECT COUNT(*)
+        SELECT user_id, COUNT(*)
         FROM transactions
         WHERE device_id = :device_id
           AND purchase_time <= CAST(:as_of AS timestamptz)
+        GROUP BY user_id
     """), {"device_id": device_id, "as_of": as_of_dt})
-    return int(res.scalar_one())
+    return {str(user_id): int(n) for user_id, n in res.all()}
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +106,9 @@ async def update_velocity_counters(user_id: str, device_id: str, ip: int,
         # counter with no TTL and no 90-day purge: the signal is precisely the device
         # coming back after the windowed counters have forgotten it.
         redis.incr(f"did:txn_all:{device_id}"),
+        # Every account ever seen on the device (model feature did_other_uid_all = this
+        # set minus the buyer). Also never expires.
+        redis.sadd(f"did:uids_all:{device_id}", user_id),
     ]
     # "Successful" = not denied. A "review" counts as successful here: its real outcome is
     # unknown at decision time (no label feedback yet; docs/production_readiness.md).

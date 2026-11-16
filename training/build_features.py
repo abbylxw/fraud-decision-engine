@@ -147,6 +147,11 @@ def velocity_features(df: pd.DataFrame) -> pd.DataFrame:
         f["did_secs_since_first_txn"] = ts - seen[0] if seen else -1.0
         f["did_secs_since_last_txn"] = ts - seen[-1] if seen else -1.0
         f["did_uid_all"] = len(set(did_uid_v[did]) | {uid})
+        # OTHER accounts ever seen on this device (the buyer excluded). On Fraud_Data this
+        # equals did_txn_cnt_all, because every user buys once. On real traffic it does
+        # not: a loyal customer on their own device has a growing did_txn_cnt_all and a
+        # did_other_uid_all of 0. This is the one the model uses (2026-11-15).
+        f["did_other_uid_all"] = f["did_uid_all"] - 1
         for w in ["24h", "7d", "30d"]:
             f[f"country_txn_count_{w}"] = _count_since(country_t[r.ip_country], ts - WINDOWS[w])
         rows.append(f)

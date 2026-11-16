@@ -79,9 +79,12 @@ CANDIDATE_FEATURES = [
     "purchase_success_cnt_90d", "purchase_success_amt_90d",
     "did_uid_days_on_file", "pur_median_amt_90d",
     "did_txn_cnt_2h", "did_txn_cnt_24h", "did_txn_cnt_7d", "did_txn_cnt_30d",
-    # All-time device transaction count (no window). Added 2026-11-15 after
-    # training/feature_ablation.py: +0.033 mean rolling-origin PR-AUC [+0.028, +0.038].
-    "did_txn_cnt_all",
+    # OTHER accounts ever seen on this device (no window, buyer excluded). Added 2026-11-15
+    # after training/feature_ablation.py: +0.033 mean rolling-origin PR-AUC [+0.028, +0.038].
+    # First shipped as did_txn_cnt_all (all transactions on the device), which is the same
+    # number on Fraud_Data but flags a loyal customer on their own device; replaced the
+    # same day. See docs/feature_ablation.md section 8.
+    "did_other_uid_all",
     "time_since_last_txn_uid",
     "country_txn_count_24h", "country_txn_count_7d", "country_txn_count_30d",
     "amount_vs_user_avg_30d", "age_account_gap", "high_amount_vs_hist", "age_group",

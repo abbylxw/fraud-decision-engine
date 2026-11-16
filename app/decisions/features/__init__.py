@@ -18,7 +18,7 @@ from .request import (
     get_month_of_year,
 )
 from .velocity import (
-    _device_txn_count_from_db,
+    _device_history_from_db,
     _purchase_counts_from_db,
     update_velocity_counters,
 )
@@ -147,6 +147,10 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
     pipe.zscore(f"ip:uid:{ip_int}", t.user_id)
     # [38]    did:txn_all — all-time transaction counter for this device (no window)
     pipe.get(f"did:txn_all:{t.device_id}")
+    # [39-40] did:uids_all — every account ever seen on this device, and whether the buyer
+    #         is already one of them
+    pipe.scard(f"did:uids_all:{t.device_id}")
+    pipe.sismember(f"did:uids_all:{t.device_id}", t.user_id)
 
     r = await pipe.execute()
 
@@ -187,15 +191,23 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
 
     last_txn_time = max(0.0, ct - float(last_txn_val)) if last_txn_val else 0.0
 
-    # All-time device count. No Redis key means a new device or a lost key; Postgres knows
-    # which. The answer is written back (NX: never overwrite a counter another request just
-    # created) so the post-response INCR continues from the right number and the next
-    # request for this device does not hit the database again.
-    if r[38] is not None:
+    # All-time device history: transactions ever (did_txn_cnt_all) and OTHER accounts ever
+    # (did_other_uid_all, the buyer excluded: a loyal customer on their own device is 0).
+    # Missing Redis history means a new device or lost keys; Postgres knows which. Its
+    # answer is written back so the post-response update continues from the right state
+    # and the next request for this device does not hit the database again. NX on the
+    # counter: never overwrite one another request just created. A counter of 0 with no
+    # accounts is a consistent "known new device", not lost history.
+    if r[38] is not None and (r[39] > 0 or int(r[38]) == 0):
         did_txn_cnt_all = int(r[38])
+        did_other_uid_all = int(r[39]) - int(bool(r[40]))
     else:
-        did_txn_cnt_all = await _device_txn_count_from_db(t.device_id, db, as_of=ct)
+        history = await _device_history_from_db(t.device_id, db, as_of=ct)
+        did_txn_cnt_all = int(r[38]) if r[38] is not None else sum(history.values())
+        did_other_uid_all = len(set(history) - {t.user_id})
         await redis.set(f"did:txn_all:{t.device_id}", did_txn_cnt_all, nx=True)
+        if history:
+            await redis.sadd(f"did:uids_all:{t.device_id}", *history)
 
     # --- Derived features ---
     days_since_signup = get_days_since_signup(t)
@@ -242,6 +254,7 @@ async def build_features(t: Transaction, db: AsyncSession, redis: Redis) -> Feat
         did_txn_cnt_7d            = did_txn['7d'],
         did_txn_cnt_30d           = did_txn['30d'],
         did_txn_cnt_all           = did_txn_cnt_all,
+        did_other_uid_all         = did_other_uid_all,
         purchase_cnt_5min         = purchase['cnt_5min'],
         purchase_amt_5min         = purchase['amt_5min'],
         purchase_cnt_10min        = purchase['cnt_10min'],

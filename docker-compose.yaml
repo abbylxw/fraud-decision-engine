@@ -31,6 +31,7 @@ services:
       - ./app/data/db_init/006_add_transactions_user_index.sql:/docker-entrypoint-initdb.d/006_add_transactions_user_index.sql:ro
       - ./app/data/db_init/007_drop_unused_country_windows.sql:/docker-entrypoint-initdb.d/007_drop_unused_country_windows.sql:ro
       - ./app/data/db_init/008_add_device_all_time_count.sql:/docker-entrypoint-initdb.d/008_add_device_all_time_count.sql:ro
+      - ./app/data/db_init/009_add_device_other_accounts.sql:/docker-entrypoint-initdb.d/009_add_device_other_accounts.sql:ro
       - ./app/data/IpAddress_to_Country.csv:/data/IpAddress_to_Country.csv:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
