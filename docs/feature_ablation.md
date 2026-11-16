@@ -1,7 +1,10 @@
 # Feature study: all-time device history (`did_other_uid_all`, first built as `did_txn_cnt_all`)
 
-Date: 2026-11-15. Status: **shipped** (currently `xgboost-20261115170732-a5e527a`, with the
-monotone constraint of section 8) with a `review` decision band. Read in order: sections 1 to 6 are the study as first written (the feature is
+Date: 2026-11-15. Status: **shipped** with a `review` decision band. The model served today
+(`xgboost-20261115222918-a9903ee`) keeps this feature and the monotone constraint of
+section 8, and has 33 inputs after the audit in [feature_audit.md](feature_audit.md); its
+numbers are in the README. The sections below record each step as it was measured at the
+time, so their feature counts and figures are those of that step. Read in order: sections 1 to 6 are the study as first written (the feature is
 called `did_txn_cnt_all` there and the conclusion is "do not ship behind allow/deny");
 section 7 adds the review band that made it worth shipping; section 8 is the flaw found by
 live testing the day it shipped, and the corrected feature that is served now.
@@ -95,7 +98,7 @@ feature equals the count of earlier rows on the same device.
 ## 4. All four algorithms with the new feature
 
 Re-tuned with the feature (`docs/evaluation/tune_sweep.json`) and re-run
-(`docs/evaluation/rolling_origin_42_features.json`, `docs/evaluation/train_did_txn_cnt_all.json`):
+(`docs/evaluation/rolling_origin_served_features.json`, `docs/evaluation/train_did_txn_cnt_all.json`):
 
 | Model | Validation PR-AUC | Test PR-AUC [95% CI] | Test ROC-AUC | Rolling mean (7 folds) |
 |---|---|---|---|---|

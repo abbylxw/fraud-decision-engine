@@ -65,7 +65,7 @@ next offline evaluation on labelled history, not by an alert.
 | `fraud_redis_keys` | Number of keys in Redis. All velocity state lives there. |
 | `fraud_feature_fallback_total{source}` | Feature lookups answered by Postgres because Redis had nothing. |
 | `fraud_model_info{version}` | Which model version is serving. |
-| `fraud_expected_rate{kind}` | Review rate, deny rate and shared-device share measured on validation data at training time. |
+| `fraud_expected_rate{kind}` | Review rate, deny rate and shared-device share of the served model on the test period, recorded at training time. |
 | `fraud_drift_bucket_total{feature,bucket}` | Scored requests by bucket of the model score (`feature="model_score"`) or of a monitored input. |
 | `fraud_drift_reference_share{feature,bucket}` | The share of traffic training expected in that bucket. |
 | `fraud_model_threshold{band}`, `fraud_shared_device_total{decision}` | The served thresholds; requests from devices other accounts have used. |
@@ -79,7 +79,8 @@ next offline evaluation on labelled history, not by an alert.
 
 ### How drift is measured
 
-At training time `training/train.py` cuts the validation scores into ten equal-sized
+At training time `training/train.py` takes the model that will be served, scores the test
+period (the most recent data it has not seen), cuts those scores into ten equal-sized
 buckets (deciles) and each monitored feature into up to five, merging any bucket expected
 to hold under 1% of traffic, and writes the cut points and expected shares to
 `model_meta.json` (`monitoring_reference`). At serving time each scored request adds one to
@@ -92,8 +93,12 @@ Index**:
 PSI is 0 when the two distributions are identical and grows as they move apart. The usual
 reading, used for the alert levels: under 0.10 no real change, 0.10 to 0.25 worth watching,
 over 0.25 a shift that should be acted on. Monitored inputs: `did_other_uid_all`,
-`did_uid_90d`, `did_uid_30d`, `purchase_value`, `days_since_signup`, `age_account_gap`
-(`app/monitoring.py`).
+`did_uid_90d`, `did_uid_30d`, `did_uid_7d`, `ip_uid_7d`, `purchase_value`,
+`age_account_gap`, `hour_of_day`, `day_of_week` (`app/monitoring.py`).
+
+How quiet it is on normal data: with the served model, score PSI is 0.004 on the validation
+month and at most 0.002 on each test month; the worst monitored input is `day_of_week` at
+0.022. So the 0.10 alert level leaves a wide margin.
 
 Design choice: drift is computed in PromQL from counters, not by a nightly batch job over
 the audit table. It needs no extra service, updates every minute and is alertable with the
@@ -315,33 +320,36 @@ devices. A drop to zero: the all-time device history is not being read.
 Normal for a moment during a rolling deploy. Longer means a worker or container did not
 restart, and two requests for the same purchase can get different decisions.
 
-### What the first live run showed (2026-11-15)
+### What the first day of drift monitoring found (2026-11-15)
 
-Two real findings in the first hour, both from a "normal" replay on the local stack:
+The drift monitoring earned its keep on day one, and I also misread it once. Both are worth
+keeping.
 
-1. **The score-drift alert went pending at PSI 0.62, and none of the six monitored inputs
-   had moved.** The alert was right and could not say why. The cause was two inputs that
-   were not monitored: `country_txn_count_30d` (30 on average live, 3,395 at training time)
-   and `amount_vs_user_avg_30d` (1.04 live, 37 at training). Both were added to the
-   monitored list; the feature-drift panel now shows them at PSI 5.8 and 7.5 next to the
-   score. Lesson: monitor every input the model weights, not the ones that seem important.
-2. **Why those two differ is itself a finding.** The local database is full of replayed
-   traffic, so customers there have purchase history; in Fraud_Data nobody does.
-   `amount_vs_user_avg_30d` divides the purchase by the customer's own average, and for a
-   first-time customer that average is taken as 1, so on the training data the feature *is*
-   the purchase amount. The model learned it as a second amount column, and reads a loyal
-   customer's ratio of about 1 as "a one-dollar purchase". This is the same class of flaw
-   as `did_txn_cnt_all` (docs/feature_ablation.md §8): right on one-purchase-per-user data,
-   wrong on real traffic. It was fixed the same day: the ratio is now 1.0 when the customer has no
-   history, and an audit of all 42 inputs removed seven more that count a customer's own
-   purchases or raw traffic volume (`docs/feature_audit.md`).
+1. **First live replay: score PSI 0.62, no monitored input moved.** Two inputs that were
+   not on the monitored list looked nothing like training: `country_txn_count_30d` (30 on
+   average live, 3,395 at training time) and `amount_vs_user_avg_30d` (1.04 live, 37 at
+   training). The second turned out to be a wrong feature: it equalled the purchase amount
+   for anyone without history. Both are out of the model now (`docs/feature_audit.md`).
+   Lesson: monitor every kind of input the model has, not the ones that seem important.
+2. **I blamed those two inputs for all of the drift; that was only part of it.** After they
+   were removed the live score PSI was still 0.28, and scoring the same rows offline gave
+   0.29, so serving was faithful and the cause was elsewhere. Two things: the local replay
+   sends mostly rows from the model's training period, which it scores differently from
+   unseen rows; and the reference itself was built from a different model (the train-only
+   fit) than the one served (the refit).
+3. **Checking the unseen test months then showed a real problem in the newly shipped
+   model:** score PSI 0.32, 0.39, 0.64 from September to November, rising with
+   `days_since_signup`, an input that only grows in this dataset. The alert would have
+   fired on ordinary traffic. The input was removed (no accuracy cost) and the reference is
+   now computed with the served model on unseen data. Result: PSI at most 0.004.
 
-On data the model has not been polluted by, the picture is calm: computed offline on the
-untouched test months, score PSI is 0.03 in September, October and November. One input does
-drift there, `days_since_signup` (PSI 0.36 rising to 5.2), because in this dataset all
-signups happen before September, so accounts only get older. The score does not follow.
-That is the "input drifts, score steady" case in the runbook, and a reminder that feature
-drift is a prompt to look, not a verdict.
+A live-against-offline check came out of this and is worth repeating after any ship: take
+recent audit rows, recompute the same users' features offline, and compare. On 6,000 rows
+the scores agreed to 0.002 on average.
+
+Local caveat: this development stack replays rows the model was trained on, so its drift
+panel sits around 0.3 and the score-drift alerts go pending there. That is the monitoring
+telling the truth about an odd traffic source, not a fault.
 
 ## 4. Routing
 

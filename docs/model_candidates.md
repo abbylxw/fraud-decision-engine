@@ -11,7 +11,10 @@ accuracy.
 > `did_other_uid_all`) and all four algorithms rose together from about 0.09 to about 0.14
 > test PR-AUC (see [feature_ablation.md](feature_ablation.md)). That model is the one served,
 > with one addition: XGBoost is constrained so its score never falls as that count rises
-> (0.136 on test). LightGBM and CatBoost are compared unconstrained. The hyper-parameters now in
+> and nine inputs were later removed by the feature audit ([feature_audit.md](feature_audit.md)):
+> 33 inputs, 0.140 on test. LightGBM and CatBoost are compared unconstrained; with the
+> audited inputs CatBoost is marginally ahead on the rolling folds (+0.004 [−0.000, +0.008])
+> and behind on the test period, still a tie by the selection rule. The hyper-parameters now in
 > `train.make_candidates` were re-tuned with that feature, so they differ from the ones in
 > the section 4 table; the conclusions here are unchanged and, if anything, stronger.
 

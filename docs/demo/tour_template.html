@@ -147,7 +147,7 @@ footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--lin
   <div class="pipe">
     <div class="stage"><span class="k">1 · Features</span><h3>Who is this, really?</h3><ul><li>Redis counters over event time: accounts per device, devices per account, accounts per IP</li><li>IP to country from a 5M-row table</li><li>Postgres fallback when Redis has no history</li></ul></div>
     <div class="stage"><span class="k">2 · Hard rules</span><h3>Certain enough to decline</h3><ul><li>Purchase under 60 s after signup</li><li>Second account on a device within an hour</li><li>Sanctioned country</li></ul><div class="out"><span class="pill deny">deny</span></div></div>
-    <div class="stage"><span class="k">3 · Model</span><h3>XGBoost, 42 features</h3><ul><li>Score compared with two thresholds picked by cost</li><li>Rate-limiter rules run in shadow mode: counted, never applied</li></ul><div class="out"><span class="pill allow">allow</span><span class="pill review">review</span><span class="pill deny">deny</span></div></div>
+    <div class="stage"><span class="k">3 · Model</span><h3>XGBoost, 33 features</h3><ul><li>Score compared with two thresholds picked by cost</li><li>Rate-limiter rules run in shadow mode: counted, never applied</li></ul><div class="out"><span class="pill allow">allow</span><span class="pill review">review</span><span class="pill deny">deny</span></div></div>
     <div class="stage"><span class="k">4 · Record</span><h3>Audit, then update</h3><ul><li>One row per decision: features, score, rule, model version</li><li>Counters updated after the response</li><li>Idempotency key so a retry never decides twice</li></ul></div>
   </div>
 </section>
@@ -169,7 +169,7 @@ footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--lin
       <h3 id="roll-title">PR-AUC by scored month</h3>
       <div class="seg" id="roll-seg">
         <button type="button" id="seg-before" aria-pressed="false">41 features</button>
-        <button type="button" id="seg-after" aria-pressed="true">42 features (served)</button>
+        <button type="button" id="seg-after" aria-pressed="true">Served features (33)</button>
       </div>
     </div>
     <div class="legend" id="roll-legend"></div>
@@ -207,11 +207,12 @@ footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--lin
   <span class="eyebrow">Once it is live</span>
   <h2>What is watched, what alerts, and what is not covered yet</h2>
   <div class="grid2">
-    <div class="card"><h3>A local replay, 200 requests per second</h3><div class="mix" id="mix" role="img"></div><p class="num" id="mix-text"></p><p class="num">Latency: p50 7 ms · p95 12 ms · p99 18 ms on one laptop, eight workers.</p></div>
+    <div class="card"><h3>A local replay, 200 requests per second</h3><div class="mix" id="mix" role="img"></div><p class="num" id="mix-text"></p><p class="num">Latency: p50 7 ms · p95 11 ms · p99 15 ms on one laptop, eight workers. Average worker CPU 10%, event-loop lag 4 ms.</p></div>
     <div class="card"><h3>On the Grafana dashboard</h3><ul class="plain"><li>Decision mix: allow, review, deny over time</li><li>Decisions by rule, and shadow-rule hits</li><li>Score distribution against the two served thresholds</li><li>Share of traffic from devices other accounts have used</li><li>Latency per step: features, model, database write</li></ul></div>
-    <div class="card"><h3>20 alerts, each with a runbook</h3><ul class="plain"><li>Broken: API or a dependency down, error rate, latency</li><li>Quietly wrong: Redis lost its keys, features falling back to Postgres, review rate under half of expected</li><li>World changed: signup attack, deny-rate jump, score drift and feature drift (PSI against training-time buckets)</li><li>Rules are unit-tested with promtool in CI; a drill sends a bot burst and watches the alert reach Alertmanager in under three minutes</li></ul></div>
-    <div class="card"><h3>The first thing drift monitoring caught</h3><p>On its first live replay the score-drift alert went pending at PSI 0.62. The cause was real: two inputs looked nothing like training, because this test database is full of replayed repeat customers. One of them, the ratio of a purchase to the customer's own average, equals the purchase amount for every first-time buyer, so the model had learned it as a second copy of the amount. Next in line to be fixed.</p></div>
-    <div class="card"><h3>Not covered yet</h3><ul class="plain"><li>Whether decisions are <em>right</em>: that needs labels, and there is no label endpoint yet. Drift says the inputs changed, not that the model is wrong.</li><li>A real notification channel (the config ships with empty receivers, no secrets in git)</li><li>Reason codes per decision</li><li>A real-database test in CI</li></ul></div>
+    <div class="card"><h3>Four golden signals</h3><ul class="plain"><li><b>Latency:</b> p50, p99 and per step</li><li><b>Traffic:</b> rate against its 1-day average, requests in flight</li><li><b>Errors:</b> our failures, invalid requests, duplicates in flight</li><li><b>Saturation:</b> worker CPU, event-loop lag, database pool and connections, Redis memory</li></ul></div>
+    <div class="card"><h3>Action rates, not accuracy</h3><p>Live traffic has no labels, so nobody can say whether a live decision was right. What is watched instead is what the engine tells callers to do: the share of allow, review and deny against the last day and against what training expected, and the share per rule. Accuracy is measured offline, on labelled history, at every retrain.</p></div>
+    <div class="card"><h3>Drift</h3><p>The score and nine inputs are compared with buckets saved at training time (PSI). On unseen months the score sits at 0.004 or less, far below the 0.10 alert level. Its first day found three flawed inputs, one of them in a model shipped hours earlier.</p></div>
+    <div class="card"><h3>29 alerts, each with a runbook</h3><ul class="plain"><li>Every alert has a severity, a minimum-traffic guard and a "check first" section</li><li>19 rule scenarios run in CI with promtool</li><li>A drill sends a bot burst and watches the alert reach Alertmanager</li><li>No notification channel in the repository: a webhook is a secret</li></ul></div></div>
   </div>
 </section>
 
@@ -225,7 +226,8 @@ footer { color: var(--ink-3); font-size: .84rem; border-top: 1px solid var(--lin
     <div class="card"><h3>A ship gate that passed a worthless model</h3><p>The gate compared ranking quality only. A model passed it while saving no money. The gate now also requires the new policy to cost no more than the served one, with an interval on the difference.</p></div>
     <div class="card"><h3>Training and serving compute the same thing</h3><p>Counters use the purchase's own time, not the server clock, so a replay of history fills windows exactly as training did. A test replays 5,000 real rows through the API code and compares every feature.</p></div>
     <div class="card"><h3>January was a bot attack, not a pattern</h3><p>7,600 purchases within a second of signup, all fraud, all in one month. A model trained on them learns "January means fraud". They are handled by a rule and removed from training.</p></div>
-    <div class="card"><h3>Limits stated up front</h3><p>Public, simulated-looking data. Scores are not probabilities. Review cost and catch rate are assumed. Every feature was designed on data where each customer buys once; two have already been found to mean something else on repeat customers, and the rest are owed the same check.</p></div>
+    <div class="card"><h3>Nine inputs removed, nothing lost</h3><p>The dataset has no repeat customers, so a feature can be right on it and wrong on real traffic. After three were caught by three different methods, every input was audited with one question: does it mean the same thing when a customer comes back? Nine did not. Accuracy is unchanged and the score distribution now holds still on unseen months.</p></div>
+    <div class="card"><h3>Limits stated up front</h3><p>Public, simulated-looking data. Scores are not probabilities. Review cost and catch rate are assumed. Live decision accuracy is not measured. Alert thresholds are reasoned starting points, not tuned on production traffic.</p></div>
   </div>
 </section>
 
@@ -246,7 +248,7 @@ const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", 
   $("facts").innerHTML = [
     [t.pr_auc.toFixed(3), `test PR-AUC, up from ${prev} (random guessing: 0.046)`],
     ["8", "decision stories verified on the live stack"],
-    ["257 + 13", "automated tests, plus alert-rule tests"],
+    ["288 + 19", "automated tests, plus alert-rule scenarios"],
     ["~20 ms", "p99 latency at 200 requests per second"],
   ].map(([b, s]) => `<div class="fact"><b>${b}</b><span>${s}</span></div>`).join("");
   $("ver").textContent = D.model_version;
@@ -254,7 +256,7 @@ const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", 
 
 /* ---------- stories ---------- */
 const STORIES = [
-  { tab: "Normal customer", d: "allow", rule: "none", score: "0.50",
+  { tab: "Normal customer", d: "allow", rule: "none", score: "0.44",
     req: { user_id: "u-normal", device_id: "d-normal", signup: "30 days before", purchase_value: 42, ip: "United States" },
     feats: { did_uid_1h: 1, did_other_uid_all: 0, ip_country: "United States" },
     why: "No hard rule fires and the score is below the review threshold of 0.76." },
@@ -270,15 +272,15 @@ const STORIES = [
     req: { user_id: "u-ofac", device_id: "d-ofac", signup: "45 days before", purchase_value: 42, ip: "resolves to Cuba" },
     feats: { ip_country: "Cuba" },
     why: "A compliance rule, not a fraud score. It is not tuned on cost and it runs before the model." },
-  { tab: "Device returns, new account", d: "review", rule: "model_score_review", score: "0.83",
+  { tab: "Device returns, new account", d: "review", rule: "model_score_review", score: "0.79",
     req: { user_id: "u-new", device_id: "d-return (used by u-old 120 days ago)", signup: "25 days before", purchase_value: 42, ip: "United States" },
     feats: { did_uid_90d: 1, did_other_uid_all: 1, did_txn_cnt_all: 1 },
     why: "The 90-day counters have forgotten the device. The all-time feature has not: one other account used it. Such devices were 5% of traffic and 23% fraud. Too risky to approve, not risky enough to decline, so the caller is asked to step up." },
-  { tab: "Loyal customer", d: "allow", rule: "none", score: "0.47",
+  { tab: "Loyal customer", d: "allow", rule: "none", score: "0.43",
     req: { user_id: "u-loyal", device_id: "d-loyal (own device, 3rd purchase)", signup: "200 days before", purchase_value: 42, ip: "United States" },
     feats: { did_txn_cnt_all: 2, did_other_uid_all: 0 },
     why: "The device has history but no other account has used it. The first version of the feature counted purchases and sent this customer to review at a score of 0.81." },
-  { tab: "Slow device farm", d: "review", rule: "model_score_review", score: "0.83",
+  { tab: "Slow device farm", d: "review", rule: "model_score_review", score: "0.79",
     req: { user_id: "u-farm-new", device_id: "d-farm (6 other accounts, 95 to 220 days ago)", signup: "20 days before", purchase_value: 42, ip: "United States" },
     feats: { did_uid_1h: 1, did_uid_90d: 1, did_other_uid_all: 6 },
     why: "Too slow for the one-hour rule and outside every 90-day counter. An earlier model scored five or more other accounts as low risk (0.52, allow), because in training such devices were leftovers of the January bot attack. The served model is constrained so that more other accounts can never lower the score." },
@@ -384,7 +386,7 @@ function drawCost() {
   $("breakeven").textContent = `Average fraud is $${avg.toFixed(0)}. A decline pays above ${pct(fd / (fd + avg), 0)} precision; a review pays above ${pct(Math.min(1, rc / (cr * avg)), 0)}. The new feature's catches sit near 23%.`;
   const rows = [["Do nothing", null, nothing, "", "every fraud gets through"]];
   if (D.cost_curves.previous) { const p = pick(D.cost_curves.previous, fd, rc, cr); rows.push(["Previous model (41 features)", p, p.cost, "", describe(p)]); }
-  const s = pick(D.cost_curves.served, fd, rc, cr); rows.push(["Served model (42 features)", s, s.cost, "served", describe(s)]);
+  const s = pick(D.cost_curves.served, fd, rc, cr); rows.push(["Served model (33 features)", s, s.cost, "served", describe(s)]);
   $("bars").innerHTML = rows.map(([lab, , cost, cls, sub]) =>
     `<div class="bar-row"><div class="lab"><span>${lab}</span><b class="num">${usd(cost)}</b></div><div class="track"><div class="fill ${cls}" style="width:${(100 * cost / nothing).toFixed(1)}%"></div></div><div class="sub">${sub}</div></div>`).join("");
   const prev = rows.length === 3 ? rows[1][2] : nothing, save = prev - s.cost;
@@ -397,7 +399,7 @@ drawCost();
 
 /* ---------- live snapshot ---------- */
 (function () {
-  const mix = [["allow", 5425, "--allow"], ["review", 205, "--review"], ["deny", 345, "--deny"]], tot = mix.reduce((a, m) => a + m[1], 0);
+  const mix = [["allow", 5393, "--allow"], ["review", 237, "--review"], ["deny", 345, "--deny"]], tot = mix.reduce((a, m) => a + m[1], 0);
   $("mix").innerHTML = mix.map(([n, v, c]) => `<span title="${n}: ${fmt(v)}" style="background:var(${c});flex:${v}"></span>`).join("");
   $("mix").setAttribute("aria-label", mix.map(([n, v]) => `${n} ${pct(v / tot)}`).join(", "));
   $("mix-text").innerHTML = mix.map(([n, v]) => `<span class="pill ${n}">${n}</span> ${fmt(v)} (${pct(v / tot)})`).join(" &nbsp; ") + `<br>Of the declines, 322 were the signup-burst rule and 23 the country rule: the model itself declined nothing.`;

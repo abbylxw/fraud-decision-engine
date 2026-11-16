@@ -78,7 +78,7 @@ def main():
 
     meta = json.loads((ROOT / "app/decisions/model_meta.json").read_text())
     before = json.loads((EVAL / "rolling_origin.json").read_text())
-    after = json.loads((EVAL / "rolling_origin_42_features.json").read_text())
+    after = json.loads((EVAL / "rolling_origin_served_features.json").read_text())
     ablation = json.loads((EVAL / "feature_ablation.json").read_text())
 
     def folds(r):

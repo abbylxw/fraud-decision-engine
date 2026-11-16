@@ -24,8 +24,8 @@
         }
       },
       "n_static_features": 27,
-      "n_velocity_features": 54,
-      "n_velocity_features_non_constant_in_train": 20,
+      "n_velocity_features": 56,
+      "n_velocity_features_non_constant_in_train": 21,
       "n_spend_spike_features": 9,
       "n_spend_spike_features_non_constant_in_train": 0,
       "spend_spike_test": {
@@ -83,124 +83,124 @@
           "best_iteration": 32
         },
         "static+velocity": {
-          "pr_auc": 0.0949,
+          "pr_auc": 0.1336,
           "pr_auc_ci95": [
-            0.0836,
-            0.1098
+            0.1219,
+            0.1477
           ],
-          "roc_auc": 0.562,
+          "roc_auc": 0.6358,
           "roc_auc_ci95": [
-            0.5468,
-            0.5806
+            0.6188,
+            0.6519
           ],
           "at_1pct_alerts": {
-            "recall": 0.0639,
-            "precision": 0.2927
+            "recall": 0.0684,
+            "precision": 0.3136
           },
           "at_5pct_alerts": {
-            "recall": 0.1498,
-            "precision": 0.1373
+            "recall": 0.2563,
+            "precision": 0.2348
           },
-          "precision_at_50pct_recall": 0.0541,
+          "precision_at_50pct_recall": 0.0763,
           "cost_threshold": {
-            "threshold": 0.5448,
-            "alert_rate": 0.0255,
-            "fraud_caught": "172 / 1315",
-            "fraud_dollars_caught_share": 0.1365,
-            "total_cost": 45543,
+            "threshold": 0.5603,
+            "alert_rate": 0.0644,
+            "fraud_caught": "423 / 1315",
+            "fraud_dollars_caught_share": 0.3214,
+            "total_cost": 42156,
             "cost_if_no_model": 48509
           },
           "top_features": {
-            "did_uid_90d": 0.203,
-            "did_uid_30d": 0.047,
-            "s_ipc_Korea_Republic_of": 0.029,
-            "s_ipc_France": 0.027,
-            "s_ipc_grp_Africa": 0.026,
-            "s_ipc_Germany": 0.026,
-            "s_ipc_grp_Asia": 0.026,
-            "s_ipc_grp_North_America": 0.025
+            "did_uid_all": 0.291,
+            "did_txn_cnt_all": 0.189,
+            "did_secs_since_first_txn": 0.035,
+            "s_ipc_United_States": 0.021,
+            "s_ipc_grp_Asia": 0.02,
+            "did_secs_since_last_txn": 0.018,
+            "s_ipc_Brazil": 0.017,
+            "country_txn_count_30d": 0.017
           },
-          "best_iteration": 4
+          "best_iteration": 9
         },
         "+spend_spike": {
-          "pr_auc": 0.0862,
+          "pr_auc": 0.1351,
           "pr_auc_ci95": [
-            0.0786,
-            0.0977
+            0.1211,
+            0.1511
           ],
-          "roc_auc": 0.5578,
+          "roc_auc": 0.6438,
           "roc_auc_ci95": [
-            0.5428,
-            0.5755
+            0.6283,
+            0.6604
           ],
           "at_1pct_alerts": {
-            "recall": 0.0639,
-            "precision": 0.2927
+            "recall": 0.0707,
+            "precision": 0.324
           },
           "at_5pct_alerts": {
-            "recall": 0.1551,
-            "precision": 0.1422
+            "recall": 0.2532,
+            "precision": 0.2321
           },
-          "precision_at_50pct_recall": 0.0535,
+          "precision_at_50pct_recall": 0.0792,
           "cost_threshold": {
-            "threshold": 0.5521,
-            "alert_rate": 0.0259,
-            "fraud_caught": "172 / 1315",
-            "fraud_dollars_caught_share": 0.1355,
-            "total_cost": 45655,
+            "threshold": 0.5546,
+            "alert_rate": 0.0649,
+            "fraud_caught": "423 / 1315",
+            "fraud_dollars_caught_share": 0.3218,
+            "total_cost": 42216,
             "cost_if_no_model": 48509
           },
           "top_features": {
-            "did_uid_90d": 0.143,
-            "did_txn_cnt_30d": 0.118,
-            "did_uid_30d": 0.069,
-            "ip_uid_24h": 0.027,
-            "s_ipc_grp_Africa": 0.025,
-            "country_txn_count_30d": 0.021,
-            "s_ipc_United_States": 0.021,
-            "ip_uid_7d": 0.021
+            "did_txn_cnt_all": 0.209,
+            "did_uid_all": 0.177,
+            "did_secs_since_first_txn": 0.042,
+            "did_other_uid_all": 0.04,
+            "did_secs_since_last_txn": 0.021,
+            "s_ipc_United_States": 0.02,
+            "ip_uid_24h": 0.02,
+            "s_ipc_grp_Africa": 0.02
           },
-          "best_iteration": 10
+          "best_iteration": 23
         },
         "+label_history": {
-          "pr_auc": 0.0918,
+          "pr_auc": 0.1344,
           "pr_auc_ci95": [
-            0.0816,
-            0.1056
+            0.1199,
+            0.1489
           ],
-          "roc_auc": 0.5677,
+          "roc_auc": 0.6407,
           "roc_auc_ci95": [
-            0.5503,
-            0.5841
+            0.6208,
+            0.6591
           ],
           "at_1pct_alerts": {
-            "recall": 0.0631,
-            "precision": 0.2892
+            "recall": 0.0722,
+            "precision": 0.331
           },
           "at_5pct_alerts": {
-            "recall": 0.162,
-            "precision": 0.1484
+            "recall": 0.2517,
+            "precision": 0.2307
           },
-          "precision_at_50pct_recall": 0.0554,
+          "precision_at_50pct_recall": 0.0784,
           "cost_threshold": {
-            "threshold": 0.5649,
-            "alert_rate": 0.0253,
-            "fraud_caught": "168 / 1315",
-            "fraud_dollars_caught_share": 0.1348,
-            "total_cost": 45599,
+            "threshold": 0.5409,
+            "alert_rate": 0.0658,
+            "fraud_caught": "428 / 1315",
+            "fraud_dollars_caught_share": 0.3233,
+            "total_cost": 42268,
             "cost_if_no_model": 48509
           },
           "top_features": {
-            "did_uid_90d": 0.209,
-            "did_txn_cnt_30d": 0.052,
-            "s_ipc_grp_Asia": 0.028,
-            "s_ipc_Korea_Republic_of": 0.027,
-            "s_ipc_grp_Africa": 0.026,
-            "country_txn_count_30d": 0.025,
-            "country_txn_count_5min": 0.025,
-            "s_ipc_grp_North_America": 0.024
+            "did_uid_all": 0.345,
+            "did_txn_cnt_all": 0.123,
+            "did_secs_since_first_txn": 0.047,
+            "did_uid_7d": 0.022,
+            "s_ipc_grp_Africa": 0.02,
+            "s_ipc_France": 0.019,
+            "s_ipc_Brazil": 0.018,
+            "s_ipc_Canada": 0.018
           },
-          "best_iteration": 7
+          "best_iteration": 8
         }
       }
     },
@@ -409,7 +409,7 @@
       }
     }
   },
-  "generated_at": "2026-11-06T20:59:43",
+  "generated_at": "2026-11-15T22:36:24",
   "settings": {
     "split": "70/10/20 by time",
     "n_boot": 200,

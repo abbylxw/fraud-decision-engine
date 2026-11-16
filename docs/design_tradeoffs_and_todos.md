@@ -1172,6 +1172,62 @@ probes: p50 7 ms, p95 12 ms, p99 18 ms at 200 RPS, unchanged.
   against a Compose stack.
 - A batch drift job over the audit table (all features, longer windows) once labels exist.
 
+## Feature audit, golden-signal monitoring, action rates instead of accuracy (2026-11-15)
+
+Details: `docs/feature_audit.md`, `docs/monitoring.md`. Served model:
+`xgboost-20261115222918-a9903ee`, 33 inputs, test PR-AUC 0.140 [0.124, 0.158], review ≥
+0.762 (6.8% of orders, 469 of 1,389 frauds), policy cost $44,305.
+
+**1. Nine inputs removed, none missed.** Fraud_Data has no repeat customers, so a feature
+can be right there and wrong on real traffic. Removed: `amount_vs_user_avg_30d` (was the
+purchase amount; definition corrected, now constant here), `did_txn_cnt_*` (count the
+buyer's own purchases), `country_txn_count_*` (raw traffic volume), `days_since_signup`
+(only grows in this dataset; made the score distribution drift). Paired intervals for every
+step include zero. They are listed in `DROP_ALWAYS` with reasons, which `train.py` copies
+into `model_meta.json`. Alternative rejected for the device counts: redefine them as "other
+users' purchases". `did_uid_*` already says that; a second copy adds a parity burden for
+nothing.
+
+**2. Drift reference from the served model on unseen data.** It was first computed from the
+train-only model's validation scores. The served model is the refit, whose scores are
+distributed a little differently, which showed as a standing PSI of ~0.13 on normal data.
+Now: refit model, test period. Trade-off accepted: the test period is used to describe
+normal traffic (never to choose the model or thresholds), and the expected review rate
+(6.8%) is therefore the test-period rate.
+
+**3. Monitoring organised as four layers:** the four golden signals (latency, traffic,
+errors, saturation), dependencies and feature data, action rates, model and feature drift.
+29 alerts, 19 promtool scenarios.
+- *Saturation is measured from inside the workers* (event-loop lag, CPU, memory, pool use)
+  and by asking Postgres and Redis how full they are, in the existing 10-second probe.
+  Event-loop lag was chosen as the main overload signal because each worker serves all its
+  requests on one thread. Not covered: host-level CPU, disk and network (a node exporter).
+- *Errors are counted by an ASGI wrapper,* because a 422 is rejected before the handler
+  runs and a 500 is produced after it raised; the handler alone cannot see either.
+- *Traffic alerts are relative to the 1-day average.* On a development machine they are
+  noisy (traffic exists only during load tests); they are meant for steady traffic.
+
+**4. Decision accuracy is not monitored live; action rates are the proxy** (Xiaowan's
+decision). Live traffic has no labels, so precision and recall cannot be computed. Watched
+instead: allow / review / deny shares against the 1-day normal and the test-period
+expectation, and the share per rule. Consequence accepted: a model that becomes wrong while
+its traffic mix and decision mix stay the same is not detected by any alert; it is caught at
+the next offline evaluation on labelled history. The label endpoint is off the roadmap.
+
+**5. Measured under 200 requests/s on the local stack:** p50 7 ms, p95 11 ms, p99 15 ms;
+average worker CPU 10% (busiest worker 44%: keep-alive connections stick to one worker);
+event-loop lag 4 ms; Postgres pool idle between probes; 21 of 100 Postgres connections.
+
+**TODOs:**
+- The busiest worker runs at four times the average: connections are not balanced across
+  workers (already noted in the performance doc); matters before CPU alerts mean much.
+- CatBoost is ahead of XGBoost on the rolling folds with the audited features (+0.004,
+  interval [−0.000, +0.008], 5 of 7 folds) and behind on the test period (0.139 vs 0.140).
+  Still a tie by the selection rule; worth re-checking after the next feature change.
+- Node-level saturation (a node exporter) and a real notification receiver.
+- Repeat the live-against-offline feature comparison (`docs/monitoring.md`) as a script
+  that runs after each ship.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

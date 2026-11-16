@@ -13,7 +13,7 @@ POST /api/transactions
  [Hard Rules]  ←── purchase limit, signup burst (<60s), 2+ users on a device in 1h, age check, IP country block
         │  deny → short-circuit (model never runs)
         ▼
- [ML Model]    ←── XGBoost on 42 features: device/IP sharing counters, transaction fields,
+ [ML Model]    ←── XGBoost on 33 features: device/IP sharing counters, transaction fields,
         │            grouped IP country (one-hot)
         │
         ▼
@@ -128,18 +128,24 @@ docker compose up -d --build     # API, Postgres, Redis, Prometheus, Alertmanage
 | Prometheus | http://localhost:9090 | Rules and alert states (`/alerts`, `/rules`) |
 | Alertmanager | http://localhost:9093 | Grouped, routed alerts |
 
-A fraud engine can be broken (down, erroring), quietly wrong (Redis lost its counters, so
-every customer looks new) or facing a changed world (a new attack, drifting inputs). Each
-gets its own signals: scrape health, dependency probes and an error counter; Redis key
-count, Postgres-fallback rate and review rate against its training-time expectation; rule
-fire rates and **drift** of the score and eight model inputs, measured as PSI against
-buckets saved at training time. 20 alerts, each with a severity, a minimum-traffic guard
-and a runbook section in [docs/monitoring.md](docs/monitoring.md); the rules are
-unit-tested with `promtool` in CI, and `scripts/alert_drill.py` proves the chain end to end
-on the running stack (a bot burst reaches Alertmanager in under three minutes).
+Four layers, each with metrics, a dashboard row and alerts:
 
-No notification channel is configured in the repository (a webhook is a secret), and there
-is no live measure of whether decisions are *right*: that needs labels.
+| Layer | What is watched |
+|---|---|
+| **Four golden signals** | **Latency** (p50, p99, per step) · **Traffic** (rate against its 1-day average, requests in flight) · **Errors** (our 5xx, invalid 422s, duplicate 409s) · **Saturation** (worker CPU, event-loop lag, Postgres pool and connections, Redis memory) |
+| **Dependencies and feature data** | Postgres and Redis probes, Redis key count, features falling back to Postgres, failed counter updates |
+| **Action rates** | Share of allow / review / deny against the 1-day normal and the training-time expectation; share per rule |
+| **Model and feature drift** | PSI of the score and nine model inputs against buckets saved at training time; shared-device share; model version |
+
+29 alerts, each with a severity, a minimum-traffic guard and a runbook section in
+[docs/monitoring.md](docs/monitoring.md). The rules are unit-tested with `promtool` in CI
+(19 scenarios), and `scripts/alert_drill.py` proves the chain end to end on the running
+stack: a bot burst is denied by the rule, detected by Prometheus and delivered to
+Alertmanager.
+
+Decision accuracy is deliberately not monitored live: live traffic has no labels, so action
+rates are the proxy, and accuracy is measured offline on labelled history at every retrain.
+No notification channel is configured in the repository (a webhook is a secret).
 
 ## Health Check
 
@@ -215,12 +221,12 @@ and threshold choice use validation only; the test period is scored once. Full w
 | Model (test period, fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
 |---|---|---|
 | Random guessing | 0.046 | 0.50 |
-| Logistic regression | 0.090 [0.082, 0.102] | 0.62 |
-| Random forest (depth 16, 200 trees) | 0.131 [0.117, 0.146] | 0.64 |
-| XGBoost (depth 3, 410 trees, monotone in the device feature) | 0.135 [0.121, 0.151] | 0.64 |
-| LightGBM (7 leaves, 376 trees) | 0.141 [0.127, 0.158] | 0.65 |
-| CatBoost (depth 3, 450 trees) | 0.137 [0.123, 0.154] | 0.65 |
-| **Served XGBoost** (42 features, refit on train + validation) | **0.136 [0.121, 0.153]** | 0.64 |
+| Logistic regression | 0.094 [0.085, 0.106] | 0.63 |
+| Random forest (depth 8, 200 trees) | 0.136 [0.122, 0.154] | 0.64 |
+| XGBoost (depth 3, 80 trees, monotone in the device feature) | 0.140 [0.124, 0.157] | 0.64 |
+| LightGBM (7 leaves, 110 trees) | 0.142 [0.126, 0.159] | 0.64 |
+| CatBoost (depth 4, 110 trees) | 0.139 [0.123, 0.157] | 0.64 |
+| **Served XGBoost** (33 features, refit on train + validation) | **0.140 [0.124, 0.158]** | 0.64 |
 | Previously served XGBoost (41 features, no all-time device feature) | 0.092 [0.081, 0.107] | 0.56 |
 | Original RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
 
@@ -235,10 +241,19 @@ same four algorithms tied at about 0.09, and a rolling-origin check
 showed the tie holds over time (LightGBM and CatBoost vs XGBoost: −0.001 [−0.005, +0.002]).
 Then one feature, `did_other_uid_all` (how many *other* accounts have ever used this device;
 every earlier device counter forgot after 90 days), lifted all four together: the served
-model went from 0.092 to 0.141 (paired difference +0.049 [+0.040, +0.059]; 0.136 after the
-monotone constraint described in the study, which trades 0.006 for robustness). The feature
+model went from 0.092 to 0.141 (paired difference +0.049 [+0.040, +0.059]). The feature
 study, with the things that did not help, is in
 [docs/feature_ablation.md](docs/feature_ablation.md).
+
+**Then nine inputs were taken out, and nothing was lost.** Fraud_Data has no repeat
+customers, so a feature can be right on it and wrong on real traffic. Live testing and the
+drift alert each caught one; an audit of every input
+([docs/feature_audit.md](docs/feature_audit.md)) found the rest: inputs that count a
+customer's own purchases as device risk, a "ratio to your usual spend" that was really the
+purchase amount, raw traffic-volume counters, and an account age that only grows in this
+dataset and made the score distribution drift. The served model has 33 inputs instead of
+42, the same accuracy (0.140), a score that never falls as more accounts share a device,
+and a score distribution that stays put on unseen months (PSI at most 0.004).
 
 **Better ranking was not automatically more money.** The fraud the new feature finds sits at
 about 23% precision. With a $37 average fraud and $10 per wrongly declined customer, a
@@ -251,12 +266,13 @@ with a third decision, `review`, and both thresholds chosen by cost:
 |---|---|---|---|---|---|
 | Do nothing | | | 0 | 0 | $51,395 |
 | Previous model, deny ≥ 0.843 | 0 | 365 (1.2%) | 106 | 259 declined | $49,714 |
-| **Served model, review ≥ 0.762** | 1,943 (6.4%) | 0 | 448 | 1,495 reviewed | **$44,554** |
+| **Served model, review ≥ 0.762** | 2,043 (6.8%) | 0 | 469 | 1,574 reviewed | **$44,305** |
 
 \* missed-fraud dollars + $10 per false decline + $5 per reviewed order, a reviewed fraud
-counted as stopped. Difference vs the previous model: −$5,160. (Measured in two steps: the
-new feature and review band, −$4,986 with a 95% interval of [−$6,348, −$3,778]; then the
-monotone constraint, −$174 [−$592, +$193], i.e. no cost change.) The $5 and the "review stops the fraud" are assumptions; the gain holds
+counted as stopped. Difference vs the previous model: −$5,409. (Measured in steps: the new
+feature and review band, −$4,986 with a 95% interval of [−$6,348, −$3,778]; the later
+robustness changes, monotone constraint and feature audit, each moved cost by a few hundred
+dollars with intervals that include zero.) The $5 and the "review stops the fraud" are assumptions; the gain holds
 for a review up to about $5 that stops at least 80% of what it sees
 ([sensitivity table](docs/feature_ablation.md)).
 
@@ -339,7 +355,7 @@ What the served model does differently from the notebook model, and why:
 - **"Elevated score" for the rate-limiter combos is model-relative.** The soft rules that
   combine a score with velocity (e.g. score + 5 purchases in 24h) used a fixed 0.5. That value
   is meaningless for an uncalibrated model (the served XGBoost's median score is ~0.47), so the
-  level is now the top 3% of validation scores (0.820; 26% precision on validation, 25% on
+  level is now the top 3% of validation scores (0.823; 24% precision on validation, 26% on
   test), stored in `model_meta.json`. The velocity cut-offs themselves are expert-set and
   untested: with one transaction per user, none of those branches can fire on this dataset.
 - **Every decision is auditable.** The `transactions` table records `model_version`,
@@ -364,7 +380,7 @@ Test period (Aug 30–Dec 16, scored once):
 | Previous model @ 0.7 | 10 | 4 | 6 | $165 | $51.3k |
 | 25-feature model @ 0.849 | 327 (1.1%) | 98 | 229 | $4,059 | $49.6k |
 | 41-feature model @ 0.843 (grouped country; served until 2026-11-15) | 365 (1.2%) | 106 | 259 | $4,271 | $49.7k |
-| **Served model** (42 features, review ≥ 0.762, no model declines) | 0 denied, 1,943 reviewed (6.4%) | **448** (reviewed) | 0 (1,495 reviewed) | **$16,556** | **$44.6k**† |
+| **Served model** (33 features, review ≥ 0.762, no model declines) | 0 denied, 2,043 reviewed (6.8%) | **469** (reviewed) | 0 (1,574 reviewed) | **$17,305** | **$44.3k**† |
 
 \* missed-fraud dollars + $10 per false decline. † plus $5 per reviewed order, a reviewed
 fraud counted as stopped. For the first three models ranking quality (PR-AUC) is unchanged
@@ -389,7 +405,7 @@ python -m training.compare_datasets      # ~5 min; caches features in results/ca
 
 | Dataset (test period) | Fraud rate | Static features | + Velocity | + Spend spike | Velocity features that vary |
 |---|---|---|---|---|---|
-| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.045, 0.055] | 0.095 [0.084, 0.110] | 0.086 [0.079, 0.098]† | 20 / 54 |
+| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.045, 0.055] | 0.134 [0.122, 0.148] | 0.135 [0.121, 0.151]† | 21 / 56 |
 | **Sparkov** (1.85M txns, 999 cards) | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** | 0.974 [0.967, 0.979] | 54 / 54 |
 
 † All 9 spend-spike features are constant on Fraud_Data, so this move is run-to-run noise

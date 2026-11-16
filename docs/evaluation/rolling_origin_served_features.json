@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-15T17:49:47",
+  "generated_at": "2026-11-15T22:32:11",
   "design": "expanding window; boosters early-stop on the month before the scored period, by scikit-learn average precision; hyper-parameters fixed (train.make_candidates); bot rows removed",
   "n_boot": 1000,
   "folds": [
@@ -12,48 +12,48 @@
       "scored_rows": 19364,
       "scored_frauds": 921,
       "base_rate": 0.0476,
-      "features": 34,
-      "winner": "lightgbm",
+      "features": 33,
+      "winner": "catboost",
       "models": {
         "random_forest": {
-          "pr_auc": 0.0658,
+          "pr_auc": 0.0762,
           "ci95": [
-            0.058,
-            0.0774
+            0.0657,
+            0.0905
           ],
-          "lift": 1.38,
+          "lift": 1.6,
           "trees": null,
-          "rank": 4
+          "rank": 3
         },
         "xgboost": {
-          "pr_auc": 0.0741,
+          "pr_auc": 0.0747,
           "ci95": [
-            0.0647,
-            0.0876
+            0.0644,
+            0.0887
           ],
-          "lift": 1.56,
-          "trees": 30,
-          "rank": 2
+          "lift": 1.57,
+          "trees": 80,
+          "rank": 4
         },
         "lightgbm": {
-          "pr_auc": 0.0752,
+          "pr_auc": 0.0774,
           "ci95": [
-            0.0658,
-            0.0866
+            0.0668,
+            0.0915
           ],
-          "lift": 1.58,
-          "trees": 1,
-          "rank": 1
+          "lift": 1.63,
+          "trees": 4,
+          "rank": 2
         },
         "catboost": {
-          "pr_auc": 0.0717,
+          "pr_auc": 0.0806,
           "ci95": [
-            0.0632,
-            0.084
+            0.0699,
+            0.0951
           ],
-          "lift": 1.51,
-          "trees": 150,
-          "rank": 3
+          "lift": 1.69,
+          "trees": 20,
+          "rank": 1
         }
       }
     },
@@ -66,47 +66,47 @@
       "scored_rows": 18908,
       "scored_frauds": 842,
       "base_rate": 0.0445,
-      "features": 34,
+      "features": 33,
       "winner": "random_forest",
       "models": {
         "random_forest": {
-          "pr_auc": 0.1009,
+          "pr_auc": 0.1037,
           "ci95": [
-            0.0862,
-            0.1203
+            0.0892,
+            0.1239
           ],
-          "lift": 2.27,
+          "lift": 2.33,
           "trees": null,
           "rank": 1
         },
         "xgboost": {
-          "pr_auc": 0.0986,
+          "pr_auc": 0.0958,
           "ci95": [
-            0.0835,
-            0.1168
+            0.0819,
+            0.1135
           ],
-          "lift": 2.21,
-          "trees": 40,
+          "lift": 2.15,
+          "trees": 120,
           "rank": 4
         },
         "lightgbm": {
-          "pr_auc": 0.0992,
+          "pr_auc": 0.1013,
           "ci95": [
-            0.0852,
-            0.1164
+            0.0858,
+            0.1213
           ],
-          "lift": 2.23,
-          "trees": 52,
+          "lift": 2.27,
+          "trees": 36,
           "rank": 3
         },
         "catboost": {
-          "pr_auc": 0.0999,
+          "pr_auc": 0.1037,
           "ci95": [
-            0.0859,
-            0.1185
+            0.0893,
+            0.1242
           ],
-          "lift": 2.24,
-          "trees": 70,
+          "lift": 2.33,
+          "trees": 100,
           "rank": 2
         }
       }
@@ -120,47 +120,47 @@
       "scored_rows": 19507,
       "scored_frauds": 900,
       "base_rate": 0.0461,
-      "features": 34,
+      "features": 33,
       "winner": "catboost",
       "models": {
         "random_forest": {
-          "pr_auc": 0.1015,
+          "pr_auc": 0.1042,
           "ci95": [
-            0.0884,
-            0.1171
+            0.0917,
+            0.1197
           ],
-          "lift": 2.2,
+          "lift": 2.26,
           "trees": null,
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1046,
+          "pr_auc": 0.1062,
           "ci95": [
-            0.091,
-            0.1217
+            0.0928,
+            0.123
           ],
-          "lift": 2.27,
-          "trees": 250,
-          "rank": 2
-        },
-        "lightgbm": {
-          "pr_auc": 0.1039,
-          "ci95": [
-            0.0907,
-            0.1211
-          ],
-          "lift": 2.25,
-          "trees": 109,
+          "lift": 2.3,
+          "trees": 130,
           "rank": 3
         },
-        "catboost": {
-          "pr_auc": 0.1049,
+        "lightgbm": {
+          "pr_auc": 0.1063,
           "ci95": [
-            0.0917,
-            0.1209
+            0.0927,
+            0.1236
           ],
-          "lift": 2.27,
-          "trees": 210,
+          "lift": 2.31,
+          "trees": 196,
+          "rank": 2
+        },
+        "catboost": {
+          "pr_auc": 0.1114,
+          "ci95": [
+            0.0966,
+            0.1307
+          ],
+          "lift": 2.41,
+          "trees": 30,
           "rank": 1
         }
       }
@@ -174,47 +174,47 @@
       "scored_rows": 18662,
       "scored_frauds": 833,
       "base_rate": 0.0446,
-      "features": 34,
+      "features": 33,
       "winner": "catboost",
       "models": {
         "random_forest": {
-          "pr_auc": 0.123,
+          "pr_auc": 0.119,
           "ci95": [
-            0.1063,
-            0.1442
+            0.1028,
+            0.1393
           ],
-          "lift": 2.76,
+          "lift": 2.67,
           "trees": null,
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.132,
+          "pr_auc": 0.1294,
           "ci95": [
-            0.113,
-            0.1551
+            0.1109,
+            0.1518
           ],
-          "lift": 2.96,
-          "trees": 100,
+          "lift": 2.9,
+          "trees": 110,
           "rank": 2
         },
         "lightgbm": {
-          "pr_auc": 0.1263,
+          "pr_auc": 0.1217,
           "ci95": [
-            0.1082,
-            0.1497
+            0.1053,
+            0.1431
           ],
-          "lift": 2.83,
-          "trees": 100,
+          "lift": 2.73,
+          "trees": 71,
           "rank": 3
         },
         "catboost": {
-          "pr_auc": 0.1354,
+          "pr_auc": 0.131,
           "ci95": [
-            0.1152,
-            0.1591
+            0.1118,
+            0.1548
           ],
-          "lift": 3.03,
-          "trees": 220,
+          "lift": 2.94,
+          "trees": 410,
           "rank": 1
         }
       }
@@ -228,48 +228,48 @@
       "scored_rows": 14347,
       "scored_frauds": 663,
       "base_rate": 0.0462,
-      "features": 34,
-      "winner": "xgboost",
+      "features": 33,
+      "winner": "catboost",
       "models": {
         "random_forest": {
-          "pr_auc": 0.1373,
+          "pr_auc": 0.1339,
           "ci95": [
-            0.1164,
-            0.1648
+            0.1131,
+            0.1598
           ],
-          "lift": 2.97,
+          "lift": 2.9,
           "trees": null,
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1453,
+          "pr_auc": 0.137,
           "ci95": [
-            0.1233,
-            0.1731
+            0.1166,
+            0.1652
           ],
-          "lift": 3.14,
-          "trees": 60,
-          "rank": 1
-        },
-        "lightgbm": {
-          "pr_auc": 0.1389,
-          "ci95": [
-            0.1173,
-            0.1664
-          ],
-          "lift": 3.01,
-          "trees": 104,
+          "lift": 2.96,
+          "trees": 70,
           "rank": 3
         },
-        "catboost": {
-          "pr_auc": 0.1414,
+        "lightgbm": {
+          "pr_auc": 0.1439,
           "ci95": [
-            0.1192,
-            0.1698
+            0.1223,
+            0.1725
           ],
-          "lift": 3.06,
-          "trees": 340,
+          "lift": 3.11,
+          "trees": 103,
           "rank": 2
+        },
+        "catboost": {
+          "pr_auc": 0.1456,
+          "ci95": [
+            0.1218,
+            0.1745
+          ],
+          "lift": 3.15,
+          "trees": 400,
+          "rank": 1
         }
       }
     },
@@ -282,47 +282,47 @@
       "scored_rows": 9815,
       "scored_frauds": 442,
       "base_rate": 0.045,
-      "features": 34,
+      "features": 33,
       "winner": "xgboost",
       "models": {
         "random_forest": {
-          "pr_auc": 0.1341,
+          "pr_auc": 0.1374,
           "ci95": [
-            0.1113,
-            0.1639
+            0.1139,
+            0.1665
           ],
-          "lift": 2.98,
+          "lift": 3.05,
           "trees": null,
           "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.1393,
+          "pr_auc": 0.1437,
           "ci95": [
-            0.1166,
-            0.1697
+            0.1185,
+            0.1743
           ],
-          "lift": 3.09,
+          "lift": 3.19,
           "trees": 90,
           "rank": 1
         },
         "lightgbm": {
-          "pr_auc": 0.1373,
+          "pr_auc": 0.1417,
           "ci95": [
-            0.1148,
-            0.1661
+            0.1179,
+            0.1735
           ],
-          "lift": 3.05,
-          "trees": 139,
+          "lift": 3.15,
+          "trees": 107,
           "rank": 2
         },
         "catboost": {
-          "pr_auc": 0.1348,
+          "pr_auc": 0.1404,
           "ci95": [
-            0.1128,
-            0.1634
+            0.1177,
+            0.1713
           ],
-          "lift": 2.99,
-          "trees": 50,
+          "lift": 3.12,
+          "trees": 20,
           "rank": 3
         }
       }
@@ -336,102 +336,102 @@
       "scored_rows": 5322,
       "scored_frauds": 251,
       "base_rate": 0.0472,
-      "features": 34,
-      "winner": "xgboost",
+      "features": 33,
+      "winner": "catboost",
       "models": {
         "random_forest": {
-          "pr_auc": 0.1639,
+          "pr_auc": 0.1539,
           "ci95": [
-            0.1249,
-            0.2116
+            0.1173,
+            0.2016
           ],
-          "lift": 3.48,
+          "lift": 3.26,
           "trees": null,
-          "rank": 2
+          "rank": 4
         },
         "xgboost": {
-          "pr_auc": 0.165,
+          "pr_auc": 0.1597,
           "ci95": [
-            0.1253,
-            0.2132
+            0.1196,
+            0.209
           ],
-          "lift": 3.5,
-          "trees": 180,
-          "rank": 1
+          "lift": 3.39,
+          "trees": 130,
+          "rank": 2
         },
         "lightgbm": {
-          "pr_auc": 0.1582,
+          "pr_auc": 0.1578,
           "ci95": [
-            0.1209,
-            0.2046
+            0.1197,
+            0.2067
           ],
-          "lift": 3.36,
-          "trees": 51,
+          "lift": 3.35,
+          "trees": 77,
           "rank": 3
         },
         "catboost": {
-          "pr_auc": 0.1537,
+          "pr_auc": 0.1598,
           "ci95": [
-            0.1175,
-            0.2051
+            0.1209,
+            0.2131
           ],
-          "lift": 3.26,
-          "trees": 20,
-          "rank": 4
+          "lift": 3.39,
+          "trees": 300,
+          "rank": 1
         }
       }
     }
   ],
   "summary": {
     "random_forest": {
-      "mean_pr_auc": 0.1181,
+      "mean_pr_auc": 0.1183,
       "mean_lift": 2.58,
-      "mean_rank": 3.29,
+      "mean_rank": 3.43,
       "folds_won": 1
     },
     "xgboost": {
-      "mean_pr_auc": 0.1227,
-      "mean_lift": 2.68,
-      "mean_rank": 1.86,
-      "folds_won": 3
-    },
-    "lightgbm": {
-      "mean_pr_auc": 0.1199,
-      "mean_lift": 2.62,
-      "mean_rank": 2.57,
+      "mean_pr_auc": 0.1209,
+      "mean_lift": 2.64,
+      "mean_rank": 2.71,
       "folds_won": 1
     },
+    "lightgbm": {
+      "mean_pr_auc": 0.1214,
+      "mean_lift": 2.65,
+      "mean_rank": 2.43,
+      "folds_won": 0
+    },
     "catboost": {
-      "mean_pr_auc": 0.1203,
-      "mean_lift": 2.62,
-      "mean_rank": 2.29,
-      "folds_won": 2
+      "mean_pr_auc": 0.1246,
+      "mean_lift": 2.72,
+      "mean_rank": 1.43,
+      "folds_won": 5
     }
   },
   "paired_mean_diff_vs_xgboost": {
     "random_forest": {
-      "mean_diff": -0.0047,
+      "mean_diff": -0.0029,
       "ci95": [
-        -0.0089,
-        -0.0005
+        -0.0068,
+        0.0008
       ],
-      "share_of_resamples_challenger_ahead": 0.019
+      "share_of_resamples_challenger_ahead": 0.067
     },
     "lightgbm": {
-      "mean_diff": -0.003,
+      "mean_diff": 0.0006,
       "ci95": [
-        -0.0065,
-        0.0007
+        -0.0029,
+        0.0042
       ],
-      "share_of_resamples_challenger_ahead": 0.056
+      "share_of_resamples_challenger_ahead": 0.616
     },
     "catboost": {
-      "mean_diff": -0.0024,
+      "mean_diff": 0.0037,
       "ci95": [
-        -0.0058,
-        0.0009
+        -0.0003,
+        0.0078
       ],
-      "share_of_resamples_challenger_ahead": 0.095
+      "share_of_resamples_challenger_ahead": 0.963
     }
   }
 }
