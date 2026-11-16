@@ -43,7 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 US_IP = 134744072        # 8.8.8.8, United States in the IP table
 CUBA_IP = 2563637249     # inside a Cuban range of the IP table
 AUDIT_COLUMNS = ("fraud_decision", "decision_rule", "model_score", "ip_country",
-                 "did_uid_1h", "did_txn_cnt_all", "did_other_uid_all", "model_version")
+                 "did_uid_1h", "did_txn_cnt_all", "did_other_uid_all",
+                 "amount_vs_user_avg_30d", "model_version")
 BAR = "-" * 78
 
 
@@ -106,7 +107,8 @@ class Demo:
         if row:
             print(f"  features  ip_country={row['ip_country']}  did_uid_1h={row['did_uid_1h']}  "
                   f"did_txn_cnt_all={row['did_txn_cnt_all']}  "
-                  f"did_other_uid_all={row['did_other_uid_all']}  model={row['model_version']}")
+                  f"did_other_uid_all={row['did_other_uid_all']}  "
+                  f"amount_vs_own_avg={row['amount_vs_user_avg_30d']:.2f}  model={row['model_version']}")
         print(f"  why       {why}")
         if not ok:
             print(f"  NOTE      expected {expected}, got {decision}")
@@ -165,8 +167,11 @@ def run_stories(d: Demo):
     body = payload(f"u-loyal-{r}", f"d-loyal-{r}", now, timedelta(days=200))
     d.show("loyal customer", body, d.send(body), "allow",
            "The device has history (did_txn_cnt_all=2) but no OTHER account has used it "
-           "(did_other_uid_all=0). The first version of this feature counted transactions and "
-           "sent this customer to review; live testing caught it the day it shipped.")
+           "(did_other_uid_all=0), and the purchase is the customer's usual size "
+           "(amount_vs_own_avg=1.00). Two earlier models got this customer wrong: one counted "
+           "their own purchases as device risk and sent them to review, the next read the "
+           "ratio of 1 as a one-dollar purchase. Neither input reaches the model now "
+           "(docs/feature_audit.md).")
 
     d.story(7, "A device that six other accounts have used over the past months")
     for i, days in enumerate((220, 190, 160, 130, 110, 95)):

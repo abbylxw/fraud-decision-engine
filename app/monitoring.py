@@ -2,9 +2,10 @@
 Drift monitoring: compare live traffic with what the model saw when it was trained.
 
 The idea, in three steps:
-  1. At training time (training/train.py) the validation scores and a few important
-     features are cut into buckets, and the share of traffic in each bucket is written to
-     model_meta.json under "monitoring_reference". That is what "normal" looks like.
+  1. At training time (training/train.py) the served model's scores on the test period
+     (the most recent data it has not seen) and a few important features are cut into
+     buckets, and the share of traffic in each bucket is written to model_meta.json under
+     "monitoring_reference". That is what "normal" looks like.
   2. At serving time (app/main.py) every scored request adds 1 to the counter of the bucket
      its score and each monitored feature falls in.
   3. Prometheus turns the counters into live shares and compares them with the reference
@@ -28,9 +29,9 @@ from collections.abc import Sequence
 # amount_vs_user_avg_30d. Both were flawed and are no longer model inputs
 # (docs/feature_audit.md), but the lesson stands: monitor every kind of input the model
 # has, not only the ones that look important.
-MONITORED_FEATURES = ("did_other_uid_all", "did_uid_90d", "did_uid_30d", "ip_uid_7d",
-                      "purchase_value", "days_since_signup", "age_account_gap", "hour_of_day",
-                      "amount_vs_user_avg_30d")
+MONITORED_FEATURES = ("did_other_uid_all", "did_uid_90d", "did_uid_30d", "did_uid_7d",
+                      "ip_uid_7d", "purchase_value", "age_account_gap", "hour_of_day",
+                      "day_of_week")
 SCORE_BUCKETS = 10      # deciles of the validation score: each expected share is ~10%
 FEATURE_BUCKETS = 5     # quintiles, before small buckets are merged
 MIN_SHARE = 0.01        # a bucket expected to hold < 1% of traffic makes PSI jumpy: merge it

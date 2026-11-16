@@ -1,6 +1,6 @@
 {
-  "model_version": "xgboost-20261115173504-24f1a88",
-  "trained_at": "2026-11-15T17:35:04",
+  "model_version": "xgboost-20261115222918-a9903ee",
+  "trained_at": "2026-11-15T22:29:18",
   "algorithm": "xgboost",
   "params": {
     "objective": "binary:logistic",
@@ -30,7 +30,7 @@
     "min_child_weight": 100,
     "missing": NaN,
     "multi_strategy": null,
-    "n_estimators": 40,
+    "n_estimators": 80,
     "n_jobs": -1,
     "num_parallel_tree": null,
     "random_state": 42,
@@ -47,7 +47,7 @@
     "did_other_uid_all": 1
   },
   "threshold": 1.01,
-  "review_threshold": 0.751195,
+  "review_threshold": 0.762431,
   "threshold_basis": {
     "chosen_on": "validation",
     "decisions": "score >= threshold: deny; review_threshold <= score < threshold: review",
@@ -57,38 +57,38 @@
     "tie_break": "least intrusive policy within 1% of the minimum validation cost (training/policy.py)",
     "missed_fraud_cost": "purchase_value"
   },
-  "elevated_score_threshold": 0.78947,
+  "elevated_score_threshold": 0.822542,
   "elevated_score_basis": {
     "chosen_on": "validation",
     "rule": "top 3% of scores",
-    "validation_precision": 0.2511,
+    "validation_precision": 0.2401,
     "used_by": "rules.rate_limiter_control (score + velocity combos)"
   },
   "monitoring_reference": {
-    "computed_on": "validation rows, train-only model",
+    "computed_on": "test period (most recent unseen data), served model",
     "score": {
       "edges": [
-        0.457218,
-        0.464825,
-        0.469051,
-        0.472016,
-        0.474422,
-        0.477066,
-        0.479567,
-        0.484281,
-        0.493572
+        0.440314,
+        0.450494,
+        0.456879,
+        0.461152,
+        0.464907,
+        0.468809,
+        0.473523,
+        0.484424,
+        0.499054
       ],
       "shares": [
-        0.099993,
-        0.099927,
-        0.098405,
-        0.099861,
-        0.099464,
-        0.102045,
-        0.100258,
-        0.099795,
-        0.099596,
-        0.100655
+        0.09999,
+        0.09999,
+        0.099957,
+        0.100056,
+        0.099858,
+        0.100089,
+        0.100056,
+        0.09999,
+        0.09999,
+        0.100023
       ]
     },
     "features": {
@@ -97,8 +97,8 @@
           1.0
         ],
         "shares": [
-          0.945801,
-          0.054199
+          0.932303,
+          0.067697
         ]
       },
       "did_uid_90d": {
@@ -106,17 +106,20 @@
           2.0
         ],
         "shares": [
-          0.970088,
-          0.029912
+          0.973795,
+          0.026205
         ]
       },
       "did_uid_30d": {
-        "edges": [
-          2.0
-        ],
+        "edges": [],
         "shares": [
-          0.988816,
-          0.011184
+          1.0
+        ]
+      },
+      "did_uid_7d": {
+        "edges": [],
+        "shares": [
+          1.0
         ]
       },
       "ip_uid_7d": {
@@ -133,41 +136,26 @@
           52.0
         ],
         "shares": [
-          0.192509,
-          0.201774,
-          0.194296,
-          0.198068,
-          0.213355
-        ]
-      },
-      "days_since_signup": {
-        "edges": [
-          26.0,
-          49.0,
-          72.0,
-          96.0
-        ],
-        "shares": [
-          0.194494,
-          0.198729,
-          0.198465,
-          0.203494,
-          0.204818
+          0.187969,
+          0.203719,
+          0.19998,
+          0.196969,
+          0.211362
         ]
       },
       "age_account_gap": {
         "edges": [
-          24.854795,
-          29.879452,
-          34.783562,
-          39.942466
+          24.832877,
+          29.805479,
+          34.739726,
+          39.931507
         ],
         "shares": [
-          0.199921,
-          0.199854,
-          0.200185,
-          0.199987,
-          0.200053
+          0.199848,
+          0.200146,
+          0.199815,
+          0.200146,
+          0.200046
         ]
       },
       "hour_of_day": {
@@ -178,18 +166,33 @@
           19.0
         ],
         "shares": [
-          0.16392,
-          0.206274,
-          0.215605,
-          0.208722,
-          0.205479
+          0.168117,
+          0.202958,
+          0.208715,
+          0.208781,
+          0.211428
+        ]
+      },
+      "day_of_week": {
+        "edges": [
+          1.0,
+          2.0,
+          4.0,
+          5.0
+        ],
+        "shares": [
+          0.149158,
+          0.150481,
+          0.283658,
+          0.138206,
+          0.278497
         ]
       }
     },
     "expected": {
-      "review_rate": 0.052545,
+      "review_rate": 0.067598,
       "deny_rate": 0.0,
-      "shared_device_share": 0.054199
+      "shared_device_share": 0.067697
     }
   },
   "training_data": {
@@ -203,7 +206,6 @@
   },
   "features": [
     "purchase_value",
-    "days_since_signup",
     "sex",
     "source",
     "browser",
@@ -267,6 +269,7 @@
     "amount_vs_user_avg_30d": "constant on training rows",
     "high_amount_vs_hist": "constant on training rows",
     "month_of_year": "test months never appear in training; memorises January",
+    "days_since_signup": "every signup in Fraud_Data is before September, so account age only grows through the year (mean 37 days in March, 103 in November) and the model must extrapolate; with it the score distribution drifted on the test months (PSI 0.32, 0.39, 0.64), without it 0.14, 0.12, 0.14, at no cost in PR-AUC (-0.001 [-0.005, +0.004]). The same reason month_of_year is dropped",
     "did_txn_cnt_2h": "counts every earlier purchase on the device, the buyer's own included; on Fraud_Data it equals did_uid_<window> - 1, on repeat customers it flags loyalty as risk (same flaw as did_txn_cnt_all)",
     "did_txn_cnt_24h": "counts every earlier purchase on the device, the buyer's own included; on Fraud_Data it equals did_uid_<window> - 1, on repeat customers it flags loyalty as risk (same flaw as did_txn_cnt_all)",
     "did_txn_cnt_7d": "counts every earlier purchase on the device, the buyer's own included; on Fraud_Data it equals did_uid_<window> - 1, on repeat customers it flags loyalty as risk (same flaw as did_txn_cnt_all)",
@@ -276,69 +279,123 @@
     "country_txn_count_30d": "raw traffic-volume counter: its scale is the request rate, not anything about this purchase (30d mean 1,719 in March, 3,433 in June; PSI 5.8 on a short replay)"
   },
   "top_features": {
-    "did_other_uid_all": 0.5909,
-    "did_uid_90d": 0.1383,
-    "did_uid_30d": 0.0428,
-    "ipc_grp_Asia": 0.0203,
-    "ipc_grp_North_America": 0.0178,
-    "purchase_value": 0.0176,
-    "ipc_grp_Africa": 0.017,
-    "ipc_Brazil": 0.0158,
-    "age_account_gap": 0.0152,
-    "ipc_France": 0.015
+    "did_other_uid_all": 0.4762,
+    "did_uid_90d": 0.1332,
+    "did_uid_30d": 0.0587,
+    "ipc_grp_Europe": 0.0257,
+    "ipc_grp_Asia": 0.0208,
+    "source": 0.0189,
+    "purchase_value": 0.0187,
+    "age_account_gap": 0.0186,
+    "hour_of_day": 0.0185,
+    "age_group": 0.0176
   },
   "validation_pr_auc": {
-    "random_forest": 0.1247,
-    "xgboost": 0.1424,
-    "lightgbm": 0.1423,
-    "catboost": 0.1429
+    "random_forest": 0.1268,
+    "xgboost": 0.1407,
+    "lightgbm": 0.14,
+    "catboost": 0.1408
   },
   "candidates_on_test": {
     "random_forest": {
       "trees": null,
-      "pr_auc": 0.1361,
+      "pr_auc": 0.1356,
       "pr_auc_ci95": [
-        0.1208,
-        0.1543
+        0.1218,
+        0.1538
       ],
-      "roc_auc": 0.64
+      "roc_auc": 0.6398
     },
     "xgboost": {
-      "trees": 40,
-      "pr_auc": 0.1423,
+      "trees": 80,
+      "pr_auc": 0.1395,
       "pr_auc_ci95": [
-        0.1268,
-        0.1612
+        0.1238,
+        0.1571
       ],
-      "roc_auc": 0.646
+      "roc_auc": 0.642
     },
     "lightgbm": {
-      "trees": 114,
-      "pr_auc": 0.141,
+      "trees": 110,
+      "pr_auc": 0.1421,
       "pr_auc_ci95": [
-        0.126,
-        0.1603
+        0.1256,
+        0.1591
       ],
-      "roc_auc": 0.6474
+      "roc_auc": 0.6416
     },
     "catboost": {
-      "trees": 20,
-      "pr_auc": 0.145,
+      "trees": 110,
+      "pr_auc": 0.1386,
       "pr_auc_ci95": [
-        0.1285,
-        0.1639
+        0.1233,
+        0.1571
       ],
-      "roc_auc": 0.6417
+      "roc_auc": 0.6365
     }
   },
   "selection_rule": {
     "incumbent": "xgboost",
     "selected": "xgboost",
-    "reason": "catboost won validation (0.1429 vs 0.1424) but its test PR-AUC 0.1450 is inside xgboost's 95% CI (upper 0.1612); kept the incumbent",
+    "reason": "catboost won validation (0.1408 vs 0.1407) but its test PR-AUC 0.1386 is inside xgboost's 95% CI (upper 0.1571); kept the incumbent",
     "rule": "highest validation PR-AUC, unless the winner is a challenger whose test PR-AUC is inside the incumbent's 95% CI"
   },
   "evaluation": {
     "new_model": {
+      "test": {
+        "pr_auc": 0.1399,
+        "pr_auc_ci95": [
+          0.1242,
+          0.1583
+        ],
+        "roc_auc": 0.6407,
+        "roc_auc_ci95": [
+          0.6228,
+          0.6572
+        ],
+        "at_1pct_alerts": {
+          "recall": 0.0677,
+          "precision": 0.3113
+        },
+        "at_5pct_alerts": {
+          "recall": 0.2592,
+          "precision": 0.2383
+        },
+        "precision_at_50pct_recall": 0.0772
+      },
+      "policy": {
+        "review_threshold": 0.7624,
+        "deny_threshold": 1.01,
+        "denied": 0,
+        "deny_rate": 0.0,
+        "reviewed": 2043,
+        "review_rate": 0.0676,
+        "fraud_total": 1389,
+        "fraud_denied": 0,
+        "fraud_reviewed": 469,
+        "fraud_allowed": 920,
+        "false_declines": 0,
+        "legit_reviewed": 1574,
+        "review_precision": 0.2296,
+        "deny_precision": null,
+        "total_cost": 44305.0
+      },
+      "deny_only": {
+        "threshold": 0.7624,
+        "denied": 2043,
+        "deny_rate": 0.0676,
+        "fraud_caught": 469,
+        "fraud_total": 1389,
+        "false_declines": 1574,
+        "fraud_dollars_stopped": 17305.0,
+        "total_cost": 49830.0
+      },
+      "elevated_score_on_test": {
+        "share": 0.0321,
+        "precision": 0.2601
+      }
+    },
+    "previous_model": {
       "test": {
         "pr_auc": 0.1407,
         "pr_auc_ci95": [
@@ -360,7 +417,7 @@
         },
         "precision_at_50pct_recall": 0.0752
       },
-      "policy": {
+      "as_served": {
         "review_threshold": 0.7512,
         "deny_threshold": 1.01,
         "denied": 0,
@@ -377,76 +434,22 @@
         "deny_precision": null,
         "total_cost": 44410.0
       },
-      "deny_only": {
-        "threshold": 0.7512,
-        "denied": 1938,
-        "deny_rate": 0.0641,
-        "fraud_caught": 453,
-        "fraud_total": 1389,
-        "false_declines": 1485,
-        "fraud_dollars_stopped": 16675.0,
-        "total_cost": 49570.0
-      },
-      "elevated_score_on_test": {
-        "share": 0.0308,
-        "precision": 0.2664
-      }
-    },
-    "previous_model": {
-      "test": {
-        "pr_auc": 0.1345,
-        "pr_auc_ci95": [
-          0.1201,
-          0.1511
-        ],
-        "roc_auc": 0.6413,
-        "roc_auc_ci95": [
-          0.6217,
-          0.6582
-        ],
-        "at_1pct_alerts": {
-          "recall": 0.0583,
-          "precision": 0.2682
-        },
-        "at_5pct_alerts": {
-          "recall": 0.2642,
-          "precision": 0.2429
-        },
-        "precision_at_50pct_recall": 0.0775
-      },
-      "as_served": {
-        "review_threshold": 0.7623,
-        "deny_threshold": 1.01,
-        "denied": 0,
-        "deny_rate": 0.0,
-        "reviewed": 1891,
-        "review_rate": 0.0626,
-        "fraud_total": 1389,
-        "fraud_denied": 0,
-        "fraud_reviewed": 437,
-        "fraud_allowed": 952,
-        "false_declines": 0,
-        "legit_reviewed": 1454,
-        "review_precision": 0.2311,
-        "deny_precision": null,
-        "total_cost": 44717.0
-      },
       "best_policy": {
-        "review_threshold": 0.7924,
+        "review_threshold": 0.7593,
         "deny_threshold": 1.01,
         "denied": 0,
         "deny_rate": 0.0,
-        "reviewed": 1492,
-        "review_rate": 0.0494,
+        "reviewed": 1753,
+        "review_rate": 0.058,
         "fraud_total": 1389,
         "fraud_denied": 0,
-        "fraud_reviewed": 360,
-        "fraud_allowed": 1029,
+        "fraud_reviewed": 407,
+        "fraud_allowed": 982,
         "false_declines": 0,
-        "legit_reviewed": 1132,
-        "review_precision": 0.2413,
+        "legit_reviewed": 1346,
+        "review_precision": 0.2322,
         "deny_precision": null,
-        "total_cost": 45416.0
+        "total_cost": 45014.0
       }
     },
     "deny_nothing_cost": 51395.0,
@@ -454,15 +457,15 @@
       "rule": "new test PR-AUC >= previous model's 95% CI lower bound AND new policy's test cost <= the served policy's test cost (same cost parameters)",
       "pr_auc_ok": true,
       "cost_ok": true,
-      "new_policy_cost": 44410.0,
-      "served_policy_cost": 44717.0,
+      "new_policy_cost": 44305.0,
+      "served_policy_cost": 44410.0,
       "cost_difference_ci95": [
-        -726.52,
-        143.15
+        -433.62,
+        200.52
       ],
       "pr_auc_difference_ci95": [
-        -0.0007,
-        0.0129
+        -0.005,
+        0.0035
       ],
       "passed": true
     },
@@ -471,112 +474,112 @@
         "review_cost": 3.0,
         "review_catch_rate": 1.0,
         "new": {
-          "review_rate": 0.0641,
+          "review_rate": 0.0676,
           "deny_rate": 0.0,
-          "total_cost": 40534.0
+          "total_cost": 40222.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.0776,
+          "review_rate": 0.058,
           "deny_rate": 0.0,
-          "total_cost": 40979.0
+          "total_cost": 41508.0
         }
       },
       {
         "review_cost": 3.0,
         "review_catch_rate": 0.8,
         "new": {
-          "review_rate": 0.0641,
+          "review_rate": 0.0676,
           "deny_rate": 0.0,
-          "total_cost": 43869.0
+          "total_cost": 43680.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.0518,
-          "deny_rate": 0.0017,
-          "total_cost": 44941.6
+          "review_rate": 0.058,
+          "deny_rate": 0.0,
+          "total_cost": 44537.2
         }
       },
       {
         "review_cost": 3.0,
         "review_catch_rate": 0.6,
         "new": {
-          "review_rate": 0.0585,
-          "deny_rate": 0.0048,
-          "total_cost": 46860.0
+          "review_rate": 0.0655,
+          "deny_rate": 0.0021,
+          "total_cost": 46877.4
         },
         "served_model_best_policy": {
-          "review_rate": 0.0389,
-          "deny_rate": 0.0067,
-          "total_cost": 47774.0
+          "review_rate": 0.0489,
+          "deny_rate": 0.0049,
+          "total_cost": 47382.6
         }
       },
       {
         "review_cost": 5.0,
         "review_catch_rate": 1.0,
         "new": {
-          "review_rate": 0.0641,
+          "review_rate": 0.0676,
           "deny_rate": 0.0,
-          "total_cost": 44410.0
+          "total_cost": 44305.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.0494,
+          "review_rate": 0.058,
           "deny_rate": 0.0,
-          "total_cost": 45416.0
+          "total_cost": 45014.0
         }
       },
       {
         "review_cost": 5.0,
         "review_catch_rate": 0.8,
         "new": {
-          "review_rate": 0.0585,
-          "deny_rate": 0.0048,
-          "total_cost": 47542.0
+          "review_rate": 0.0566,
+          "deny_rate": 0.0107,
+          "total_cost": 47684.2
         },
         "served_model_best_policy": {
-          "review_rate": 0.0416,
-          "deny_rate": 0.004,
-          "total_cost": 48198.4
+          "review_rate": 0.0489,
+          "deny_rate": 0.0049,
+          "total_cost": 47979.8
         }
       },
       {
         "review_cost": 5.0,
         "review_catch_rate": 0.6,
         "new": {
-          "review_rate": 0.0,
-          "deny_rate": 0.0279,
-          "total_cost": 49246.0
+          "review_rate": 0.0015,
+          "deny_rate": 0.0134,
+          "total_cost": 50229.6
         },
         "served_model_best_policy": {
           "review_rate": 0.0,
-          "deny_rate": 0.0186,
-          "total_cost": 50416.0
+          "deny_rate": 0.0252,
+          "total_cost": 49458.0
         }
       },
       {
         "review_cost": 8.0,
         "review_catch_rate": 1.0,
         "new": {
-          "review_rate": 0.0116,
-          "deny_rate": 0.0163,
-          "total_cost": 49414.0
+          "review_rate": 0.0105,
+          "deny_rate": 0.0044,
+          "total_cost": 50192.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.009,
-          "deny_rate": 0.0096,
-          "total_cost": 50470.0
+          "review_rate": 0.0181,
+          "deny_rate": 0.0071,
+          "total_cost": 49612.0
         }
       },
       {
         "review_cost": 8.0,
         "review_catch_rate": 0.8,
         "new": {
-          "review_rate": 0.0,
-          "deny_rate": 0.0279,
-          "total_cost": 49246.0
+          "review_rate": 0.0015,
+          "deny_rate": 0.0134,
+          "total_cost": 50263.8
         },
         "served_model_best_policy": {
           "review_rate": 0.0,
-          "deny_rate": 0.0186,
-          "total_cost": 50416.0
+          "deny_rate": 0.0252,
+          "total_cost": 49458.0
         }
       },
       {
@@ -584,13 +587,13 @@
         "review_catch_rate": 0.6,
         "new": {
           "review_rate": 0.0,
-          "deny_rate": 0.0279,
-          "total_cost": 49246.0
+          "deny_rate": 0.0149,
+          "total_cost": 50144.0
         },
         "served_model_best_policy": {
           "review_rate": 0.0,
-          "deny_rate": 0.0186,
-          "total_cost": 50416.0
+          "deny_rate": 0.0252,
+          "total_cost": 49458.0
         }
       }
     ]
