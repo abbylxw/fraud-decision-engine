@@ -2,7 +2,7 @@
 A guided demo of the fraud decision engine against the running Docker stack.
 
     docker compose up -d --build        # API on :8000, Grafana on :3000
-    python scripts/demo.py              # six stories, then a short traffic replay
+    python scripts/demo.py              # seven stories, then a short traffic replay
     python scripts/demo.py --no-replay  # stories only
 
 Each story sends one or two real requests to POST /api/transactions and prints what the
@@ -14,8 +14,10 @@ Together they show each layer: hard rules, the model's review band, and idempote
     3. A second account on one device in 1 hour -> deny   (hard rule device_many_users_1h)
     4. A request from a sanctioned country      -> deny   (hard rule ip_country_block)
     5. A device that comes back 120 days later
-       with a different account                 -> review (model, feature did_txn_cnt_all)
-    6. The same request sent twice              -> one decision, served from cache
+       with a different account                 -> review (model, feature did_other_uid_all)
+    6. A loyal customer, third purchase on
+       their own device                         -> allow  (history, but no OTHER account)
+    7. The same request sent twice              -> one decision, served from cache
 
 Story 5 returns "review" only when the served model has a review band (model_meta.json
 has review_threshold); with an older model it prints the score and says so.
@@ -38,7 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 US_IP = 134744072        # 8.8.8.8, United States in the IP table
 CUBA_IP = 2563637249     # inside a Cuban range of the IP table
 AUDIT_COLUMNS = ("fraud_decision", "decision_rule", "model_score", "ip_country",
-                 "did_uid_1h", "did_txn_cnt_all", "model_version")
+                 "did_uid_1h", "did_txn_cnt_all", "did_other_uid_all", "model_version")
 BAR = "-" * 78
 
 
@@ -100,7 +102,8 @@ class Demo:
               f"model_score={'not run (hard rule)' if score is None and row else score}")
         if row:
             print(f"  features  ip_country={row['ip_country']}  did_uid_1h={row['did_uid_1h']}  "
-                  f"did_txn_cnt_all={row['did_txn_cnt_all']}  model={row['model_version']}")
+                  f"did_txn_cnt_all={row['did_txn_cnt_all']}  "
+                  f"did_other_uid_all={row['did_other_uid_all']}  model={row['model_version']}")
         print(f"  why       {why}")
         if not ok:
             print(f"  NOTE      expected {expected}, got {decision}")
@@ -146,11 +149,23 @@ def run_stories(d: Demo):
     print("  (a first account bought on this device 120 days ago: allowed)")
     new = payload(f"u-new-{r}", f"d-return-{r}", now, timedelta(days=25))
     d.show("returning device", new, d.send(new), "review",
-           "The 90-day counters have forgotten the device; did_txn_cnt_all has not. Devices "
-           "with history were 5% of traffic and 23% fraud in training: too risky to approve, "
-           "not risky enough to decline, so the caller is asked to step up or review.")
+           "The 90-day counters have forgotten the device; did_other_uid_all has not: one "
+           "OTHER account used it before. Such devices were 5% of traffic and 23% fraud in "
+           "training: too risky to approve, not risky enough to decline, so the caller is "
+           "asked to step up or review.")
 
-    d.story(6, "The same request sent twice (a client retry after a timeout)")
+    d.story(6, "A loyal customer: third purchase on their own device")
+    for days in (60, 30):
+        d.send(payload(f"u-loyal-{r}", f"d-loyal-{r}", now - timedelta(days=days),
+                       timedelta(days=200 - days)))
+    print("  (the same account bought on this device 60 and 30 days ago: allowed)")
+    body = payload(f"u-loyal-{r}", f"d-loyal-{r}", now, timedelta(days=200))
+    d.show("loyal customer", body, d.send(body), "allow",
+           "The device has history (did_txn_cnt_all=2) but no OTHER account has used it "
+           "(did_other_uid_all=0). The first version of this feature counted transactions and "
+           "sent this customer to review; live testing caught it the day it shipped.")
+
+    d.story(7, "The same request sent twice (a client retry after a timeout)")
     body = payload(f"u-normal-{r}", f"d-normal-{r}", now, timedelta(days=30))
     again = d.send(body, key=f"demo-{r}-normal")
     same = again["transaction_id"] == first["transaction_id"]

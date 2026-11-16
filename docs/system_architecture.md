@@ -5,7 +5,7 @@
 Real-time fraud detection API for e-commerce transactions. Each incoming transaction
 is scored by rule-based and ML-based checks, written to PostgreSQL, and returned
 with a `fraud_decision` of `allow`, `review` or `deny` — all within a single async HTTP response cycle.
-`review` (added 2026-11-15) means "do not auto-approve: step up or queue for a person"; it is
+`review` (added 2026-11-15; served model `xgboost-20261115162923-3b6394a`, 42 features) means "do not auto-approve: step up or queue for a person"; it is
 returned for model scores between the review and deny thresholds in `model_meta.json`.
 
 ---

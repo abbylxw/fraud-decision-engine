@@ -7,9 +7,9 @@ other's confidence intervals**. The choice between them is about engineering cos
 accuracy.
 
 > **Update 2026-11-15.** Sections 3 to 6 describe the comparison on the 41 served features.
-> A later feature study added one feature, `did_txn_cnt_all`, and all four algorithms rose
-> together from about 0.09 to about 0.14 test PR-AUC (see
-> [feature_ablation.md](feature_ablation.md)). The hyper-parameters now in
+> A later feature study added one feature (other accounts ever seen on the device, served as
+> `did_other_uid_all`) and all four algorithms rose together from about 0.09 to about 0.14
+> test PR-AUC (see [feature_ablation.md](feature_ablation.md)). That model is the one served. The hyper-parameters now in
 > `train.make_candidates` were re-tuned with that feature, so they differ from the ones in
 > the section 4 table; the conclusions here are unchanged and, if anything, stronger.
 
@@ -259,8 +259,8 @@ Not another algorithm. The four agree because they are all reading the same two 
 device-sharing features; after the bot attack is removed there is little else in this
 dataset (one transaction per user, so every per-user velocity feature is constant).
 
-That reasoning was then tested, and it held: one more device feature, the all-time
-transaction count `did_txn_cnt_all`, lifted every algorithm by 0.04 to 0.05 PR-AUC, more
+That reasoning was then tested, and it held: one more device feature, the number of other
+accounts ever seen on the device, lifted every algorithm by 0.04 to 0.05 PR-AUC, more
 than ten times the largest gap between algorithms. The study, including what the gain is
 and is not worth in money, is in [feature_ablation.md](feature_ablation.md).
 

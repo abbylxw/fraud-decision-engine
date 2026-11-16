@@ -13,7 +13,7 @@ POST /api/transactions
  [Hard Rules]  ←── purchase limit, signup burst (<60s), 2+ users on a device in 1h, age check, IP country block
         │  deny → short-circuit (model never runs)
         ▼
- [ML Model]    ←── XGBoost on 41 features: device/IP sharing counters, transaction fields,
+ [ML Model]    ←── XGBoost on 42 features: device/IP sharing counters, transaction fields,
         │            grouped IP country (one-hot)
         │
         ▼
@@ -89,25 +89,24 @@ curl -X POST http://localhost:8000/api/transactions \
 | `deny` | Decline. A hard rule fired, or the score is high enough that a decline pays for itself. |
 
 Both thresholds are chosen by cost on validation data and stored in
-`app/decisions/model_meta.json`. The model served today was shipped before the review band
-existed, so it only returns `allow` or `deny` until the next model is shipped
-([docs/feature_ablation.md](docs/feature_ablation.md) §7).
+`app/decisions/model_meta.json` ([docs/feature_ablation.md](docs/feature_ablation.md) §7).
 
 ## Demo
 
 ```bash
 docker compose up -d --build
-python scripts/demo.py            # six stories, then ~2,000 replayed transactions
+python scripts/demo.py            # seven stories, then ~2,000 replayed transactions
 ```
 
 The script sends real requests and prints each decision with the reason, read back from
 the audit table: a normal customer (allow), a bot buying one second after signup (deny),
 a second account on one device within the hour (deny), a sanctioned country (deny), a
-device returning after 120 days with a different account (review), and a retried request
-answered from the idempotency cache. The replay then fills the Grafana dashboard
+device returning after 120 days with a different account (review), a loyal customer's third
+purchase on their own device (allow), and a retried request answered from the idempotency
+cache. The replay then fills the Grafana dashboard
 (http://localhost:3000, row "Decisions and model"): decision mix, review rate, decisions
 by rule, the score distribution against the served thresholds, and the share of traffic
-from returning devices.
+from devices that other accounts have used before.
 
 ## Health Check
 
@@ -183,32 +182,46 @@ and threshold choice use validation only; the test period is scored once. Full w
 | Model (test period, fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
 |---|---|---|
 | Random guessing | 0.046 | 0.50 |
-| Logistic regression | 0.066 [0.060, 0.074] | 0.56 |
-| Random forest (depth 16, 200 trees) | 0.085 [0.076, 0.098] | 0.56 |
-| XGBoost (depth 3, 368 trees) | 0.091 [0.081, 0.105] | 0.56 |
-| LightGBM (15 leaves, 190 trees) | 0.091 [0.081, 0.106] | 0.56 |
-| CatBoost (depth 4, 240 trees) | 0.096 [0.084, 0.111] | 0.56 |
-| **Served XGBoost** (41 features, grouped country one-hot) | **0.092 [0.081, 0.107]** | 0.56 |
-| Previous RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
+| Logistic regression | 0.090 [0.082, 0.102] | 0.62 |
+| Random forest (depth 16, 200 trees) | 0.131 [0.117, 0.146] | 0.64 |
+| XGBoost (depth 3, 200 trees) | 0.141 [0.126, 0.160] | 0.64 |
+| LightGBM (7 leaves, 376 trees) | 0.141 [0.127, 0.158] | 0.65 |
+| CatBoost (depth 3, 450 trees) | 0.137 [0.123, 0.154] | 0.65 |
+| **Served XGBoost** (42 features, refit on train + validation) | **0.141 [0.125, 0.160]** | 0.64 |
+| Previously served XGBoost (41 features, no all-time device feature) | 0.092 [0.081, 0.107] | 0.56 |
+| Original RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
 
-All tree models are trained without the January bot rows and early-stopped on validation;
-hyper-parameters come from `python -m training.tune`. The four tree ensembles tie: every
-confidence interval contains every other point estimate. How they differ and why they tie here:
-[docs/model_candidates.md](docs/model_candidates.md).
+All tree models are trained without the January bot rows, with the tree count chosen on
+validation; hyper-parameters come from `python -m training.tune`. The four tree ensembles
+tie: every confidence interval contains every other point estimate. How they differ and why
+they tie here: [docs/model_candidates.md](docs/model_candidates.md).
 
-A rolling-origin check (`python -m training.rolling_eval`: train on the past, score the next
-month, seven times) confirms the tie over time: mean PR-AUC is 0.090 for XGBoost and 0.089 for
-LightGBM and CatBoost, with the paired difference at −0.001 [−0.005, +0.002]. The random
-forest trails by 0.006 [0.002, 0.009].
+**The algorithm did not matter; one feature did.** Before the last feature was added, the
+same four algorithms tied at about 0.09, and a rolling-origin check
+(`python -m training.rolling_eval`: train on the past, score the next month, seven times)
+showed the tie holds over time (LightGBM and CatBoost vs XGBoost: −0.001 [−0.005, +0.002]).
+Then one feature, `did_other_uid_all` (how many *other* accounts have ever used this device;
+every earlier device counter forgot after 90 days), lifted all four together: the served
+model went from 0.092 to 0.141 (paired difference +0.049 [+0.040, +0.059]). The feature
+study, with the things that did not help, is in
+[docs/feature_ablation.md](docs/feature_ablation.md).
 
-**A feature beat every algorithm change.** One added feature, the all-time transaction count
-of the device (`did_txn_cnt_all`), lifts the tuned XGBoost from 0.092 to 0.141 test PR-AUC
-(paired difference +0.049 [+0.040, +0.059]) and all four algorithms rise with it. It is built
-and parity-tested on the serving side but **not shipped**: the fraud it finds sits at about
-23% precision, below the 27% needed for a decline to pay for itself, so it needs a `review`
-decision rather than `deny`. Full study, including the cost table:
-[docs/feature_ablation.md](docs/feature_ablation.md). The table above describes the served
-model.
+**Better ranking was not automatically more money.** The fraud the new feature finds sits at
+about 23% precision. With a $37 average fraud and $10 per wrongly declined customer, a
+decline only pays above 27%, so behind allow/deny the better model was worth $0. It ships
+with a third decision, `review`, and both thresholds chosen by cost:
+
+| Policy on the test period (30,223 orders, 1,389 frauds) | Reviewed | Denied by model | Fraud stopped | Legit orders touched | Total cost* |
+|---|---|---|---|---|---|
+| Do nothing | | | 0 | 0 | $51,395 |
+| Previous model, deny ≥ 0.843 | 0 | 365 (1.2%) | 106 | 259 declined | $49,714 |
+| **Served model, review ≥ 0.801** | 1,873 (6.2%) | 0 | 435 | 1,438 reviewed | **$44,728** |
+
+\* missed-fraud dollars + $10 per false decline + $5 per reviewed order, a reviewed fraud
+counted as stopped. Difference vs the previous model: −$4,986, 95% interval
+[−$6,348, −$3,778]. The $5 and the "review stops the fraud" are assumptions; the gain holds
+for a review up to about $5 that stops at least 80% of what it sees
+([sensitivity table](docs/feature_ablation.md)).
 
 **What the evaluation found:**
 - **The previous model barely beat random guessing.** At its hardcoded threshold of 0.7 it
@@ -261,8 +274,8 @@ What the served model does differently from the notebook model, and why:
   made less than 60 s after signup (all 7,600 such rows are fraud; the fastest legitimate one is
   137 s). Those rows are excluded from training because the model never scores them in production.
 - **`month_of_year` and the features that are constant on the training rows are dropped.**
-  Nothing measurable is lost on test; the model relies on device sharing (`did_uid_90d`,
-  `did_txn_cnt_30d`) instead of the calendar.
+  Nothing measurable is lost on test; the model relies on device sharing
+  (`did_other_uid_all`, `did_uid_30d`, `did_uid_90d`) instead of the calendar.
 - **IP country is grouped and one-hot encoded.** It used to be an alphabetical index over 182
   countries fed in as a number, so the model saw a fake order (Albania < Zimbabwe). Now: the 10
   highest-volume countries (~80% of traffic) each get a column, `Unknown` (IP not in the
@@ -278,13 +291,18 @@ What the served model does differently from the notebook model, and why:
   stopping fired after 3 trees, because the signal left after January is weak and deep trees
   overfit it. XGBoost stays served unless a challenger beats its 95% CI on test; see
   [docs/model_candidates.md](docs/model_candidates.md) for how the four differ and why they tie.
-- **The threshold is chosen by cost on validation** (missed fraud = purchase value, false decline
-  = $10) and stored in `app/decisions/model_meta.json` with the model version, training window
-  and evaluation results. The API reads it from there; it is no longer hardcoded.
+- **Two thresholds are chosen by cost on validation** (missed fraud = purchase value, false
+  decline = $10, review = $5): scores above the review threshold get `review`, scores above
+  the deny threshold get `deny`. Among policies within 1% of the cheapest, the one that
+  touches the fewest orders wins (`training/policy.py`). Both are stored in
+  `app/decisions/model_meta.json` with the model version, training window and evaluation
+  results; the API reads them from there. For the served model the deny threshold is "never":
+  no score is confident enough for a decline to beat a review, so declines come from the
+  hard rules.
 - **"Elevated score" for the rate-limiter combos is model-relative.** The soft rules that
   combine a score with velocity (e.g. score + 5 purchases in 24h) used a fixed 0.5. That value
   is meaningless for an uncalibrated model (the served XGBoost's median score is ~0.47), so the
-  level is now the top 3% of validation scores (0.591; 24% precision on validation, 23% on
+  level is now the top 3% of validation scores (0.832; 27% precision on validation, 25% on
   test), stored in `model_meta.json`. The velocity cut-offs themselves are expert-set and
   untested: with one transaction per user, none of those branches can fire on this dataset.
 - **Every decision is auditable.** The `transactions` table records `model_version`,
@@ -292,11 +310,14 @@ What the served model does differently from the notebook model, and why:
   (`app/data/db_init/005_add_model_audit_columns.sql`; idempotent, apply by hand to an
   existing database).
 - **Upgrading an existing database:** `app/data/db_init/008_add_device_all_time_count.sql`
-  adds the `did_txn_cnt_all` audit column and a `(device_id, purchase_time)` index. Fresh
-  Docker volumes get it automatically; an existing database needs it applied by hand before
-  starting this version of the API, or every audit insert fails on the missing column.
-- **A ship gate:** `--ship` refuses unless test PR-AUC is at least the previous model's 95% CI
-  lower bound.
+  and `009_add_device_other_accounts.sql` add two audit columns and a
+  `(device_id, purchase_time)` index. Fresh Docker volumes get them automatically; an
+  existing database needs both applied by hand before starting this version of the API, or
+  every audit insert fails on the missing columns.
+- **A ship gate with two conditions:** `--ship` refuses unless test PR-AUC is at least the
+  previous model's 95% CI lower bound **and** the new policy costs no more on test than the
+  served one. The second condition was added after a model passed the first while being
+  worth $0.
 
 Test period (Aug 30–Dec 16, scored once):
 
@@ -305,13 +326,15 @@ Test period (Aug 30–Dec 16, scored once):
 | Deny nothing | 0 | 0 / 1,389 | 0 | $0 | $51.4k |
 | Previous model @ 0.7 | 10 | 4 | 6 | $165 | $51.3k |
 | 25-feature model @ 0.849 | 327 (1.1%) | 98 | 229 | $4,059 | $49.6k |
-| **Served model @ 0.843** (grouped country) | 365 (1.2%) | **106** | 259 | **$4,271** | **$49.7k** |
+| 41-feature model @ 0.843 (grouped country; served until 2026-11-15) | 365 (1.2%) | 106 | 259 | $4,271 | $49.7k |
+| **Served model** (42 features, review ≥ 0.801, no model declines) | 0 denied, 1,873 reviewed (6.2%) | **435** (reviewed) | 0 (1,438 reviewed) | **$16,032** | **$44.7k**† |
 
-\* missed-fraud dollars + $10 per false decline. The ranking quality (PR-AUC) is unchanged;
-the gain over 0.7 comes from a threshold chosen for this model by cost. The two cost-tuned
-models are a wash: more fraud caught, more false declines, same total cost.
-On this dataset the ceiling is the data: after January, fraud is 4.5% and the main
-remaining signal is device sharing.
+\* missed-fraud dollars + $10 per false decline. † plus $5 per reviewed order, a reviewed
+fraud counted as stopped. For the first three models ranking quality (PR-AUC) is unchanged
+and the two cost-tuned ones are a wash: more fraud caught, more false declines, same total
+cost. The served model is the first with better ranking (one new device feature) and the
+first to lower total cost, and it does so by reviewing rather than declining.
+After January, fraud is 4.5% and the signal is who else has used the device.
 
 ## Does the Velocity Layer Work? (Datasets With Repeat Users)
 

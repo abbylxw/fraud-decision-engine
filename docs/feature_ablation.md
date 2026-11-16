@@ -1,8 +1,10 @@
-# Feature study: all-time device history (`did_txn_cnt_all`)
+# Feature study: all-time device history (`did_other_uid_all`, first built as `did_txn_cnt_all`)
 
-Date: 2026-11-15. Status: **feature built on both the training and serving side, tested,
-retrained candidate ready; not shipped.** The ship decision is open and explained in
-section 6.
+Date: 2026-11-15. Status: **shipped** as `xgboost-20261115162923-3b6394a` with a `review`
+decision band. Read in order: sections 1 to 6 are the study as first written (the feature is
+called `did_txn_cnt_all` there and the conclusion is "do not ship behind allow/deny");
+section 7 adds the review band that made it worth shipping; section 8 is the flaw found by
+live testing the day it shipped, and the corrected feature that is served now.
 
 Short version: four tuned algorithms tied at PR-AUC 0.09, so the algorithm was not the
 limit. One new feature, "how many transactions has this device ever made before this one",
@@ -194,7 +196,8 @@ then the served model stays `xgboost-20261109211048-5ba3793`.
 The API and the training script now support a third decision. `training/train.py` picks a
 review threshold and a deny threshold together on validation by cost (`pick_thresholds`),
 and the ship gate also requires the new policy to cost no more on test than the served one.
-Report: `docs/evaluation/train_review_band.json`. Cost model: a wrongly declined order
+Report of this first run: `docs/evaluation/train_review_band.json`; the shipped run, after
+the tie-break below was added: `docs/evaluation/train_shipped_20261115.json`. Cost model: a wrongly declined order
 costs $10; every reviewed order costs $5; a reviewed fraud is stopped. This is stricter
 than the table in section 6, which charged the review only on legitimate orders.
 
@@ -230,10 +233,79 @@ it sees. Outside that range the review band disappears and the result is the cos
 they are what a real deployment would have to measure first, and they are command-line
 parameters (`--review-cost`, `--review-catch-rate`) for that reason.
 
-One weakness left open: when costs are tied (the last rows), the search returns the policy
-that acts on *more* orders. A tie-break towards the least intrusive policy would be safer.
+One weakness in that first run: when costs are nearly tied (the last rows), the search
+returned the policy that acts on *more* orders. **Fixed before shipping:** among policies
+within 1% of the lowest validation cost, `pick_thresholds` now takes the one that touches
+the fewest orders (`training/policy.py`). Shipped policy: review ≥ 0.801, no model declines;
+on test 6.2% reviewed (435 of 1,389 frauds, 23% precision, 1,438 legitimate orders), total
+cost **$44,728** against $49,714 before, a difference of −$4,986 with a 95% paired interval
+of [−$6,348, −$3,778]. With the tie-break the bad-assumption rows also behave: at a $5
+review that stops only 60%, or an $8 review, the policy falls back to declining about 2% of
+orders (about $49.2k) instead of 6%.
 
-## 8. Things worth looking up
+## 8. The flaw live testing found, and the feature that is served (2026-11-15)
+
+The first shipped version used `did_txn_cnt_all`: every earlier transaction on the device.
+After the ship I ran the demo and a load test against the rebuilt stack and added one more
+request by hand: the same account buying three times on its own device, 30 days apart.
+
+| Purchase | `did_txn_cnt_all` | Score | Decision |
+|---|---|---|---|
+| 1st | 0 | 0.375 | allow |
+| 2nd | 1 | 0.806 | **review** |
+| 3rd | 2 | 0.805 | **review** |
+
+Every returning customer would be sent to review. The offline evaluation could not see this:
+in Fraud_Data each user buys exactly once, so "this device has history" and "another account
+used this device" are the same rows. The model learned the second; the feature measured the
+first.
+
+**Fix.** The served feature is now `did_other_uid_all`: the number of *other* accounts ever
+seen on the device, the buyer excluded.
+
+- On Fraud_Data it is the same column, value for value (checked on all 151,112 rows), so the
+  ablation, the retrained model, the thresholds and every number in sections 3 to 7 are
+  unchanged: test PR-AUC 0.141, policy cost $44,728, both ship gates pass.
+- On real traffic it differs exactly where it should: the loyal customer above now has
+  `did_txn_cnt_all` = 2 and `did_other_uid_all` = 0, scores 0.35 and is allowed
+  (`scripts/demo.py`, story 6).
+- Serving: a Redis set `did:uids_all:{device_id}` (`SADD` after each decision; `SCARD` and
+  `SISMEMBER` in the read pipeline, 41 commands, still one round trip). The Postgres fallback
+  became one query that answers both features (`user_id, COUNT(*) ... GROUP BY user_id`) and
+  re-seeds both Redis keys. `db_init/009` adds the audit column. `did_txn_cnt_all` is still
+  computed and stored (cheap, and useful to monitor) but is no longer a model input.
+- Tests: the synthetic parity data has repeat users, so it tells the two features apart on
+  both paths; `test_loyal_customer_on_own_device_has_no_other_accounts` pins the fix.
+
+**A second weakness, measured and left open.** The model's score is not monotonic in the
+feature: 0 other accounts → 0.47, 1 → 0.81, 3 → 0.77, 5 or more → 0.52. In the training
+period, devices with many earlier accounts were the January bot devices, whose later
+purchases were mostly legitimate (759 rows, 4.9% fraud), so the model learned that a very
+shared device is ordinary. A device farm adding accounts slowly (so the 1-hour hard rule
+does not fire) would be scored as low risk. XGBoost can be told that more accounts must
+never lower the score (`monotone_constraints`); measured:
+
+| | Rolling mean PR-AUC | Test PR-AUC | Test policy cost | Score at 5+ other accounts |
+|---|---|---|---|---|
+| Unconstrained (served) | 0.124 | 0.141 | $44,728 | 0.52 (allowed) |
+| Monotone in `did_other_uid_all` | 0.119 | 0.136 | $44,554 | 0.82 (review) |
+
+Paired on test: PR-AUC −0.006 [−0.010, −0.001] for the constraint, cost difference
+[−$605, +$200] (no difference). Only 9 test rows have four or more other accounts, and 3 of
+them are fraud. So the constraint costs a little ranking quality on this data, costs no
+money, and closes a hole the data barely tests. It was **not shipped** because the standing
+rule for an automatic re-ship was "numbers within noise of the approved model" and PR-AUC is
+the project's selection metric; it is an open decision, and the argument for it is that the
+loss is an artefact of one bot attack in the training window.
+
+**What this section is worth as a lesson.** The offline numbers were right and the feature
+was still wrong, because the dataset could not express the case that broke it. It was found
+by running real requests through the live stack, not by any metric. Two habits follow:
+write the feature's meaning in words that would still be true on other data ("other
+accounts", not "transactions"), and keep a demo script with named stories that is run after
+every ship.
+
+## 9. Things worth looking up
 
 - *Ablation study*: measuring a component by removing it.
 - *Paired bootstrap*: why comparing two models on the same resampled rows detects much
@@ -241,3 +313,7 @@ that acts on *more* orders. A tie-break towards the least intrusive policy would
 - *Break-even precision*: cost of a false positive divided by the value saved by a true
   positive; the threshold below which an action loses money.
 - *Step-up authentication / 3-D Secure*: the standard "third option" between allow and deny.
+- *Monotonic constraints* in gradient boosting: forcing the model's answer to move in one
+  direction with a feature, used when you know the direction and the data is thin.
+- *Dataset shift / out-of-distribution inputs*: why a model can be right on its test set and
+  wrong on the first real request.

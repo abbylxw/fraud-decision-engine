@@ -1037,7 +1037,7 @@ with a band ships: treating an unknown `review` as `allow` silently drops the pr
 - With ties in cost the search prefers the policy acting on more orders.
 - The ship gate's cost comparison is a point estimate without a confidence interval.
 
-**Result (not shipped, awaiting approval):** new model with review ≥ 0.784 and deny ≥ 0.904
+**Result of the first run (the shipped policy differs slightly, see the next section):** new model with review ≥ 0.784 and deny ≥ 0.904
 on test: 6.6% reviewed (458 frauds at 23% precision), 6 orders denied, total cost $44,403 vs
 $49,714 as served (−10.7%) and $51,395 doing nothing. Both ship gates pass.
 
@@ -1047,6 +1047,70 @@ $49,714 as served (−10.7%) and $51,395 doing nothing. Both ship gates pass.
 - `training/evaluate.py` and `training/rule_backtest.py` still reason about a single deny
   threshold; extend them to the three-way policy after the ship.
 - Review outcomes as labels (`POST /api/labels`) to measure the real catch rate.
+
+## Shipped: 42-feature model with a review band; feature corrected the same day (2026-11-15)
+
+Served model: `xgboost-20261115162923-3b6394a`, review ≥ 0.801, deny threshold 1.01 (never).
+Evidence and tables: `docs/feature_ablation.md` sections 7 and 8.
+
+**1. Least-intrusive tie-break (`training/policy.py`).** The cost curve is flat near its
+minimum, and the exact minimum sometimes sat on a policy touching 6% of orders for a few
+dollars. Rule: among threshold pairs within 1% of the lowest validation cost, take the one
+that touches the fewest orders, then the fewest declines. Effect on the shipped policy:
+6.6% reviewed + 6 declines ($44,403 on test) became 6.2% reviewed + 0 declines ($44,728).
+Trade-off accepted: up to 1% of validation cost given up for a calmer, more stable policy.
+The 1% is a judgment, not a measurement.
+
+**2. Cost functions moved to `training/policy.py`** (numpy only) so their tests run in CI,
+which does not install LightGBM/CatBoost. The ship gate now also reports a paired bootstrap
+interval for the cost difference (−$4,986, [−$6,348, −$3,778] for this ship); the gate rule
+itself still uses the point estimate.
+
+**3. First ship, then a flaw.** `xgboost-20261115160020-9aee13e` shipped with
+`did_txn_cnt_all`. Running the demo and a hand-made "same customer, own device, three
+purchases" sequence against the live stack showed purchases 2 and 3 going to review (score
+0.81). Cause: on Fraud_Data every user buys once, so "the device has history" and "another
+account used the device" are identical columns; the model learned the second from a feature
+that measures the first.
+
+**4. Fix: `did_other_uid_all`** (other accounts ever seen on the device). Identical to
+`did_txn_cnt_all` on all 151,112 Fraud_Data rows, so the retrain reproduced the model
+exactly (PR-AUC 0.141, cost $44,728) and was re-shipped under the pre-agreed rule "only if
+within noise of the approved model". Serving: Redis set `did:uids_all:{device}`; the two
+all-time features share one Postgres fallback query; `db_init/009`. Alternatives rejected:
+(a) keep the counter and add a rule "same user → ignore": two features doing one job;
+(b) reuse the 90-day `did:uid` sorted set without purging: event-time correct, but changes
+the meaning of every windowed read on that key. `did_txn_cnt_all` stays as an audited value
+(not a model input) because it is one integer and makes the difference visible in the audit
+table.
+
+**5. Not adopted: monotone constraint on `did_other_uid_all`.** Unconstrained, the score
+falls back to about 0.52 at five or more other accounts (the training window's shared
+devices were January bot devices whose later purchases were mostly legitimate). A constraint
+fixes that at −0.006 test PR-AUC [−0.010, −0.001] and no cost difference. Left as an open
+decision because it is outside the "within noise" re-ship rule.
+
+**6. Load test of the new lookups** (`client_mimic.py --rps 200 --duration 30`, one client,
+local Docker, before/after the rebuild): p50 7 → 7–8 ms, p95 15 → 11–13 ms, p99 24 → 16–21 ms.
+No regression visible; single 30-second runs, so differences of a few ms are noise. The
+caveat is that this local database is full of replayed load-test rows, so few requests were
+true first-seen devices.
+
+**7. `training/evaluate.py`** now treats the served *review* threshold as the served alert
+threshold (its cost view is "alert at $5 each"); with the deny threshold at "never" it had
+reported the served model as doing nothing.
+
+**Other trade-offs still open:** review cost and catch rate are assumptions; a reviewed
+order counts as a successful purchase in the velocity counters; all-time device history is
+arrival-order, not event-time; the two all-time Redis keys never expire.
+
+**TODOs:**
+- Decide on the monotone constraint (above).
+- A named-stories smoke test after every ship is now `scripts/demo.py`; run it in CI
+  against a Compose stack (needs the real-Postgres CI job from the hardening list).
+- A load test on a clean database with mostly first-seen devices.
+- Backfill script for `did:txn_all:*` / `did:uids_all:*` after a Redis flush (the fallback
+  does it lazily, one device at a time).
 
 ## Performance Optimisations (2026-03-19)
 

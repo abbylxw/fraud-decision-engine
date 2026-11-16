@@ -1,6 +1,6 @@
 {
-  "model_version": "xgboost-20261115160020-9aee13e",
-  "trained_at": "2026-11-15T16:00:20",
+  "model_version": "xgboost-20261115162923-3b6394a",
+  "trained_at": "2026-11-15T16:29:23",
   "algorithm": "xgboost",
   "params": {
     "objective": "binary:logistic",
@@ -107,7 +107,7 @@
     "did_txn_cnt_24h",
     "did_txn_cnt_7d",
     "did_txn_cnt_30d",
-    "did_txn_cnt_all",
+    "did_other_uid_all",
     "country_txn_count_24h",
     "country_txn_count_7d",
     "country_txn_count_30d",
@@ -146,7 +146,7 @@
     "month_of_year": "test months never appear in training; memorises January"
   },
   "top_features": {
-    "did_txn_cnt_all": 0.2488,
+    "did_other_uid_all": 0.2488,
     "did_uid_30d": 0.147,
     "did_uid_90d": 0.1438,
     "ipc_United_States": 0.0346,
@@ -264,59 +264,59 @@
     },
     "previous_model": {
       "test": {
-        "pr_auc": 0.092,
+        "pr_auc": 0.141,
         "pr_auc_ci95": [
-          0.0814,
-          0.1065
+          0.1252,
+          0.1599
         ],
-        "roc_auc": 0.5568,
+        "roc_auc": 0.6412,
         "roc_auc_ci95": [
-          0.5393,
-          0.5741
+          0.6221,
+          0.658
         ],
         "at_1pct_alerts": {
-          "recall": 0.0634,
-          "precision": 0.2914
+          "recall": 0.0641,
+          "precision": 0.2947
         },
         "at_5pct_alerts": {
-          "recall": 0.1497,
-          "precision": 0.1377
+          "recall": 0.2613,
+          "precision": 0.2402
         },
-        "precision_at_50pct_recall": 0.0533
+        "precision_at_50pct_recall": 0.077
       },
       "as_served": {
-        "review_threshold": 0.8428,
-        "deny_threshold": 0.8428,
-        "denied": 365,
-        "deny_rate": 0.0121,
-        "reviewed": 0,
-        "review_rate": 0.0,
-        "fraud_total": 1389,
-        "fraud_denied": 106,
-        "fraud_reviewed": 0,
-        "fraud_allowed": 1283,
-        "false_declines": 259,
-        "legit_reviewed": 0,
-        "review_precision": null,
-        "deny_precision": 0.2904,
-        "total_cost": 49714.0
-      },
-      "best_policy": {
-        "review_threshold": 0.8281,
+        "review_threshold": 0.8014,
         "deny_threshold": 1.01,
         "denied": 0,
         "deny_rate": 0.0,
-        "reviewed": 551,
-        "review_rate": 0.0182,
+        "reviewed": 1873,
+        "review_rate": 0.062,
         "fraud_total": 1389,
         "fraud_denied": 0,
-        "fraud_reviewed": 136,
-        "fraud_allowed": 1253,
+        "fraud_reviewed": 435,
+        "fraud_allowed": 954,
         "false_declines": 0,
-        "legit_reviewed": 415,
-        "review_precision": 0.2468,
+        "legit_reviewed": 1438,
+        "review_precision": 0.2322,
         "deny_precision": null,
-        "total_cost": 48865.0
+        "total_cost": 44728.0
+      },
+      "best_policy": {
+        "review_threshold": 0.8128,
+        "deny_threshold": 1.01,
+        "denied": 0,
+        "deny_rate": 0.0,
+        "reviewed": 1679,
+        "review_rate": 0.0556,
+        "fraud_total": 1389,
+        "fraud_denied": 0,
+        "fraud_reviewed": 396,
+        "fraud_allowed": 993,
+        "false_declines": 0,
+        "legit_reviewed": 1283,
+        "review_precision": 0.2359,
+        "deny_precision": null,
+        "total_cost": 44999.0
       }
     },
     "deny_nothing_cost": 51395.0,
@@ -325,10 +325,10 @@
       "pr_auc_ok": true,
       "cost_ok": true,
       "new_policy_cost": 44728.0,
-      "served_policy_cost": 49714.0,
+      "served_policy_cost": 44728.0,
       "cost_difference_ci95": [
-        -6348.0,
-        -3777.7
+        0.0,
+        0.0
       ],
       "passed": true
     },
@@ -342,9 +342,9 @@
           "total_cost": 40527.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.045,
+          "review_rate": 0.1178,
           "deny_rate": 0.0,
-          "total_cost": 47750.0
+          "total_cost": 43272.0
         }
       },
       {
@@ -356,9 +356,9 @@
           "total_cost": 44188.4
         },
         "served_model_best_policy": {
-          "review_rate": 0.0181,
-          "deny_rate": 0.0021,
-          "total_cost": 48858.0
+          "review_rate": 0.0841,
+          "deny_rate": 0.006,
+          "total_cost": 45347.6
         }
       },
       {
@@ -370,9 +370,9 @@
           "total_cost": 47479.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.0037,
-          "deny_rate": 0.0071,
-          "total_cost": 49844.2
+          "review_rate": 0.0496,
+          "deny_rate": 0.006,
+          "total_cost": 47270.8
         }
       },
       {
@@ -384,9 +384,9 @@
           "total_cost": 44728.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.0182,
+          "review_rate": 0.0556,
           "deny_rate": 0.0,
-          "total_cost": 48865.0
+          "total_cost": 44999.0
         }
       },
       {
@@ -398,9 +398,9 @@
           "total_cost": 47804.4
         },
         "served_model_best_policy": {
-          "review_rate": 0.0047,
-          "deny_rate": 0.0045,
-          "total_cost": 49897.2
+          "review_rate": 0.0391,
+          "deny_rate": 0.006,
+          "total_cost": 47939.8
         }
       },
       {
@@ -413,8 +413,8 @@
         },
         "served_model_best_policy": {
           "review_rate": 0.0,
-          "deny_rate": 0.0071,
-          "total_cost": 50203.0
+          "deny_rate": 0.0385,
+          "total_cost": 49136.0
         }
       },
       {
@@ -426,9 +426,9 @@
           "total_cost": 49467.0
         },
         "served_model_best_policy": {
-          "review_rate": 0.0026,
-          "deny_rate": 0.0045,
-          "total_cost": 50265.0
+          "review_rate": 0.0164,
+          "deny_rate": 0.0221,
+          "total_cost": 49224.0
         }
       },
       {
@@ -441,8 +441,8 @@
         },
         "served_model_best_policy": {
           "review_rate": 0.0,
-          "deny_rate": 0.0071,
-          "total_cost": 50203.0
+          "deny_rate": 0.0385,
+          "total_cost": 49136.0
         }
       },
       {
@@ -455,8 +455,8 @@
         },
         "served_model_best_policy": {
           "review_rate": 0.0,
-          "deny_rate": 0.0071,
-          "total_cost": 50203.0
+          "deny_rate": 0.0385,
+          "total_cost": 49136.0
         }
       }
     ]

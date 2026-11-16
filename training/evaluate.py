@@ -33,7 +33,11 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from app.decisions.models import THRESHOLD as SERVED_THRESHOLD
+# This script's cost view is "alert on an order at $review_cost each". The served engine
+# acts on an order from its review threshold upwards (review, or deny above the deny
+# threshold), so that is the served alert threshold here. For a model shipped without a
+# review band the two thresholds are equal.
+from app.decisions.models import REVIEW_THRESHOLD as SERVED_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from training.build_features import ROOT, SERVED_FEATURES, build_feature_frame, load_transactions
 from training.candidates import BOOSTERS, best_trees, fit_candidate
