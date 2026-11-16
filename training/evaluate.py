@@ -42,6 +42,8 @@ from app.decisions.models import _model as deployed_model
 from training.build_features import ROOT, SERVED_FEATURES, build_feature_frame, load_transactions
 from training.candidates import BOOSTERS, best_trees, fit_candidate
 
+MONOTONE = {"did_other_uid_all": 1}   # same constraint as training/train.py
+
 warnings.filterwarnings("ignore", category=UserWarning)
 SEED = 42
 
@@ -130,6 +132,10 @@ def make_models(neg_pos_ratio):
         "xgboost": XGBClassifier(
             n_estimators=1000, max_depth=3, learning_rate=0.05, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
+            # More other accounts on the device must never LOWER the score (see
+            # docs/feature_ablation.md section 8: unconstrained, a device with 5+ other
+            # accounts scored as low risk, an artefact of the January bot devices).
+            monotone_constraints=MONOTONE,
             random_state=SEED, n_jobs=-1,
         ),
         # Sweep winners (docs/evaluation/tune_sweep.json); same settings as train.py.

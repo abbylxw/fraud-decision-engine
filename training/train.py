@@ -42,6 +42,7 @@ from app.decisions.models import REVIEW_THRESHOLD as OLD_REVIEW_THRESHOLD
 from app.decisions.models import THRESHOLD as OLD_THRESHOLD
 from app.decisions.models import _model as deployed_model
 from app.decisions.rules import SIGNUP_BURST_SECONDS
+from app.monitoring import FEATURE_BUCKETS, MONITORED_FEATURES, SCORE_BUCKETS, reference_buckets
 from training.build_features import ROOT, build_feature_frame, load_transactions
 from training.candidates import (
     best_trees,
@@ -99,6 +100,8 @@ ELEVATED_ALERT_RATE = 0.03
 
 
 INCUMBENT = "xgboost"
+# XGBoost monotone constraint: feature -> +1 ("never lowers the score as it grows").
+MONOTONE = {"did_other_uid_all": 1}
 
 
 def make_candidates(neg_pos_ratio):
@@ -123,6 +126,10 @@ def make_candidates(neg_pos_ratio):
         "xgboost": XGBClassifier(
             n_estimators=1000, max_depth=3, learning_rate=0.05, min_child_weight=100,
             subsample=0.8, colsample_bytree=0.8, scale_pos_weight=neg_pos_ratio,
+            # More other accounts on the device must never LOWER the score (see
+            # docs/feature_ablation.md section 8: unconstrained, a device with 5+ other
+            # accounts scored as low risk, an artefact of the January bot devices).
+            monotone_constraints=MONOTONE,
             random_state=SEED, n_jobs=-1,
         ),
         "lightgbm": LGBMClassifier(
@@ -266,6 +273,21 @@ def main():
     print(f"  elevated-score level (top {ELEVATED_ALERT_RATE:.0%} of validation): {elevated:.4f} "
           f"(validation precision {elevated_prec:.1%})")
 
+    # --- What "normal" looks like, for drift monitoring (app/monitoring.py) ---
+    # Validation rows, train-only model: the same scores the thresholds were picked on.
+    va_review = (p_va_best >= review_threshold) & (p_va_best < threshold)
+    monitoring_reference = {
+        "computed_on": "validation rows, train-only model",
+        "score": reference_buckets(p_va_best, SCORE_BUCKETS),
+        "features": {f: reference_buckets(X.loc[va, f].to_numpy(), FEATURE_BUCKETS)
+                     for f in MONITORED_FEATURES if f in features},
+        "expected": {
+            "review_rate": round(float(va_review.mean()), 6),
+            "deny_rate": round(float((p_va_best >= threshold).mean()), 6),
+            "shared_device_share": round(float((X.loc[va, "did_other_uid_all"] > 0).mean()), 6),
+        },
+    }
+
     # --- Score test once, new vs deployed ---------------------------------
     old_features = json.loads((DECISIONS / "model_features.json").read_text())
     p_new = final.predict_proba(X[te])[:, 1]
@@ -342,6 +364,9 @@ def main():
         "algorithm": best,
         "params": {k: v for k, v in final.get_params().items()
                    if isinstance(v, (int, float, str, bool)) or v is None},
+        # Recorded by feature name; the model itself stores one number per column.
+        "monotone_constraints": {f: d for f, d in MONOTONE.items() if f in features}
+                                if best == "xgboost" else {},
         "threshold": round(threshold, 6),
         "review_threshold": round(review_threshold, 6),
         "threshold_basis": {"chosen_on": "validation",
@@ -358,6 +383,7 @@ def main():
                                  "rule": f"top {ELEVATED_ALERT_RATE:.0%} of scores",
                                  "validation_precision": round(elevated_prec, 4),
                                  "used_by": "rules.rate_limiter_control (score + velocity combos)"},
+        "monitoring_reference": monitoring_reference,
         "training_data": {
             "source": "app/data/Fraud_Data.csv",
             "rows": int(fit_rows.sum()),
@@ -414,6 +440,17 @@ def main():
     if args.ship:
         if not gate_ok:
             raise SystemExit("Ship gate failed; not replacing the served model.")
+        # Prove the saved file works the way the API uses it BEFORE replacing the served
+        # one: load it, set n_jobs=1 (app/decisions/models.py does this), score the test
+        # rows, and require the same scores. A model that trains but cannot be served must
+        # never reach app/decisions/ (this happened once, 2026-11-15).
+        candidate_path = out / "model.joblib"
+        joblib.dump(final, candidate_path)
+        reloaded = joblib.load(candidate_path)
+        reloaded.set_params(n_jobs=1)
+        p_reloaded = reloaded.predict_proba(X[te])[:, 1]
+        if not np.allclose(p_reloaded, p_new, atol=1e-6):
+            raise SystemExit("Reloaded model scores differ from the trained model; not shipping.")
         joblib.dump(final, DECISIONS / "model.joblib")
         (DECISIONS / "model_features.json").write_text(json.dumps(features, indent=2))
         (DECISIONS / "model_meta.json").write_text(json.dumps(meta, indent=2))

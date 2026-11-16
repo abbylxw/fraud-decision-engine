@@ -73,6 +73,15 @@ def fit_candidate(name, model, X_tr, y_tr, X_va, y_va):
         n_best = (int(np.argmax(curve)) + 1) * EVAL_PERIOD
         model.shrink(min(n_best, model.tree_count_))
     elif name == "xgboost":
+        # A monotone constraint given as {feature: direction} is turned into one number
+        # per column here. The dict form trains fine but cannot be re-applied to a model
+        # loaded from disk: the API calls set_params(n_jobs=1) on the loaded model and
+        # XGBoost then rejects the dict ("Invalid Parameter format"). The tuple form
+        # survives. Features missing from this fit (an ablation baseline) are skipped.
+        constraint = model.get_params().get("monotone_constraints")
+        if isinstance(constraint, dict):
+            model.set_params(monotone_constraints=tuple(
+                int(constraint.get(c, 0)) for c in X_tr.columns))
         model.fit(X_tr, y_tr, verbose=False)
         counts = range(EVAL_PERIOD, model.n_estimators + 1, EVAL_PERIOD)
         curve = [average_precision_score(
