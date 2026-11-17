@@ -75,3 +75,16 @@ def test_a_customers_own_history_does_not_raise_their_score(sample_transaction):
                       amount_vs_user_avg_30d=1.0, time_since_last_txn_uid=86400.0,
                       country_txn_count_30d=50_000)
     assert score(loyal) == pytest.approx(score(new), abs=1e-6)
+
+
+def test_no_personal_attribute_is_a_model_input():
+    """docs/model_card.md: sex and age bought nothing measurable and were removed. They are
+    still request fields (the age check rule uses age), just not model inputs."""
+    features = json.loads((DECISIONS / "model_features.json").read_text())
+    assert not {"sex", "age_group", "age_account_gap", "age"} & set(features)
+
+
+def test_sex_and_age_do_not_change_the_score(sample_transaction):
+    base = _features(sample_transaction)
+    other = base.model_copy(update={"sex": "F" if base.sex == "M" else "M", "age": 71})
+    assert score(other) == pytest.approx(score(base), abs=1e-6)

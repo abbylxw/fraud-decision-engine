@@ -1,7 +1,8 @@
 # Feature audit: does each model input mean the same thing when customers come back?
 
-Date: 2026-11-15. Result: the served model went from 42 inputs to 33 with no loss of
-accuracy, and none of the remaining inputs depends on a property that only this dataset has.
+Date: 2026-11-15, updated 2026-11-16. Result: the served model went from 42 inputs to 30
+with no loss of accuracy; none of the remaining inputs depends on a property that only this
+dataset has, and none is a personal attribute.
 
 ## Why an audit was needed
 
@@ -34,13 +35,14 @@ model has not seen. Is that still the thing the model learned?*
 | `days_since_signup` | **Drifts by construction in this dataset** (sound in meaning) | Mean 37 days in March, 103 in November; PSI against the reference 0.36, 2.3, 5.2 over the test months; with it the score PSI was 0.32, 0.39, 0.64 | Removed from the model's inputs, for the same reason `month_of_year` already was |
 | `did_other_uid_all`, `did_uid_2h/24h/7d/30d/90d`, `ip_uid_24h/7d` | OK. Distinct accounts, so a returning buyer does not move them | Unit tests with repeat customers on both the training and serving side | Kept. `did_other_uid_all` is constrained so more accounts never lowers the score |
 | `purchase_value`, `hour_of_day`, `day_of_week`, `source`, `browser`, 17 country columns | OK. Request fields and their encodings | PSI at most 0.022 on any unseen month | Kept |
-| `sex`, `age_group`, `age_account_gap` | OK in meaning. `age_account_gap` contains account age but is dominated by the customer's age | PSI 0.008 at worst | Kept. Using sex and age is a fairness question, noted in `docs/production_readiness.md` |
+| `sex`, `age_group`, `age_account_gap` | **No reason to be there.** Sound in meaning, but personal attributes need a justification to be used for deciding who gets an extra check | Put back into the model they change test PR-AUC by +0.000 [−0.003, +0.004]; review rates by sex and age band already overlap (`docs/model_card.md`) | Removed from the model's inputs on 2026-11-16 |
 
 **What it cost.** Tuned XGBoost on the seven rolling-origin folds, paired bootstrap against
 the previous feature set: removing the eight flawed inputs changed mean PR-AUC by +0.002
 [−0.001, +0.005]; removing `days_since_signup` as well changed test PR-AUC by −0.001
-[−0.005, +0.004]. On the test period the served model scores 0.140 [0.124, 0.158] (0.136
-before the audit) and its policy costs $44,305 ($44,554 before). Nine inputs carried no
+[−0.005, +0.004]; removing sex and the two age features changed it by +0.000
+[−0.003, +0.004]. On the test period the served model scores 0.139 [0.123, 0.157] (0.136
+before the audit) and its policy costs $44,209 ($44,554 before). Twelve inputs carried no
 information the others did not.
 
 **What it bought.**

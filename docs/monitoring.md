@@ -94,7 +94,7 @@ PSI is 0 when the two distributions are identical and grows as they move apart. 
 reading, used for the alert levels: under 0.10 no real change, 0.10 to 0.25 worth watching,
 over 0.25 a shift that should be acted on. Monitored inputs: `did_other_uid_all`,
 `did_uid_90d`, `did_uid_30d`, `did_uid_7d`, `ip_uid_7d`, `purchase_value`,
-`age_account_gap`, `hour_of_day`, `day_of_week` (`app/monitoring.py`).
+`hour_of_day`, `day_of_week` (`app/monitoring.py`).
 
 How quiet it is on normal data: with the served model, score PSI is 0.004 on the validation
 month and at most 0.002 on each test month; the worst monitored input is `day_of_week` at

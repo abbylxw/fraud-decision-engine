@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-11-16T20:16:19",
-  "model_version": "xgboost-20261115222918-a9903ee",
+  "generated_at": "2026-11-16T20:30:49",
+  "model_version": "xgboost-20261116202655-04e604d",
   "thresholds": {
-    "review": 0.762431,
+    "review": 0.77266,
     "deny": 1.01
   },
   "period": "test (last 20% by time)",
@@ -13,20 +13,20 @@
         "orders": 30223,
         "frauds": 1389,
         "fraud_rate": 0.046,
-        "review_rate": 0.0676,
+        "review_rate": 0.0671,
         "review_rate_ci95": [
-          0.0645,
-          0.0703
+          0.0639,
+          0.0699
         ],
-        "precision": 0.2296,
+        "precision": 0.2313,
         "precision_ci95": [
-          0.2119,
-          0.2495
+          0.2135,
+          0.2512
         ],
         "recall": 0.3377,
         "recall_ci95": [
-          0.3097,
-          0.3607
+          0.3099,
+          0.361
         ]
       }
     },
@@ -35,35 +35,35 @@
         "orders": 12600,
         "frauds": 582,
         "fraud_rate": 0.0462,
-        "review_rate": 0.0698,
+        "review_rate": 0.069,
         "review_rate_ci95": [
-          0.0648,
-          0.074
+          0.0642,
+          0.0731
         ],
-        "precision": 0.2207,
+        "precision": 0.2232,
         "precision_ci95": [
-          0.1955,
-          0.2452
+          0.1981,
+          0.2484
         ],
         "recall": 0.3333,
         "recall_ci95": [
           0.2971,
-          0.3717
+          0.3715
         ]
       },
       "M": {
         "orders": 17623,
         "frauds": 807,
         "fraud_rate": 0.0458,
-        "review_rate": 0.0661,
+        "review_rate": 0.0658,
         "review_rate_ci95": [
-          0.0626,
-          0.0697
+          0.0623,
+          0.0695
         ],
-        "precision": 0.2363,
+        "precision": 0.2373,
         "precision_ci95": [
-          0.2129,
-          0.2605
+          0.2136,
+          0.261
         ],
         "recall": 0.3408,
         "recall_ci95": [
@@ -77,15 +77,15 @@
         "orders": 12409,
         "frauds": 566,
         "fraud_rate": 0.0456,
-        "review_rate": 0.0687,
+        "review_rate": 0.0682,
         "review_rate_ci95": [
-          0.0642,
-          0.0731
+          0.0635,
+          0.0725
         ],
-        "precision": 0.2321,
+        "precision": 0.234,
         "precision_ci95": [
-          0.2055,
-          0.2569
+          0.2074,
+          0.2588
         ],
         "recall": 0.3498,
         "recall_ci95": [
@@ -97,35 +97,35 @@
         "orders": 9451,
         "frauds": 448,
         "fraud_rate": 0.0474,
-        "review_rate": 0.0678,
+        "review_rate": 0.0674,
         "review_rate_ci95": [
-          0.0629,
-          0.073
+          0.0624,
+          0.0726
         ],
         "precision": 0.248,
         "precision_ci95": [
-          0.2125,
-          0.2792
+          0.2131,
+          0.279
         ],
-        "recall": 0.3549,
+        "recall": 0.3527,
         "recall_ci95": [
-          0.308,
-          0.3952
+          0.3063,
+          0.3935
         ]
       },
       "45 and over": {
         "orders": 3137,
         "frauds": 130,
         "fraud_rate": 0.0414,
-        "review_rate": 0.0714,
+        "review_rate": 0.0704,
         "review_rate_ci95": [
-          0.0623,
-          0.0808
+          0.0614,
+          0.0799
         ],
-        "precision": 0.1875,
+        "precision": 0.19,
         "precision_ci95": [
-          0.1386,
-          0.2383
+          0.1397,
+          0.2415
         ],
         "recall": 0.3231,
         "recall_ci95": [
@@ -137,20 +137,20 @@
         "orders": 5226,
         "frauds": 245,
         "fraud_rate": 0.0469,
-        "review_rate": 0.0622,
+        "review_rate": 0.062,
         "review_rate_ci95": [
-          0.055,
-          0.0684
+          0.0548,
+          0.0682
         ],
-        "precision": 0.2154,
+        "precision": 0.2191,
         "precision_ci95": [
-          0.1732,
-          0.2579
+          0.1759,
+          0.263
         ],
-        "recall": 0.2857,
+        "recall": 0.2898,
         "recall_ci95": [
-          0.2303,
-          0.345
+          0.2342,
+          0.3494
         ]
       }
     },
@@ -179,35 +179,35 @@
         "orders": 1477,
         "frauds": 64,
         "fraud_rate": 0.0433,
-        "review_rate": 0.0603,
+        "review_rate": 0.0609,
         "review_rate_ci95": [
-          0.0491,
-          0.0728
+          0.0501,
+          0.0731
         ],
-        "precision": 0.3034,
+        "precision": 0.3111,
         "precision_ci95": [
-          0.2092,
-          0.4114
+          0.2147,
+          0.4162
         ],
-        "recall": 0.4219,
+        "recall": 0.4375,
         "recall_ci95": [
-          0.3095,
-          0.5434
+          0.3178,
+          0.563
         ]
       },
       "Brazil": {
         "orders": 607,
         "frauds": 33,
         "fraud_rate": 0.0544,
-        "review_rate": 0.089,
+        "review_rate": 0.0857,
         "review_rate_ci95": [
-          0.0692,
-          0.112
+          0.0659,
+          0.1096
         ],
-        "precision": 0.2037,
+        "precision": 0.2115,
         "precision_ci95": [
-          0.0991,
-          0.322
+          0.1025,
+          0.3333
         ],
         "recall": 0.3333,
         "recall_ci95": [
@@ -239,15 +239,15 @@
         "orders": 2492,
         "frauds": 122,
         "fraud_rate": 0.049,
-        "review_rate": 0.0646,
+        "review_rate": 0.065,
         "review_rate_ci95": [
           0.0554,
-          0.0742
+          0.0746
         ],
-        "precision": 0.2547,
+        "precision": 0.2531,
         "precision_ci95": [
-          0.1825,
-          0.3165
+          0.1823,
+          0.315
         ],
         "recall": 0.3361,
         "recall_ci95": [
@@ -259,35 +259,35 @@
         "orders": 2552,
         "frauds": 121,
         "fraud_rate": 0.0474,
-        "review_rate": 0.0635,
+        "review_rate": 0.0631,
         "review_rate_ci95": [
-          0.0545,
-          0.0737
+          0.0543,
+          0.0733
         ],
-        "precision": 0.2469,
+        "precision": 0.2422,
         "precision_ci95": [
-          0.184,
-          0.3166
+          0.1796,
+          0.3104
         ],
-        "recall": 0.3306,
+        "recall": 0.3223,
         "recall_ci95": [
-          0.2602,
-          0.4108
+          0.2521,
+          0.4017
         ]
       },
       "France": {
         "orders": 676,
         "frauds": 28,
         "fraud_rate": 0.0414,
-        "review_rate": 0.0695,
+        "review_rate": 0.0666,
         "review_rate_ci95": [
-          0.0525,
-          0.0888
+          0.0503,
+          0.0858
         ],
-        "precision": 0.1702,
+        "precision": 0.1778,
         "precision_ci95": [
-          0.0676,
-          0.2826
+          0.0718,
+          0.2948
         ],
         "recall": 0.2857,
         "recall_ci95": [
@@ -359,15 +359,15 @@
         "orders": 825,
         "frauds": 38,
         "fraud_rate": 0.0461,
-        "review_rate": 0.0655,
+        "review_rate": 0.0642,
         "review_rate_ci95": [
-          0.0497,
-          0.0837
+          0.0485,
+          0.0824
         ],
-        "precision": 0.0926,
+        "precision": 0.0943,
         "precision_ci95": [
-          0.0204,
-          0.1802
+          0.0213,
+          0.1834
         ],
         "recall": 0.1316,
         "recall_ci95": [
@@ -462,11 +462,11 @@
         "review_rate": 0.0706,
         "review_rate_ci95": [
           0.0662,
-          0.0757
+          0.0756
         ],
         "precision": 0.2318,
         "precision_ci95": [
-          0.2054,
+          0.2058,
           0.2631
         ],
         "recall": 0.3333,
@@ -479,15 +479,15 @@
         "orders": 4420,
         "frauds": 176,
         "fraud_rate": 0.0398,
-        "review_rate": 0.0631,
+        "review_rate": 0.0606,
         "review_rate_ci95": [
-          0.0555,
-          0.0699
+          0.0535,
+          0.0672
         ],
-        "precision": 0.1971,
+        "precision": 0.2052,
         "precision_ci95": [
-          0.1499,
-          0.2419
+          0.1562,
+          0.252
         ],
         "recall": 0.3125,
         "recall_ci95": [
@@ -541,20 +541,20 @@
         "orders": 12116,
         "frauds": 536,
         "fraud_rate": 0.0442,
-        "review_rate": 0.0691,
+        "review_rate": 0.0678,
         "review_rate_ci95": [
-          0.0648,
-          0.0739
+          0.0638,
+          0.0726
         ],
-        "precision": 0.2103,
+        "precision": 0.2141,
         "precision_ci95": [
-          0.1854,
-          0.237
+          0.1881,
+          0.2421
         ],
         "recall": 0.3284,
         "recall_ci95": [
-          0.2924,
-          0.3671
+          0.2928,
+          0.3677
         ]
       }
     },
@@ -563,35 +563,35 @@
         "orders": 12207,
         "frauds": 567,
         "fraud_rate": 0.0464,
-        "review_rate": 0.0672,
+        "review_rate": 0.0664,
         "review_rate_ci95": [
-          0.0625,
-          0.0717
+          0.0618,
+          0.0708
         ],
-        "precision": 0.2183,
+        "precision": 0.221,
         "precision_ci95": [
-          0.1899,
-          0.2494
+          0.1917,
+          0.252
         ],
         "recall": 0.3157,
         "recall_ci95": [
-          0.2798,
-          0.3583
+          0.2807,
+          0.3582
         ]
       },
       "FireFox": {
         "orders": 4930,
         "frauds": 225,
         "fraud_rate": 0.0456,
-        "review_rate": 0.0675,
+        "review_rate": 0.0669,
         "review_rate_ci95": [
-          0.0604,
-          0.074
+          0.0597,
+          0.0733
         ],
-        "precision": 0.2282,
+        "precision": 0.2303,
         "precision_ci95": [
-          0.1847,
-          0.2762
+          0.1865,
+          0.2789
         ],
         "recall": 0.3378,
         "recall_ci95": [
@@ -603,15 +603,15 @@
         "orders": 7393,
         "frauds": 338,
         "fraud_rate": 0.0457,
-        "review_rate": 0.0683,
+        "review_rate": 0.0682,
         "review_rate_ci95": [
-          0.0631,
+          0.063,
           0.0747
         ],
-        "precision": 0.2376,
+        "precision": 0.2381,
         "precision_ci95": [
-          0.1978,
-          0.2739
+          0.1982,
+          0.2745
         ],
         "recall": 0.355,
         "recall_ci95": [
@@ -643,15 +643,15 @@
         "orders": 4957,
         "frauds": 228,
         "fraud_rate": 0.046,
-        "review_rate": 0.0668,
+        "review_rate": 0.0666,
         "review_rate_ci95": [
           0.0596,
-          0.0734
+          0.073
         ],
-        "precision": 0.2387,
+        "precision": 0.2394,
         "precision_ci95": [
-          0.1974,
-          0.2895
+          0.1976,
+          0.2908
         ],
         "recall": 0.3465,
         "recall_ci95": [
@@ -669,9 +669,9 @@
     ],
     "with": {
       "features": 33,
-      "test_pr_auc": 0.1399,
-      "policy_cost": 44305.0,
-      "review_rate": 0.0676
+      "test_pr_auc": 0.1387,
+      "policy_cost": 44438.0,
+      "review_rate": 0.0639
     },
     "without": {
       "features": 30,
@@ -680,9 +680,9 @@
       "review_rate": 0.0671
     },
     "paired_pr_auc_difference_ci95": [
-      -0.0047,
-      0.0028
+      -0.0033,
+      0.004
     ],
-    "paired_pr_auc_difference": -0.0011
+    "paired_pr_auc_difference": 0.0002
   }
 }

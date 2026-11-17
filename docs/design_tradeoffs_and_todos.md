@@ -1245,7 +1245,13 @@ event-loop lag 4 ms; Postgres pool idle between probes; 21 of 100 Postgres conne
   training, engineering decisions, load testing, tests, a documentation index, structure.
   Content was kept; stale details corrected (hard-rule list, 41 Redis commands, structure).
 
-**TODO:** decide on removing sex and age from the model (the evidence says yes).
+**Follow-up, same day:** sex and age removed from the model (`DROP_ALWAYS`, reason
+recorded). Served model: 30 inputs, test PR-AUC 0.139 [0.123, 0.157], review ≥ 0.773,
+policy cost $44,209 (−$96 against the previous served model, interval [−$166, −$41]; paired
+PR-AUC difference interval [−0.005, +0.003]). With the three inputs put back: 0.139, i.e. no
+difference. Tests check that changing sex and age cannot change a score. MIT license
+added; `CLAUDE.md` removed from the commit history (every commit id changed); repository
+made public.
 
 ## Performance Optimisations (2026-03-19)
 

@@ -19,7 +19,7 @@ gap. **Open** = not started.
 | **Feature engineering evidence** | Done | Ablation with paired CIs and recorded null results (`docs/feature_ablation.md`) | |
 | **Training/serving parity** | Done | Shared encodings; event-time windows; parity replay on synthetic (repeat users) and real rows; contract tests | The two all-time device features are arrival-order, not event-time (documented, pinned by a test) |
 | **Feature meaning beyond this dataset** | Done | All 42 inputs audited (`docs/feature_audit.md`): nine removed or corrected at no accuracy cost; tests with repeat customers; a rule and a drop list with reasons for future features | 28 dormant candidates reviewed on paper only: they are constant here, so nothing can be measured |
-| **Best available model in production** | Done | `xgboost-20261115222918-a9903ee`: 33 audited inputs, monotone in the device feature, test PR-AUC 0.140 (was 0.092), policy cost $44.3k (was $49.7k); live stack rebuilt, 8 demo stories pass | CatBoost is marginally ahead on the rolling folds; a tie by the selection rule |
+| **Best available model in production** | Done | The served model (version in `model_meta.json`): 30 audited inputs, no personal attributes, monotone in the device feature, test PR-AUC 0.139 (was 0.092), policy cost $44.2k (was $49.7k); live stack rebuilt, 8 demo stories pass | The three boosters tie on the rolling folds; XGBoost stays by the selection rule |
 | **Decision policy** | Partial | Hard rules; allow / review / deny on the model score with both thresholds chosen by cost on validation; shadow rules; rule backtest | Review cost and catch rate are assumptions, not measurements; velocity cut-offs in `rate_limiter_control` are expert-set and cannot fire on this data |
 | **Ship safety** | Done | `--ship` checks two gates, then reloads the saved file the way the API does and requires identical scores before replacing the served model | Added after a model that trained but could not be served reached the repository |
 | **Reproducible training** | Done | `python -m training.train`, fixed seed, pinned dependency groups, model version = algorithm + timestamp + git sha | No scheduled retraining; artifacts live in git, not a registry |
@@ -32,7 +32,7 @@ gap. **Open** = not started.
 | **Demo** | Done | `scripts/demo.py`: eight labelled stories against the live stack plus a traffic replay; `scripts/alert_drill.py`; all pass on the rebuilt stack; a shareable project-tour page | Not run in CI |
 | **Idempotency / retries** | Partial | Redis `SET NX` claim, 409 on in-flight duplicates, concurrency tests | No unique `idempotency_key` in Postgres (crash-after-commit gap) |
 | **Failure handling** | Partial | Redis-miss fallbacks to Postgres (purchase history, device count), tracked background tasks, drained on shutdown | Behaviour when Redis is fully down is not tested; `ZADD GT` for out-of-order set updates |
-| **Tests** | Partial | 288 unit/API/parity/contract/policy/monitoring tests, six of them against the real model file; CI runs ruff + pytest + alert-rule tests + Docker build | Every DB test mocks Postgres (a type bug shipped this way once): one real-Postgres integration test in CI |
+| **Tests** | Partial | 290 unit/API/parity/contract/policy/monitoring tests, eight of them against the real model file; CI runs ruff + pytest + alert-rule tests + Docker build | Every DB test mocks Postgres (a type bug shipped this way once): one real-Postgres integration test in CI |
 | **Performance** | Partial | Load tests and investigation (`docs/performance_2026-11.md`); before/after run for the new device lookups shows no regression (p99 about 20 ms at 200 RPS) | That run was on a database full of replayed rows; a clean-database run with first-seen devices is owed; `score()` builds a DataFrame per request |
 | **Deployment** | Partial | Docker Compose, 2 GB image, health endpoint, DB init scripts | Migrations are hand-applied on existing databases; no rollback procedure for a bad model beyond `git revert` |
 | **Documentation** | Done | Model card with performance by group; README that opens with results and findings; design trade-offs, architecture, evaluation, model comparison, feature study and audit, monitoring runbook, this page | |
@@ -43,11 +43,11 @@ gap. **Open** = not started.
 Each item gets its own plan before code. The order is by what unblocks the most.
 
 Done so far (2026-11-15): the better model shipped with a review band; the feature audit
-(33 inputs); monitoring and alerting in four layers.
+(30 inputs, sex and age removed); monitoring and alerting in four layers; model card.
 
-1. ~~Model card and README for an ML reader.~~ Done 2026-11-16. Open decisions that came
-   out of it: remove `sex` and age from the model (they buy nothing measurable, see the model
-   card), and make the repository public (needs a license choice).
+1. ~~Model card and README for an ML reader.~~ Done 2026-11-16. Sex and age were
+   then removed from the model (they bought nothing measurable), an MIT license added and
+   the repository made public.
 2. **Reason codes.** Top-3 SHAP contributions per scored decision (XGBoost `pred_contribs`),
    stored in the audit row, latency measured.
 3. **A retraining entry point** that runs the ship gates and the saved-model check on a
@@ -65,8 +65,9 @@ Done so far (2026-11-15): the better model shipped with a review band; the featu
   thresholds are chosen on validation by cost or quantile, never read as probabilities.
 - **Authentication, edge rate limiting, secrets management, multi-region, autoscaling.**
   Needed for a real deployment, not demonstrated here.
-- **Fairness review.** `sex` and `age_group` are model inputs. Acceptable for a public
-  teaching dataset; in a real system this needs a legal and fairness review before use.
+- **Fairness review.** Sex and age are no longer model inputs, and review rates by sex and
+  age band overlap (`docs/model_card.md`). Device and IP sharing can still stand in for
+  household or location; a real system needs a legal and fairness review before use.
 - **Live decision accuracy.** Not monitored, by decision: live traffic has no labels. Action
   rates and drift are watched instead (`docs/monitoring.md`); accuracy is measured offline.
 - **Label delay.** Training treats labels as known immediately. Real chargebacks arrive

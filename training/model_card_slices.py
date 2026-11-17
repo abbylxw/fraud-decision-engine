@@ -121,8 +121,10 @@ def main():
         thresholds = pick_thresholds(y[va], p_va, value[va], 10.0, 5.0, 1.0)
         return p_te, policy_outcome(yt, p_te, value[te], *thresholds, 10.0, 5.0, 1.0)
 
-    p_with, policy_with = fit(features)
+    # The served model no longer uses these (2026-11-16), so "with" puts them back.
     without = [f for f in features if f not in DEMOGRAPHIC_INPUTS]
+    with_them = without + [f for f in DEMOGRAPHIC_INPUTS if X_all[f].nunique() > 1]
+    p_with, policy_with = fit(with_them)
     p_without, policy_without = fit(without)
     diffs = []
     for _ in range(args.n_boot):
@@ -131,7 +133,7 @@ def main():
                      - average_precision_score(yt[i], p_with[i]))
     ablation = {
         "removed": list(DEMOGRAPHIC_INPUTS),
-        "with": {"features": len(features), "test_pr_auc": round(float(average_precision_score(yt, p_with)), 4),
+        "with": {"features": len(with_them), "test_pr_auc": round(float(average_precision_score(yt, p_with)), 4),
                  "policy_cost": policy_with["total_cost"], "review_rate": policy_with["review_rate"]},
         "without": {"features": len(without),
                     "test_pr_auc": round(float(average_precision_score(yt, p_without)), 4),

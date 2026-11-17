@@ -103,9 +103,14 @@ _AGES_BY_CONSTRUCTION = ("every signup in Fraud_Data is before September, so acc
                          "the test months (PSI 0.32, 0.39, 0.64), without it 0.14, 0.12, 0.14, "
                          "at no cost in PR-AUC (-0.001 [-0.005, +0.004]). The same reason "
                          "month_of_year is dropped")
+_DEMOGRAPHIC = ("sex and age are personal attributes; deciding who gets an extra check by them "
+                "needs a justification, and there is none: without all three, test PR-AUC is "
+                "0.139 vs 0.140 (paired difference -0.001 [-0.005, +0.003]) and policy cost "
+                "$44,209 vs $44,305 (docs/model_card.md)")
 DROP_ALWAYS = {
     "month_of_year": "test months never appear in training; memorises January",
     "days_since_signup": _AGES_BY_CONSTRUCTION,
+    **{f: _DEMOGRAPHIC for f in ("sex", "age_group", "age_account_gap")},
     **{f"did_txn_cnt_{w}": _COUNTS_OWN_PURCHASES for w in ("2h", "24h", "7d", "30d")},
     **{f"country_txn_count_{w}": _RAW_VOLUME for w in ("24h", "7d", "30d")},
 }
@@ -130,15 +135,15 @@ def make_candidates(neg_pos_ratio):
     each algorithm's validation winner. (An earlier sweep needed an extra "reject configs
     under 50 trees" rule; that was XGBoost's own early stopping misfiring, fixed in
     candidates.fit_candidate on 2026-11-15, and the same config wins without the rule.)
-    Validation PR-AUC (fourth sweep of 2026-11-15, on the audited 33-feature set with the
-    monotone constraint): RF 0.127, XGBoost 0.141, LightGBM 0.140, CatBoost 0.141; the top
+    Validation PR-AUC (sweep of 2026-11-16, on the 30-feature set without sex and age, with
+    the monotone constraint): RF 0.126, XGBoost 0.139, LightGBM 0.141, CatBoost 0.141; the top
     three configs of each booster are within 0.003 of each other, i.e. noise. All boosters are shallow:
     the signal left after the January bot rows are removed is weak (mostly device sharing)
     and deep trees overfit it within a handful of rounds.
     """
     return {
         "random_forest": RandomForestClassifier(
-            n_estimators=200, max_depth=8, min_samples_leaf=100,
+            n_estimators=200, max_depth=16, min_samples_leaf=50,
             class_weight="balanced", n_jobs=-1, random_state=SEED,
         ),
         "xgboost": XGBClassifier(
@@ -151,13 +156,13 @@ def make_candidates(neg_pos_ratio):
             random_state=SEED, n_jobs=-1,
         ),
         "lightgbm": LGBMClassifier(
-            n_estimators=1000, num_leaves=7, learning_rate=0.05, min_child_samples=20,
+            n_estimators=1000, num_leaves=7, learning_rate=0.05, min_child_samples=50,
             subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
             scale_pos_weight=neg_pos_ratio, metric="average_precision",
             random_state=SEED, n_jobs=-1, verbose=-1,
         ),
         "catboost": CatBoostClassifier(
-            iterations=1000, depth=4, learning_rate=0.03, l2_leaf_reg=10,
+            iterations=1000, depth=4, learning_rate=0.05, l2_leaf_reg=3,
             scale_pos_weight=neg_pos_ratio, random_seed=SEED, verbose=False, thread_count=-1,
             allow_writing_files=False,
         ),

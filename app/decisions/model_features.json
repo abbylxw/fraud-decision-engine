@@ -1,6 +1,5 @@
 [
   "purchase_value",
-  "sex",
   "source",
   "browser",
   "ipc_United_States",
@@ -29,7 +28,5 @@
   "did_uid_90d",
   "ip_uid_24h",
   "ip_uid_7d",
-  "did_other_uid_all",
-  "age_account_gap",
-  "age_group"
+  "did_other_uid_all"
 ]

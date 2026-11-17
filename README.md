@@ -8,9 +8,9 @@ everything needed to trust one.
 
 | | Before | Now | Evidence |
 |---|---|---|---|
-| Ranking quality on unseen months (PR-AUC; random is 0.046) | 0.092 | **0.140** [0.124, 0.158] | [Model evaluation](#model-evaluation) |
+| Ranking quality on unseen months (PR-AUC; random is 0.046) | 0.092 | **0.139** [0.123, 0.157] | [Model evaluation](#model-evaluation) |
 | Fraud stopped in the test period (of 1,389) | 106, by declining | **469**, by review | [docs/model_card.md](docs/model_card.md) |
-| Cost of fraud + friction over the test period | $49.7k | **$44.3k** | [docs/feature_ablation.md](docs/feature_ablation.md) |
+| Cost of fraud + friction over the test period | $49.7k | **$44.2k** | [docs/feature_ablation.md](docs/feature_ablation.md) |
 | Decision latency at 200 requests/s (p50 / p99) | | 7 ms / 15 ms | [Load testing](#load-testing) |
 | Monitoring | a dashboard | 29 tested alerts with a runbook | [docs/monitoring.md](docs/monitoring.md) |
 
@@ -33,7 +33,7 @@ rule.
 3. **Features that were right offline and wrong live.** The dataset has no repeat customers,
    so three features meant something else on real traffic. One was caught by a hand-made
    request, one by a drift alert, one by a stability check; then all 42 inputs were audited
-   and nine removed at no cost in accuracy. → [docs/feature_audit.md](docs/feature_audit.md)
+   and nine removed at no cost in accuracy. Sex and age, measured to add nothing, went too. → [docs/feature_audit.md](docs/feature_audit.md)
 4. **Training and serving compute the same thing, and it is tested.** Counters use the
    purchase's own time; a test replays real rows through the API's feature code and the
    training code and compares every value; `--ship` reloads the saved model the way the API
@@ -56,7 +56,7 @@ POST /api/transactions
         │            sanctioned-country IP
         │  deny → short-circuit (model never runs)
         ▼
- [ML Model]    ←── XGBoost on 33 features: device/IP sharing counters, transaction fields,
+ [ML Model]    ←── XGBoost on 30 features: device/IP sharing counters, transaction fields,
         │            grouped IP country (one-hot)
         │
         ▼
@@ -178,7 +178,7 @@ Four layers, each with metrics, a dashboard row and alerts:
 | **Four golden signals** | **Latency** (p50, p99, per step) · **Traffic** (rate against its 1-day average, requests in flight) · **Errors** (our 5xx, invalid 422s, duplicate 409s) · **Saturation** (worker CPU, event-loop lag, Postgres pool and connections, Redis memory) |
 | **Dependencies and feature data** | Postgres and Redis probes, Redis key count, features falling back to Postgres, failed counter updates |
 | **Action rates** | Share of allow / review / deny against the 1-day normal and the training-time expectation; share per rule |
-| **Model and feature drift** | PSI of the score and nine model inputs against buckets saved at training time; shared-device share; model version |
+| **Model and feature drift** | PSI of the score and eight model inputs against buckets saved at training time; shared-device share; model version |
 
 29 alerts, each with a severity, a minimum-traffic guard and a runbook section in
 [docs/monitoring.md](docs/monitoring.md). The rules are unit-tested with `promtool` in CI
@@ -210,12 +210,12 @@ and threshold choice use validation only; the test period is scored once. Full w
 | Model (test period, fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
 |---|---|---|
 | Random guessing | 0.046 | 0.50 |
-| Logistic regression | 0.094 [0.085, 0.106] | 0.63 |
-| Random forest (depth 8, 200 trees) | 0.136 [0.122, 0.154] | 0.64 |
-| XGBoost (depth 3, 80 trees, monotone in the device feature) | 0.140 [0.124, 0.157] | 0.64 |
-| LightGBM (7 leaves, 110 trees) | 0.142 [0.126, 0.159] | 0.64 |
-| CatBoost (depth 4, 110 trees) | 0.139 [0.123, 0.157] | 0.64 |
-| **Served XGBoost** (33 features, refit on train + validation) | **0.140 [0.124, 0.158]** | 0.64 |
+| Logistic regression | 0.096 [0.087, 0.108] | 0.63 |
+| Random forest (depth 16, 200 trees) | 0.138 [0.123, 0.156] | 0.64 |
+| XGBoost (depth 3, 140 trees, monotone in the device feature) | 0.139 [0.123, 0.157] | 0.64 |
+| LightGBM (7 leaves, 344 trees) | 0.145 [0.127, 0.163] | 0.64 |
+| CatBoost (depth 4, 90 trees) | 0.136 [0.121, 0.154] | 0.64 |
+| **Served XGBoost** (30 features, refit on train + validation) | **0.139 [0.123, 0.157]** | 0.64 |
 | Previously served XGBoost (41 features, no all-time device feature) | 0.092 [0.081, 0.107] | 0.56 |
 | Original RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
 
@@ -240,9 +240,10 @@ drift alert each caught one; an audit of every input
 ([docs/feature_audit.md](docs/feature_audit.md)) found the rest: inputs that count a
 customer's own purchases as device risk, a "ratio to your usual spend" that was really the
 purchase amount, raw traffic-volume counters, and an account age that only grows in this
-dataset and made the score distribution drift. The served model has 33 inputs instead of
-42, the same accuracy (0.140), a score that never falls as more accounts share a device,
-and a score distribution that stays put on unseen months (PSI at most 0.004).
+dataset and made the score distribution drift. Sex and age were then removed as well: put
+back, they change test PR-AUC by nothing (0.139 either way). The served model has 30 inputs
+instead of 42, the same accuracy, no personal attributes, a score that never falls as more
+accounts share a device, and a score distribution that stays put on unseen months.
 
 **Better ranking was not automatically more money.** The fraud the new feature finds sits at
 about 23% precision. With a $37 average fraud and $10 per wrongly declined customer, a
@@ -255,10 +256,10 @@ with a third decision, `review`, and both thresholds chosen by cost:
 |---|---|---|---|---|---|
 | Do nothing | | | 0 | 0 | $51,395 |
 | Previous model, deny ≥ 0.843 | 0 | 365 (1.2%) | 106 | 259 declined | $49,714 |
-| **Served model, review ≥ 0.762** | 2,043 (6.8%) | 0 | 469 | 1,574 reviewed | **$44,305** |
+| **Served model, review ≥ 0.773** | 2,028 (6.7%) | 0 | 469 | 1,559 reviewed | **$44,209** |
 
 \* missed-fraud dollars + $10 per false decline + $5 per reviewed order, a reviewed fraud
-counted as stopped. Difference vs the previous model: −$5,409. (Measured in steps: the new
+counted as stopped. Difference vs the previous model: −$5,505. (Measured in steps: the new
 feature and review band, −$4,986 with a 95% interval of [−$6,348, −$3,778]; the later
 robustness changes, monotone constraint and feature audit, each moved cost by a few hundred
 dollars with intervals that include zero.) The $5 and the "review stops the fraud" are assumptions; the gain holds
@@ -344,7 +345,7 @@ What the served model does differently from the notebook model, and why:
 - **"Elevated score" for the rate-limiter combos is model-relative.** The soft rules that
   combine a score with velocity (e.g. score + 5 purchases in 24h) used a fixed 0.5. That value
   is meaningless for an uncalibrated model (the served XGBoost's median score is ~0.47), so the
-  level is now the top 3% of validation scores (0.823; 24% precision on validation, 26% on
+  level is now the top 3% of validation scores (0.828; 26% precision on validation, 26% on
   test), stored in `model_meta.json`. The velocity cut-offs themselves are expert-set and
   untested: with one transaction per user, none of those branches can fire on this dataset.
 - **Every decision is auditable.** The `transactions` table records `model_version`,
@@ -369,7 +370,7 @@ Test period (Aug 30–Dec 16, scored once):
 | Previous model @ 0.7 | 10 | 4 | 6 | $165 | $51.3k |
 | 25-feature model @ 0.849 | 327 (1.1%) | 98 | 229 | $4,059 | $49.6k |
 | 41-feature model @ 0.843 (grouped country; served until 2026-11-15) | 365 (1.2%) | 106 | 259 | $4,271 | $49.7k |
-| **Served model** (33 features, review ≥ 0.762, no model declines) | 0 denied, 2,043 reviewed (6.8%) | **469** (reviewed) | 0 (1,574 reviewed) | **$17,305** | **$44.3k**† |
+| **Served model** (30 features, review ≥ 0.773, no model declines) | 0 denied, 2,028 reviewed (6.7%) | **469** (reviewed) | 0 (1,559 reviewed) | **$17,326** | **$44.2k**† |
 
 \* missed-fraud dollars + $10 per false decline. † plus $5 per reviewed order, a reviewed
 fraud counted as stopped. For the first three models ranking quality (PR-AUC) is unchanged
@@ -547,7 +548,7 @@ event-loop lag 4 ms.
 ## Running Tests
 
 ```bash
-pytest tests/ -v                 # 288 tests; data-dependent ones skip without the CSVs
+pytest tests/ -v                 # 290 tests; data-dependent ones skip without the CSVs
 ruff check .
 # the alert rules have their own unit tests (19 scenarios), run with promtool:
 docker run --rm -v "$PWD/prometheus:/p:ro" --entrypoint promtool \
@@ -610,7 +611,12 @@ scripts/
 prometheus/            # alert and recording rules, and their promtool unit tests
 alertmanager/          # routing and inhibition (no notification channel configured)
 grafana/               # dashboard "Fraud Engine" and datasource provisioning
-tests/                 # 288 tests: rules, features, parity, idempotency, policy, monitoring,
+tests/                 # 290 tests: rules, features, parity, idempotency, policy, monitoring,
                        # the served model file, API
 docs/                  # see "Documentation" below
 ```
+
+## License
+
+[MIT](LICENSE). The Fraud_Data and Sparkov datasets are not part of this repository and have
+their own terms.
