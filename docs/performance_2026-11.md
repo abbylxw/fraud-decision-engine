@@ -29,7 +29,7 @@ state before the fix.
 | Also running | Prometheus and Grafana (idle) |
 | Data in Postgres | `transactions` 431k rows (left over from earlier load tests), `device_data` 152k, `ip_country` 139k |
 | Client | `app/data/client_mimic.py` on the host, one request every 1/RPS seconds, 30 s timeout |
-| Per step | Redis `FLUSHALL`, then a 60 s run. Server step times are diffs of `/metrics` histograms (summed over all 8 workers since 84951d2) |
+| Per step | Redis `FLUSHALL`, then a 60 s run. Server step times are diffs of `/metrics` histograms (summed over all 8 workers since 0e510bd) |
 
 "Achieved RPS" is successful responses per second of wall time, including the time to drain
 in-flight requests after the send window. When the API falls more than 1 s behind, the

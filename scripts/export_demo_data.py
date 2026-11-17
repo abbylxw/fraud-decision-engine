@@ -27,7 +27,7 @@ from training.train import CANDIDATE_FEATURES, DROP_ALWAYS, make_candidates
 
 warnings.filterwarnings("ignore", category=UserWarning)
 EVAL = ROOT / "docs" / "evaluation"
-PREVIOUS_MODEL_COMMIT = "03eb99e"   # last commit that still served the 41-feature model
+PREVIOUS_MODEL_COMMIT = "63acade"   # last commit that still served the 41-feature model
 
 
 def curve(grid, p, y, value):

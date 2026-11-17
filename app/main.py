@@ -370,7 +370,7 @@ async def health(
 #   _IDEM_PENDING   -> the original is in flight: 409 + Retry-After
 #   response JSON   -> replay the stored response
 IDEMPOTENCY_TTL_SECONDS = 60    # how long a finished response is replayed (was 600;
-                                # cut to 60 in ab0f917 to keep load-test reruns from replaying)
+                                # cut to 60 in ce00cd7 to keep load-test reruns from replaying)
 IDEMPOTENCY_LOCK_SECONDS = 30   # reservation lifetime; far above worst-case request time,
                                 # so a crashed worker can't block the key for long
 _IDEM_PENDING = "__pending__"

@@ -593,7 +593,7 @@ requires adding temporary print statements. Named rule logging is essential for 
 idempotency keys as `{user_id}-{counter}` where counter resets to 0 on each run. Redis cached
 the old deny decisions (10-minute TTL at the time) from the previous run, so the API returned cached
 results without re-evaluating the new rules. The TTL is now 60 s (`IDEMPOTENCY_TTL_SECONDS` in
-`app/main.py`, cut in ab0f917), so a cached decision outlives a rule change by at most a minute.
+`app/main.py`, cut in ce00cd7), so a cached decision outlives a rule change by at most a minute.
 
 **Fix:** `docker compose exec redis redis-cli FLUSHDB` between test runs.
 
