@@ -35,7 +35,7 @@ gap. **Open** = not started.
 | **Tests** | Partial | 288 unit/API/parity/contract/policy/monitoring tests, six of them against the real model file; CI runs ruff + pytest + alert-rule tests + Docker build | Every DB test mocks Postgres (a type bug shipped this way once): one real-Postgres integration test in CI |
 | **Performance** | Partial | Load tests and investigation (`docs/performance_2026-11.md`); before/after run for the new device lookups shows no regression (p99 about 20 ms at 200 RPS) | That run was on a database full of replayed rows; a clean-database run with first-seen devices is owed; `score()` builds a DataFrame per request |
 | **Deployment** | Partial | Docker Compose, 2 GB image, health endpoint, DB init scripts | Migrations are hand-applied on existing databases; no rollback procedure for a bad model beyond `git revert` |
-| **Documentation** | Partial | Design trade-offs, architecture, evaluation, model comparison, feature study, this page | No model card; README still opens with the backend, not the ML story |
+| **Documentation** | Done | Model card with performance by group; README that opens with results and findings; design trade-offs, architecture, evaluation, model comparison, feature study and audit, monitoring runbook, this page | |
 | **Security** | Open (out of scope, see §3) | Secrets in `.env`, not in git | No authentication or edge rate limiting on the API |
 
 ## 2. Roadmap, in order
@@ -45,9 +45,9 @@ Each item gets its own plan before code. The order is by what unblocks the most.
 Done so far (2026-11-15): the better model shipped with a review band; the feature audit
 (33 inputs); monitoring and alerting in four layers.
 
-1. **Model card and README for an ML reader.** `docs/model_card.md` (data, metrics with
-   intervals, intended use, limits, the January bot attack, what the model must not be used
-   for); README leads with evaluation and the feature study. Then make the repository public.
+1. ~~Model card and README for an ML reader.~~ Done 2026-11-16. Open decisions that came
+   out of it: remove `sex` and age from the model (they buy nothing measurable, see the model
+   card), and make the repository public (needs a license choice).
 2. **Reason codes.** Top-3 SHAP contributions per scored decision (XGBoost `pred_contribs`),
    stored in the audit row, latency measured.
 3. **A retraining entry point** that runs the ship gates and the saved-model check on a

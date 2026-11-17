@@ -1207,8 +1207,8 @@ errors, saturation), dependencies and feature data, action rates, model and feat
 - *Traffic alerts are relative to the 1-day average.* On a development machine they are
   noisy (traffic exists only during load tests); they are meant for steady traffic.
 
-**4. Decision accuracy is not monitored live; action rates are the proxy** (Xiaowan's
-decision). Live traffic has no labels, so precision and recall cannot be computed. Watched
+**4. Decision accuracy is not monitored live; action rates are the proxy** (the project
+owner's decision). Live traffic has no labels, so precision and recall cannot be computed. Watched
 instead: allow / review / deny shares against the 1-day normal and the test-period
 expectation, and the share per rule. Consequence accepted: a model that becomes wrong while
 its traffic mix and decision mix stay the same is not detected by any alert; it is caught at
@@ -1227,6 +1227,25 @@ event-loop lag 4 ms; Postgres pool idle between probes; 21 of 100 Postgres conne
 - Node-level saturation (a node exporter) and a real notification receiver.
 - Repeat the live-against-offline feature comparison (`docs/monitoring.md`) as a script
   that runs after each ship.
+
+## Model card and README restructure (2026-11-16)
+
+- `docs/model_card.md`: the standard model-card sections, with one new analysis,
+  performance by group (`training/model_card_slices.py`). Findings: review rates by sex and
+  age band overlap within their intervals; reviews are far more effective on Direct traffic
+  (recall 46%) than on Ads traffic (28%); one small country group is reviewed 1.6 times as
+  often as average, with a higher fraud rate and higher precision.
+- **Sex and age as inputs buy nothing:** retrained without `sex`, `age_group` and
+  `age_account_gap`, test PR-AUC is 0.139 vs 0.140 (paired difference −0.001
+  [−0.005, +0.003]) and cost $44,209 vs $44,305. Recorded in the model card as a
+  recommendation to remove them; not removed here because it is a change to the served model
+  and needs its own approval and ship.
+- README reordered so a reader meets results and findings before setup: results table, five
+  findings with links, then architecture, quick start, demo, monitoring, evaluation,
+  training, engineering decisions, load testing, tests, a documentation index, structure.
+  Content was kept; stale details corrected (hard-rule list, 41 Redis commands, structure).
+
+**TODO:** decide on removing sex and age from the model (the evidence says yes).
 
 ## Performance Optimisations (2026-03-19)
 

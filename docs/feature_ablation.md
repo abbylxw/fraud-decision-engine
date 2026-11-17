@@ -302,7 +302,7 @@ Paired on test: PR-AUC −0.006 [−0.010, −0.001] for the constraint, cost di
 [−$605, +$200] (no difference). Only 9 test rows have four or more other accounts, and 3 of
 them are fraud. So the constraint costs a little ranking quality on this data, costs no
 money, and closes a hole the data barely tests. It was first left out because the standing
-rule for an automatic re-ship was "numbers within noise of the approved model"; Xiaowan
+rule for an automatic re-ship was "numbers within noise of the approved model"; the project owner
 then approved it and it **is shipped**: `monotone_constraints` on `did_other_uid_all`,
 test PR-AUC 0.136 [0.121, 0.153], review ≥ 0.762 (6.4% of orders, 448 frauds, 1,495
 legitimate), policy cost **$44,554**. A device with six other accounts spread over months

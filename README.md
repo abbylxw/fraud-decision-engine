@@ -1,8 +1,50 @@
 # Fraud Decision Engine
 
-Real-time fraud detection API for e-commerce transactions. Receives a transaction via HTTP POST,
-runs rule-based and ML-based checks in sequence, writes the result to PostgreSQL, and returns
-a fraud decision — all within a single async request.
+A real-time fraud decision API for e-commerce purchases, built end to end: features from
+Redis and Postgres, hard rules, a gradient-boosted model, a cost-based decision
+(`allow` / `review` / `deny`), an audit trail, and monitoring with alerts. Written as a
+machine-learning engineering project: the interesting part is not the model, it is
+everything needed to trust one.
+
+| | Before | Now | Evidence |
+|---|---|---|---|
+| Ranking quality on unseen months (PR-AUC; random is 0.046) | 0.092 | **0.140** [0.124, 0.158] | [Model evaluation](#model-evaluation) |
+| Fraud stopped in the test period (of 1,389) | 106, by declining | **469**, by review | [docs/model_card.md](docs/model_card.md) |
+| Cost of fraud + friction over the test period | $49.7k | **$44.3k** | [docs/feature_ablation.md](docs/feature_ablation.md) |
+| Decision latency at 200 requests/s (p50 / p99) | | 7 ms / 15 ms | [Load testing](#load-testing) |
+| Monitoring | a dashboard | 29 tested alerts with a runbook | [docs/monitoring.md](docs/monitoring.md) |
+
+Data: the public Fraud_Data set (151,112 purchases, one per user, 4.6% fraud after a bot
+attack is set aside). The numbers are modest because the data is hard and the evaluation is
+honest: split by time, confidence intervals on everything, the test period scored by a fixed
+rule.
+
+## What this project shows
+
+1. **The algorithm did not matter; one feature did.** Four tuned algorithms (random forest,
+   XGBoost, LightGBM, CatBoost) tied at PR-AUC 0.09, on one split and over seven months. One
+   feature, the number of *other* accounts ever seen on a device, lifted all of them to 0.14.
+   → [docs/model_candidates.md](docs/model_candidates.md),
+   [docs/feature_ablation.md](docs/feature_ablation.md)
+2. **Better ranking was worth $0 until the decision changed.** The new catches sat at 23%
+   precision, where declining a customer barely pays. Adding a `review` outcome and choosing
+   both thresholds by cost turned the same model into an 11% cost reduction, and the ship
+   gate now checks cost as well as accuracy. → [docs/feature_ablation.md](docs/feature_ablation.md)
+3. **Features that were right offline and wrong live.** The dataset has no repeat customers,
+   so three features meant something else on real traffic. One was caught by a hand-made
+   request, one by a drift alert, one by a stability check; then all 42 inputs were audited
+   and nine removed at no cost in accuracy. → [docs/feature_audit.md](docs/feature_audit.md)
+4. **Training and serving compute the same thing, and it is tested.** Counters use the
+   purchase's own time; a test replays real rows through the API's feature code and the
+   training code and compares every value; `--ship` reloads the saved model the way the API
+   does before replacing the served one. → [Interesting engineering decisions](#interesting-engineering-decisions)
+5. **Monitoring that says what is wrong.** The four golden signals, dependencies, action
+   rates (the proxy for decision quality, since live traffic has no labels) and drift, with
+   alerts unit-tested in CI and a drill that proves the chain. On its first day the drift
+   check found a flaw in a model shipped an hour earlier. → [docs/monitoring.md](docs/monitoring.md)
+
+What the model is, who it works for and what it must not be used for:
+[docs/model_card.md](docs/model_card.md). A one-page interactive tour: `docs/demo/tour.html`.
 
 ## Architecture
 
@@ -10,7 +52,8 @@ a fraud decision — all within a single async request.
 POST /api/transactions
         │
         ▼
- [Hard Rules]  ←── purchase limit, signup burst (<60s), 2+ users on a device in 1h, age check, IP country block
+ [Hard Rules]  ←── signup burst (<60s), 2+ accounts on a device in 1h, impossible age,
+        │            sanctioned-country IP
         │  deny → short-circuit (model never runs)
         ▼
  [ML Model]    ←── XGBoost on 33 features: device/IP sharing counters, transaction fields,
@@ -27,7 +70,7 @@ POST /api/transactions
    { transaction_id, fraud_decision, response_time }
 ```
 
-Services: **FastAPI** API · **PostgreSQL 16** · **Redis 7**
+Services: **FastAPI** API · **PostgreSQL 16** · **Redis 7** · **Prometheus** + **Alertmanager** · **Grafana**
 
 ## Quick Start (Docker)
 
@@ -152,60 +195,6 @@ No notification channel is configured in the repository (a webhook is a secret).
 ```bash
 curl http://localhost:8000/health
 # {"status": "ok", "db": "ok", "redis": "ok"}
-```
-
-## Load Testing
-
-```bash
-python app/data/client_mimic.py   # rate mode: mean 400 RPS for 120s, cycles through Fraud_Data.csv
-python app/data/client_mimic.py --source sparkov   # repeat customers (needs data/external/sparkov/)
-python app/data/client_mimic.py --rps 50 --duration 60 --seed 1   # choose the rate; repeatable
-python app/data/client_mimic.py --speedup 1000 --duration 3600    # replay mode: realistic traffic
-```
-
-Two modes, for two different questions:
-
-- **Rate mode (`--rps`)** answers "how much load can the API take?". Arrivals are Poisson
-  (random gaps with mean 1/RPS), because an evenly spaced drip never piles up and so understates
-  tail latency. Rows keep their 2015 timestamps and repeat after one pass through the file, so
-  the velocity features drift (the same user "buys again" at the same second). Use it for
-  throughput and latency, not to judge decisions.
-- **Replay mode (`--speedup K`)** answers "what does the system do under continuous, realistic
-  traffic?". Rows are sorted by `purchase_time` and sent when a virtual clock running K times
-  faster than wall time reaches them. When the file ends, every timestamp (purchase and signup)
-  is shifted forward by the file's span, so time never goes backwards. At `--speedup 1000`,
-  Fraud_Data's 8 months replay in ~6 hours at ~6 req/s, which is this dataset's honest rate:
-  151k transactions over 8 months is 0.006/s, so sending 400/s with realistic timestamps would
-  give country-level velocity counts in the thousands, which the model never saw.
-  - **Returning vs new users.** On the second pass and later, each row is either the same
-    customer coming back (same ids, signup kept, so the account has aged by ~8 months) or, with
-    probability `--new-user-share` (default 0.2), a brand-new signup with fresh user and device
-    ids. Returning users' `days_since_signup` then exceeds anything in the training data; that
-    is realistic, and a good way to see how the model behaves on it.
-  - **Retries after a decline, `--retry-declined N`.** A declined customer tries again with
-    probability `--retry-prob` (default 0.5): a new transaction from the same user, device and
-    IP, 15 s to 10 min later, for a smaller or equal amount, up to N attempts, stopping at the
-    first allow. Exercises the velocity windows and the rules the way real repeat attempts do.
-    Example: `python app/data/client_mimic.py --speedup 1000 --duration 3600 --retry-declined 10`.
-
-The summary prints the achieved RPS (successful responses per second), the error count by kind
-(`ReadTimeout`, `409`, ...), the allow/deny split, retries sent, and p50/p95/p99 latency over
-every completed request.
-
-One client process tops out around 400–500 RPS. For more load, run several in parallel: each
-adds a random run id to its idempotency keys, so they never collide. Grafana's "Requests per
-Worker" panel shows how the load spreads over the 8 uvicorn workers. Not implemented yet:
-duplicate-key resends (the 409/replay path) and a daily traffic rhythm.
-
-`--source sparkov` replays Sparkov card transactions (~100 purchases per card), so the per-user
-Redis windows fill up the way they would in production. Sparkov has no device, IP, source,
-browser or signup time, so the client makes them up: use it for latency and load, not to judge
-the model's decisions.
-
-## Running Tests
-
-```bash
-pytest tests/ -v
 ```
 
 ## Model Evaluation
@@ -458,7 +447,7 @@ via `loop.run_in_executor`, keeping latency predictable under concurrent load.
 **Sliding-window velocity counters** — Redis sorted sets keyed by `(user_id, device_id)` etc.,
 scored by Unix timestamp. Count-only windows use `ZCOUNT` (returns an integer, not the full member
 list). Purchase windows use `ZRANGE WITHSCORES` to fetch amounts for sum/median calculation.
-All 38 Redis commands per request are batched into a single pipeline — one TCP round-trip.
+All 41 Redis commands per request are batched into a single pipeline — one TCP round-trip.
 90-day pruning keeps memory bounded. Counters are updated fire-and-forget after the DB commit
 is returned, so they don't add to request latency.
 
@@ -503,37 +492,125 @@ and with p95 under 250 ms up to ~400 RPS, at ~4–6 ms of server time per reques
 See [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md) for full trade-off notes.
 See [docs/performance_investigation.md](docs/performance_investigation.md) for load test methodology and findings.
 
+## Load Testing
+
+```bash
+python app/data/client_mimic.py   # rate mode: mean 400 RPS for 120s, cycles through Fraud_Data.csv
+python app/data/client_mimic.py --source sparkov   # repeat customers (needs data/external/sparkov/)
+python app/data/client_mimic.py --rps 50 --duration 60 --seed 1   # choose the rate; repeatable
+python app/data/client_mimic.py --speedup 1000 --duration 3600    # replay mode: realistic traffic
+```
+
+Two modes, for two different questions:
+
+- **Rate mode (`--rps`)** answers "how much load can the API take?". Arrivals are Poisson
+  (random gaps with mean 1/RPS), because an evenly spaced drip never piles up and so understates
+  tail latency. Rows keep their 2015 timestamps and repeat after one pass through the file, so
+  the velocity features drift (the same user "buys again" at the same second). Use it for
+  throughput and latency, not to judge decisions.
+- **Replay mode (`--speedup K`)** answers "what does the system do under continuous, realistic
+  traffic?". Rows are sorted by `purchase_time` and sent when a virtual clock running K times
+  faster than wall time reaches them. When the file ends, every timestamp (purchase and signup)
+  is shifted forward by the file's span, so time never goes backwards. At `--speedup 1000`,
+  Fraud_Data's 8 months replay in ~6 hours at ~6 req/s, which is this dataset's honest rate:
+  151k transactions over 8 months is 0.006/s, so sending 400/s with realistic timestamps would
+  give country-level velocity counts in the thousands, which the model never saw.
+  - **Returning vs new users.** On the second pass and later, each row is either the same
+    customer coming back (same ids, signup kept, so the account has aged by ~8 months) or, with
+    probability `--new-user-share` (default 0.2), a brand-new signup with fresh user and device
+    ids. Returning users' `days_since_signup` then exceeds anything in the training data; that
+    is realistic, and a good way to see how the model behaves on it.
+  - **Retries after a decline, `--retry-declined N`.** A declined customer tries again with
+    probability `--retry-prob` (default 0.5): a new transaction from the same user, device and
+    IP, 15 s to 10 min later, for a smaller or equal amount, up to N attempts, stopping at the
+    first allow. Exercises the velocity windows and the rules the way real repeat attempts do.
+    Example: `python app/data/client_mimic.py --speedup 1000 --duration 3600 --retry-declined 10`.
+
+The summary prints the achieved RPS (successful responses per second), the error count by kind
+(`ReadTimeout`, `409`, ...), the allow/deny split, retries sent, and p50/p95/p99 latency over
+every completed request.
+
+One client process tops out around 400–500 RPS. For more load, run several in parallel: each
+adds a random run id to its idempotency keys, so they never collide. Grafana's "Requests per
+Worker" panel shows how the load spreads over the 8 uvicorn workers. Not implemented yet:
+duplicate-key resends (the 409/replay path) and a daily traffic rhythm.
+
+`--source sparkov` replays Sparkov card transactions (~100 purchases per card), so the per-user
+Redis windows fill up the way they would in production. Sparkov has no device, IP, source,
+browser or signup time, so the client makes them up: use it for latency and load, not to judge
+the model's decisions.
+
+Latest measurement (2026-11-15, local Docker, one client at 200 requests/s, with all
+monitoring enabled): p50 7 ms, p95 11 ms, p99 15 ms, no errors; average worker CPU 10%,
+event-loop lag 4 ms.
+
+## Running Tests
+
+```bash
+pytest tests/ -v                 # 288 tests; data-dependent ones skip without the CSVs
+ruff check .
+# the alert rules have their own unit tests (19 scenarios), run with promtool:
+docker run --rm -v "$PWD/prometheus:/p:ro" --entrypoint promtool \
+    prom/prometheus:v2.51.0 test rules /p/tests/alerts_test.yml
+```
+
+CI runs all three, then builds the Docker image.
+
+## Documentation
+
+| Page | The question it answers |
+|---|---|
+| [docs/model_card.md](docs/model_card.md) | What is the model, how good is it and for whom, and what must it not be used for? |
+| [docs/feature_ablation.md](docs/feature_ablation.md) | How was the main feature found, measured and priced, and why did the better model need a `review` decision? |
+| [docs/feature_audit.md](docs/feature_audit.md) | Which inputs meant something else on real traffic, and what was removed? |
+| [docs/model_candidates.md](docs/model_candidates.md) | Random forest vs XGBoost vs LightGBM vs CatBoost: how they differ and why they tie here |
+| [docs/monitoring.md](docs/monitoring.md) | What is measured, what alerts, and what to check first when one fires (the runbook) |
+| [docs/production_readiness.md](docs/production_readiness.md) | What is done, what is partial, what is out of scope |
+| [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md) | Every design decision with the alternatives rejected, in order |
+| [docs/system_architecture.md](docs/system_architecture.md) | Request flow, data models, tables |
+| [docs/performance_2026-11.md](docs/performance_2026-11.md), [docs/performance_investigation.md](docs/performance_investigation.md) | Load tests, bottlenecks found and fixed |
+| [docs/transaction_failures_and_idempotency.md](docs/transaction_failures_and_idempotency.md) | What happens when a request fails halfway or is sent twice |
+| `docs/demo/tour.html` | A one-page interactive tour (open in a browser) |
+
 ## Project Structure
 
 ```
 app/
-  main.py              # FastAPI app, endpoint, lifespan, /health
-  config.py            # pydantic-settings (REDIS_HOST, DATABASE_URL, etc.)
+  main.py              # FastAPI app: endpoint, idempotency, request metrics, /health, /metrics
+  config.py            # settings (REDIS_HOST, DATABASE_URL, ...)
+  monitoring.py        # drift arithmetic: buckets and PSI (pure functions, shared with training)
+  telemetry.py         # error, dependency, saturation and drift metrics; the 10 s probe
   data/
-    data_models.py     # Pydantic models: Transaction → Features → DBWrite
-    orm_models.py      # SQLAlchemy ORM: TransactionRecord
-    client_mimic.py    # Load test client (400 RPS)
-    db_init/           # SQL init scripts (auto-run by postgres on first start)
+    data_models.py     # Pydantic models: Transaction → Features → DBWrite; DecisionResponse
+    orm_models.py      # SQLAlchemy ORM: TransactionRecord (the audit table)
+    client_mimic.py    # load-test client
+    db_init/           # SQL init scripts 001-009 (auto-run by postgres on first start)
   decisions/
-    rules.py           # Rule functions (hard + soft)
-    models.py          # ML inference (loads model.joblib + model_meta.json at startup)
-    features/          # Feature extraction: request.py, db.py, velocity.py
-tests/
-  test_rules.py        # Unit tests for each rule function
-  test_features.py     # Unit tests for request-based feature calculations
-  test_feature_parity.py   # Live feature code vs training feature code, row by row
-  test_velocity_fallback.py  # Redis counters + Postgres fallback (fake Redis)
-  test_encoding_contract.py  # Category encodings match between training and serving
-  test_api.py          # Integration tests for /health and /api/transactions
-  test_datasets.py     # External-dataset loaders: column mapping, no future leakage
-  test_spend_spike.py  # Today's spend vs median daily spend: windows, day boundary, baseline
+    rules.py           # hard rules, the allow / review / deny score rule, shadow rules
+    models.py          # loads model.joblib + model_meta.json; score(features)
+    features/          # request.py (pure), db.py (Postgres), velocity.py (Redis windows)
+    model.joblib, model_features.json, model_meta.json   # the served model and its metadata
 training/
-  build_features.py    # Feature replay used for training (shared encodings)
-  train.py             # Retrain, evaluate, ship gate (--ship replaces the served model)
-  evaluate.py          # Model comparison with bootstrap CIs
-  compare_datasets.py  # Velocity ablation across Fraud_Data and Sparkov
+  build_features.py    # offline feature replay (event time); shares encodings with the API
+  train.py             # retrain, pick thresholds by cost, ship gates (--ship)
+  policy.py            # cost of an allow / review / deny policy; threshold search
+  candidates.py        # the four tree candidates: fitting and tree-count selection
+  tune.py              # validation-only hyper-parameter sweep
+  evaluate.py          # model comparison with bootstrap CIs and charts
+  rolling_eval.py      # rolling-origin evaluation (train on the past, score the next month)
+  feature_ablation.py  # does a feature group help? paired bootstrap on the rolling folds
+  model_card_slices.py # performance by group, and the model without sex and age
+  rule_backtest.py     # what each rule adds on top of the model
+  compare_datasets.py  # velocity ablation across Fraud_Data and Sparkov
   datasets/            # Kaggle download + per-dataset loaders (training/eval only)
-docs/
-  design_tradeoffs_and_todos.md   # Architecture decisions + known TODOs
-  system_architecture.md
+scripts/
+  demo.py              # eight labelled requests against the running stack, then a replay
+  alert_drill.py       # bot burst -> alert pending -> firing -> Alertmanager
+  export_demo_data.py  # builds docs/demo/tour.html from the evaluation outputs
+prometheus/            # alert and recording rules, and their promtool unit tests
+alertmanager/          # routing and inhibition (no notification channel configured)
+grafana/               # dashboard "Fraud Engine" and datasource provisioning
+tests/                 # 288 tests: rules, features, parity, idempotency, policy, monitoring,
+                       # the served model file, API
+docs/                  # see "Documentation" below
 ```
