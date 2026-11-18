@@ -43,6 +43,9 @@ rule.
    alerts unit-tested in CI and a drill that proves the chain. On its first day the drift
    check found a flaw in a model shipped an hour earlier. → [docs/monitoring.md](docs/monitoring.md)
 
+New to the subject? [docs/summary.md](docs/summary.md) explains the project, its results and
+its takeaways on one page, without jargon.
+
 What the model is, who it works for and what it must not be used for:
 [docs/model_card.md](docs/model_card.md). A one-page interactive tour: `docs/demo/tour.html`.
 
@@ -561,6 +564,7 @@ CI runs all three, then builds the Docker image.
 
 | Page | The question it answers |
 |---|---|
+| [docs/summary.md](docs/summary.md) | The whole project on one page, for a reader without a machine-learning background |
 | [docs/model_card.md](docs/model_card.md) | What is the model, how good is it and for whom, and what must it not be used for? |
 | [docs/feature_ablation.md](docs/feature_ablation.md) | How was the main feature found, measured and priced, and why did the better model need a `review` decision? |
 | [docs/feature_audit.md](docs/feature_audit.md) | Which inputs meant something else on real traffic, and what was removed? |

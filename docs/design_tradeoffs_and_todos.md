@@ -1253,6 +1253,22 @@ difference. Tests check that changing sex and age cannot change a score. MIT lic
 added; `CLAUDE.md` removed from the commit history (every commit id changed); repository
 made public.
 
+## Root cause of the early-stopping trap recorded (2026-11-17)
+
+Full write-up: `docs/model_candidates.md`, "Why the built-in PR-AUC metrics stopped training
+at tree 1". In one line: a one-tree model has a handful of tied score groups; CatBoost's
+`PRAUC` (measured to equal the trapezoid rule) and XGBoost's `aucpr` (documented as
+"continuous interpolation") credit area between those few points that scikit-learn's step
+function does not (0.206 and 0.126 against 0.116 at tree 1); the inflation fades as trees
+split the groups, so tree 1 can stay "best" for the whole early-stopping patience when the
+signal is weak. The fix already in place (choose the tree count with scikit-learn's average
+precision) stands; nothing changes in code.
+
+Also measured the same day: after the stack sat idle for a day, the first 30-second load
+test at 200 requests/s had p99 555 ms; the next three had p99 13 to 17 ms. Cold caches (the
+Postgres data and the OS file cache had to be read back); recorded so a single slow run is
+not mistaken for a regression. A warm-up before measuring is the habit to keep.
+
 ## Performance Optimisations (2026-03-19)
 
 Identified and fixed during load testing with `client_mimic.py` + Grafana step-latency dashboard.

@@ -97,22 +97,80 @@ budget, with the tree count chosen on validation PR-AUC. The chosen settings are
 with the sweep folder named in the comment, so the served hyper-parameters are always visible
 in code rather than hidden in a results file.
 
-Two library-specific traps the sweep hit, kept here because they are easy to fall into:
+Three library-specific traps, kept here because they are easy to fall into:
 
 - **LightGBM's early-stopping callback watches every metric** in the model's metric list,
   and the default list includes log-loss. With `scale_pos_weight` = 21 the log-loss on
   validation gets worse from the first tree, so training stopped at tree 1 with PR-AUC 0.065.
   Fix: `metric="average_precision"` on the model and `first_metric_only=True` on the callback.
-- **XGBoost's built-in `aucpr` has the same problem as CatBoost's metric below**, found
-  later by the rolling-origin run (section 6). Both boosters now pick their tree count with
-  scikit-learn's metric.
 - **CatBoost's built-in `PRAUC` is not scikit-learn's average precision.** After one tree it
-  reported 0.108 where scikit-learn computes 0.076 (different interpolation; with many tied
-  scores the trapezoid rule over-credits), so its overfitting detector also stopped at tree
-  1. `use_weights=false` did not change that. Fix: CatBoost trains its full budget and
-  `training/candidates.py` picks the tree count with scikit-learn's metric on validation
-  every 10 trees, then shrinks the model. Same effect as early stopping with unlimited
-  patience; a few seconds slower.
+  reported 0.108 where scikit-learn computes 0.076, so its overfitting detector stopped at
+  tree 1. `use_weights=false` did not change that.
+- **XGBoost's built-in `aucpr` has the same problem, more mildly**, found later by the
+  rolling-origin run (section 6).
+
+Fix for both: the booster trains its full budget, and `training/candidates.py` picks the
+tree count with scikit-learn's average precision on validation every 10 trees (CatBoost is
+then shrunk; for XGBoost the booster's `best_iteration` is set, which `predict_proba`
+honours). Same effect as early stopping with unlimited patience; a few seconds slower. The
+root cause of the second and third traps is below.
+
+### Why the built-in PR-AUC metrics stopped training at tree 1
+
+*Investigated 2026-11-17.*
+
+**1. One shallow tree gives only a few distinct scores.** A depth-3 tree has at most 8
+leaves, and every order in the same leaf gets the same score. On the validation month
+(15,111 orders) the one-tree model of the current feature set produced **7 distinct
+scores**: for example 523 orders at 0.519 (27% fraud), 292 at 0.516 (18%), and 9,372 at
+about 0.499 (3.5%). The model cannot rank anything inside a group, so its precision-recall
+curve has only about seven points, far apart.
+
+**2. The three tools fill the gaps between those points differently.**
+
+| Tool | How it measures the area under the precision-recall curve |
+|---|---|
+| scikit-learn `average_precision_score` | A step function: each tied group counts at its own precision for the recall it adds. Nothing between points is credited. Its documentation warns that linear interpolation "can be too optimistic". |
+| CatBoost `PRAUC` | Measured to equal the **trapezoid rule exactly**: straight lines between the points, starting from an anchor of 100% precision at 0% recall. The first segment credits precision sliding from 100% to 27% across the top group, a precision the model never reaches (all 523 orders there are tied at 27%). |
+| XGBoost `aucpr` | Its documentation: "the *interpolated* area under precision recall curve using continuous interpolation". Gentler than straight lines, still credits area between points. |
+
+**3. Measured** (current feature set, validation month, tree count in the first column):
+
+| Trees | Distinct scores | scikit-learn AP | XGBoost `aucpr` | CatBoost `PRAUC` | Trapezoid rule |
+|---|---|---|---|---|---|
+| 1 | 7 | 0.116 | 0.126 | **0.206** | 0.206 |
+| 2 | 23 | 0.122 | 0.129 | 0.139 | 0.139 |
+| 5 | 65 | 0.127 | 0.130 | 0.131 | 0.131 |
+| 20 | 778 | 0.130 | 0.131 | 0.132 | 0.132 |
+| 100 | 11,450 | 0.140 | 0.140 | 0.140 | 0.140 |
+
+Breaking the one-tree model's ties at random (adding noise of 0.000001, so the ranking
+*between* groups is unchanged) makes all three agree (0.132, 0.132, 0.132). Ties are the
+cause; with distinct scores the three methods give the same answer.
+
+**4. Why that stopped training at tree 1.** Early stopping keeps the best value seen and
+stops after 100 trees without beating it. Tree 1 has the fewest distinct scores, so it gets
+the largest inflation. Each added tree splits the groups, the inflation shrinks, and the
+reported value can fall while the real ranking improves. If the real gain over the next 100
+trees is smaller than tree 1's inflation, tree 1 stays "best". On the earlier, weaker
+feature sets that is what happened: in one rolling fold XGBoost reported 0.088 at tree 1
+against scikit-learn's 0.077 and did not report more than 0.088 again until about tree 300.
+For CatBoost the inflation was so large that no later tree could beat it. With today's
+stronger features the real gain is larger (XGBoost's own metric peaks at tree 89), so the
+trap would not trigger now. It is a latent bug whose effect depends on how strong the
+signal is, which is why it went unnoticed until the rolling-origin run.
+
+**5. The general rule.** When a library metric makes a decision for you (when to stop, which
+model to keep), check it against the metric you report, on a model with many tied scores:
+that is where implementations of rank-based metrics disagree. Choosing and reporting with
+the same metric also removes the question entirely.
+
+Reproduce: fit `make_candidates(...)["xgboost"]` with `eval_metric="aucpr"` and no early
+stopping, then compare `evals_result()` with `average_precision_score` on
+`predict_proba(X_va, iteration_range=(0, k))`; CatBoost's metric on any scores is
+`catboost.utils.eval_metric(y, logit(p), "PRAUC")`. Worth looking up: Davis and Goadrich
+(2006), "The Relationship Between Precision-Recall and ROC Curves", on why straight-line
+interpolation in precision-recall space is wrong.
 
 ## 4. Results
 
