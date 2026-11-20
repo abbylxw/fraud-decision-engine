@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>Fraud Engine Video</title>
+<!--
+  The scenes of the demo video, one <section> per scene, drawn at 1920x1080.
+  record.mjs opens this page, shows one scene at a time and steps its animations frame by
+  frame (all animations are Web Animations, paused and seeked), so the video is the same
+  every time it is rebuilt. Open it in a browser with ?play to watch the scenes live.
+  Numbers come from docs/summary.md, docs/feature_ablation.md and a real run of
+  scripts/demo.py; screenshots in shots/ come from the running Docker stack.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d1117; --surface: #161c24; --surface-2: #1e2630; --line: #2f3a46;
+  --ink: #eef1f4; --ink-2: #b6bfc9; --ink-3: #85909c;
+  --accent: #6cc0dd; --accent-soft: #17323d;
+  --allow: #5fd08c; --allow-bg: #143222; --review: #f0c05a; --review-bg: #3a2c0c;
+  --deny: #ff8a80; --deny-bg: #3d1a17;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --base: #6b7280;
+  --display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); }
+body { width: 1920px; height: 1080px; overflow: hidden; position: relative; }
+.scene { position: absolute; inset: 0; display: none; padding: 70px 90px 0; }
+.scene.on { display: block; }
+.eyebrow { font-family: var(--mono); font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 700; font-size: 104px; line-height: 1.02; margin: 0; letter-spacing: -0.02em; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 56px; margin: 8px 0 0; letter-spacing: -0.01em; }
+.sub { font-size: 36px; color: var(--ink-2); margin-top: 28px; line-height: 1.35; }
+.mono { font-family: var(--mono); }
+.step { position: absolute; top: 74px; right: 90px; font-family: var(--mono); font-size: 22px; color: var(--ink-3); }
+
+/* caption bar: one line at a time, bottom of the frame */
+.captions { position: absolute; left: 90px; right: 90px; bottom: 56px; height: 132px; }
+.cap { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 36px;
+  font-size: 34px; line-height: 1.32; background: rgba(22, 28, 36, .94); border-left: 6px solid var(--accent);
+  border-radius: 6px; opacity: 0; }
+.cap b { color: var(--accent); font-weight: 600; }
+
+/* --- architecture --- */
+.stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+.box { position: absolute; background: var(--surface); border: 2px solid var(--line); border-radius: 12px;
+  padding: 14px 18px; display: flex; flex-direction: column; justify-content: center; }
+.box .t { font-family: var(--display); font-weight: 600; font-size: 28px; }
+.box .d { font-size: 19px; color: var(--ink-2); margin-top: 4px; line-height: 1.3; }
+.box.hot { border-color: var(--accent); }
+.band { position: absolute; border: 2px dashed var(--line); border-radius: 16px; }
+.band .lbl { position: absolute; top: -16px; left: 22px; background: var(--bg); padding: 0 10px;
+  font-family: var(--mono); font-size: 19px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.chip { display: inline-block; font-family: var(--mono); font-weight: 500; font-size: 24px; padding: 6px 16px;
+  border-radius: 999px; margin: 5px 0; }
+.chip.allow { color: var(--allow); background: var(--allow-bg); }
+.chip.review { color: var(--review); background: var(--review-bg); }
+.chip.deny { color: var(--deny); background: var(--deny-bg); }
+svg.wires { position: absolute; inset: 0; }
+svg.wires path { fill: none; stroke: var(--ink-3); stroke-width: 3; }
+svg.wires .arrow { fill: var(--ink-3); }
+.packet { position: absolute; width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 8px rgba(108,192,221,.25); left: 0; top: 0; }
+
+/* --- charts --- */
+.panel { position: absolute; background: var(--surface); border-radius: 14px; padding: 30px 36px; }
+.panel h3 { font-family: var(--display); font-weight: 600; font-size: 30px; margin: 0 0 4px; }
+.panel .note { font-size: 20px; color: var(--ink-3); }
+.bars { position: absolute; left: 36px; right: 36px; bottom: 60px; top: 120px; display: flex; align-items: flex-end; gap: 14px; }
+.bars .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; position: relative; }
+.bars .seg { width: 100%; border-radius: 4px 4px 0 0; transform-origin: bottom; }
+.bars .seg + .seg { border-radius: 0; margin-top: 0; }
+.bars .x { position: absolute; bottom: -38px; font-family: var(--mono); font-size: 18px; color: var(--ink-3); }
+.bars .v { font-family: var(--mono); font-size: 20px; color: var(--ink-2); margin-bottom: 6px; }
+.legend { font-size: 20px; color: var(--ink-2); display: flex; gap: 28px; margin-top: 6px; }
+.legend i { display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: -2px; }
+.hbar { display: grid; grid-template-columns: 430px 1fr 90px; align-items: center; gap: 18px; margin: 16px 0; font-size: 24px; }
+.hbar .track { height: 34px; position: relative; }
+.hbar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; transform-origin: left; }
+.hbar .num { font-family: var(--mono); font-size: 24px; text-align: right; }
+.stat { margin: 0 0 26px; }
+.stat .big { font-family: var(--display); font-weight: 700; font-size: 60px; line-height: 1; }
+.stat .lab { font-size: 24px; color: var(--ink-2); margin-top: 6px; }
+
+/* --- terminal --- */
+.term { position: absolute; left: 90px; top: 190px; width: 1740px; height: 640px; background: #090c10;
+  border: 2px solid var(--line); border-radius: 12px; overflow: hidden; }
+.term .bar { height: 44px; background: var(--surface-2); display: flex; align-items: center; padding: 0 18px; gap: 10px; }
+.term .bar i { width: 14px; height: 14px; border-radius: 50%; background: var(--line); display: inline-block; }
+.term .bar span { margin-left: 14px; font-family: var(--mono); font-size: 18px; color: var(--ink-3); }
+.term pre { margin: 0; padding: 22px 28px; font-family: var(--mono); font-size: 24px; line-height: 1.5; color: var(--ink-2); white-space: pre; }
+.term .ln { opacity: 0; }
+.term .h { color: var(--ink); font-weight: 500; }
+.term .p { color: var(--accent); }
+.term .A { color: var(--allow); font-weight: 500; }
+.term .R { color: var(--review); font-weight: 500; }
+.term .D { color: var(--deny); font-weight: 500; }
+
+/* --- screenshots --- */
+.shot { position: absolute; left: 90px; top: 190px; width: 1740px; height: 640px; border-radius: 12px; overflow: hidden;
+  border: 2px solid var(--line); background: #111217; opacity: 0; }
+.shot img { position: absolute; left: 0; top: 50%; width: 100%; height: auto; transform: translateY(-50%); }
+.shot .tag { position: absolute; right: 16px; top: 14px; font-family: var(--mono); font-size: 18px; background: rgba(13,17,23,.85);
+  color: var(--ink-2); padding: 6px 12px; border-radius: 6px; }
+.timeline { position: absolute; left: 90px; right: 90px; top: 150px; display: flex; gap: 0; font-family: var(--mono); font-size: 20px; }
+</style>
+</head>
+<body>
+
+<!-- 0. Title -->
+<section class="scene" id="s0" data-dur="5">
+  <div style="position:absolute; left:140px; top:300px; right:140px;">
+    <div class="eyebrow" data-in="0.2">Real-time fraud decisions · ML engineering project</div>
+    <h1 style="margin-top:26px" data-in="0.5" data-fx="up">Fraud Decision Engine</h1>
+    <div class="sub" data-in="1.2" data-fx="up">Every online purchase gets one answer in a few milliseconds:<br>
+      <span class="chip allow">allow</span> &nbsp; <span class="chip review">review</span> &nbsp; <span class="chip deny">deny</span></div>
+    <div class="sub mono" style="font-size:26px; color:var(--ink-3); margin-top:60px" data-in="2">
+      1 · architecture &nbsp;→&nbsp; 2 · what the data showed &nbsp;→&nbsp; 3 · serving, monitoring, alerting</div>
+  </div>
+</section>
+
+<!-- 1. Architecture -->
+<section class="scene" id="s1" data-dur="24">
+  <div class="eyebrow">1 · Architecture</div>
+  <h2>One request, one answer, one audit row</h2>
+  <div class="stage">
+    <svg class="wires" width="1920" height="1080" viewBox="0 0 1920 1080">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <!-- main path -->
+      <path data-draw="1.0" d="M290 500 H340" marker-end="url(#ah)"/>
+      <path data-draw="3.2" d="M580 500 H630" marker-end="url(#ah)"/>
+      <path data-draw="6.0" d="M890 500 H940" marker-end="url(#ah)"/>
+      <path data-draw="8.4" d="M1200 500 H1250" marker-end="url(#ah)"/>
+      <path data-draw="10.4" d="M1510 500 H1560" marker-end="url(#ah)"/>
+      <!-- features to stores -->
+      <path data-draw="4.2" d="M700 560 V630" marker-end="url(#ah)"/>
+      <path data-draw="4.2" d="M820 560 V630" marker-end="url(#ah)"/>
+      <!-- hard rule shortcut to decision -->
+      <path data-draw="9.0" d="M1070 440 V410 H1690 V430" marker-end="url(#ah)" style="stroke-dasharray:8 8"/>
+      <!-- decision to audit -->
+      <path data-draw="13.0" d="M1700 590 V630" marker-end="url(#ah)"/>
+      <!-- monitoring -->
+      <path data-draw="15.2" d="M455 440 V330" marker-end="url(#ah)"/>
+      <path data-draw="15.8" d="M580 280 H630" marker-end="url(#ah)"/>
+      <path data-draw="16.2" d="M520 330 V343 H1080 V333" marker-end="url(#ah)"/>
+      <!-- training to model -->
+      <path data-draw="19.6" d="M1380 830 V570" marker-end="url(#ah)"/>
+    </svg>
+    <div class="packet" data-packet></div>
+
+    <div class="box" style="left:90px; top:440px; width:200px; height:120px" data-in="0.4">
+      <div class="t">Shop</div><div class="d">POST /api/transactions</div></div>
+    <div class="box" data-hot="2.4" style="left:340px; top:440px; width:240px; height:120px" data-in="1.4">
+      <div class="t">FastAPI</div><div class="d">8 workers · idempotency key in Redis</div></div>
+    <div class="box" data-hot="4.6" style="left:630px; top:440px; width:260px; height:120px" data-in="3.4">
+      <div class="t">Features</div><div class="d">30 inputs, built at the purchase's own time</div></div>
+    <div class="box" style="left:630px; top:630px; width:120px; height:84px; padding:10px 14px" data-in="4.4">
+      <div class="t" style="font-size:24px">Redis</div><div class="d" style="font-size:16px">counters</div></div>
+    <div class="box" style="left:765px; top:630px; width:125px; height:84px; padding:10px 14px" data-in="4.6">
+      <div class="t" style="font-size:24px">Postgres</div><div class="d" style="font-size:16px">IP → country</div></div>
+    <div class="box" data-hot="7.6" style="left:940px; top:440px; width:260px; height:120px" data-in="6.2">
+      <div class="t">Hard rules</div><div class="d">bot signup · shared device · sanctioned country</div></div>
+    <div class="box" data-hot="10.0" style="left:1250px; top:440px; width:260px; height:120px" data-in="8.6">
+      <div class="t">XGBoost score</div><div class="d">0 to 1 · review at ≥ 0.773</div></div>
+    <div class="box" data-hot="11.6" style="left:1560px; top:430px; width:270px; height:160px; align-items:flex-start" data-in="10.6">
+      <span class="chip allow">allow</span><span class="chip review">review</span><span class="chip deny">deny</span></div>
+    <div class="box" style="left:1560px; top:630px; width:270px; height:84px; padding:10px 18px" data-in="13.2">
+      <div class="t" style="font-size:24px">Audit row</div><div class="d" style="font-size:16px">decision, rule, score, model version</div></div>
+
+    <div class="band" style="left:320px; top:225px; width:920px; height:130px" data-in="14.8"><span class="lbl">Watching</span></div>
+    <div class="box" style="left:340px; top:240px; width:240px; height:90px" data-in="15.0">
+      <div class="t" style="font-size:24px">Prometheus</div><div class="d" style="font-size:17px">metrics · 29 alert rules</div></div>
+    <div class="box" style="left:630px; top:240px; width:260px; height:90px" data-in="15.8">
+      <div class="t" style="font-size:24px">Grafana</div><div class="d" style="font-size:17px">dashboards</div></div>
+    <div class="box" style="left:940px; top:240px; width:280px; height:90px" data-in="16.2">
+      <div class="t" style="font-size:24px">Alertmanager</div><div class="d" style="font-size:17px">routes alerts to people</div></div>
+
+    <div class="band" style="left:70px; top:760px; width:1780px; height:130px" data-in="18.0"><span class="lbl">Offline training</span></div>
+    <div class="box" style="left:90px; top:778px; width:1720px; height:92px; flex-direction:row; align-items:center; gap:22px; font-size:23px" data-in="18.2">
+      <span>151,112 purchases</span><span style="color:var(--ink-3)">→</span>
+      <span>split by time 70 / 10 / 20</span><span style="color:var(--ink-3)">→</span>
+      <span>4 model types compared</span><span style="color:var(--ink-3)">→</span>
+      <span>threshold set by cost</span><span style="color:var(--ink-3)">→</span>
+      <span style="color:var(--accent)">ship gate</span><span style="color:var(--ink-3)">→</span>
+      <span class="mono" style="font-size:21px">model.joblib</span></div>
+
+  </div>
+  <div class="captions">
+    <div class="cap" data-in="0.3" data-out="5.6">A shop sends each purchase to the API. A retry with the same key gets the same answer, never a second decision.</div>
+    <div class="cap" data-in="5.8" data-out="9.4">Features come from live counters in Redis and lookups in Postgres, computed exactly as in training.</div>
+    <div class="cap" data-in="9.6" data-out="14.4">Certain cases are declined by rules. Everything else gets a model score; high scores go to <b>review</b>.</div>
+    <div class="cap" data-in="14.6" data-out="17.8">Every decision is stored. Prometheus collects metrics, Grafana shows them, Alertmanager raises alerts.</div>
+    <div class="cap" data-in="18.0" data-out="24.5">Offline, models are trained on past months and tested on later ones. The live model is replaced only if the new one is better and cheaper.</div>
+  </div>
+</section>
+
+<!-- 2. Bot attack -->
+<section class="scene" id="s2" data-dur="16">
+  <div class="eyebrow">2 · What the data showed</div>
+  <h2>Half of all fraud was one bot attack</h2>
+  <div class="panel" style="left:90px; top:200px; width:1060px; height:610px" data-in="0.3">
+    <h3>Frauds per month, 2015</h3>
+    <div class="legend"><span><i style="background:var(--deny)"></i>bought within 1 s of sign-up (bot)</span><span><i style="background:var(--s1)"></i>all other fraud</span></div>
+    <div class="bars" id="monthBars"></div>
+  </div>
+  <div style="position:absolute; left:1210px; top:220px; width:620px">
+    <div class="stat" data-in="2.5" data-fx="up"><div class="big" style="color:var(--deny)">7,600</div>
+      <div class="lab">frauds in January, every one bought within a second of creating the account</div></div>
+    <div class="stat" data-in="6.0" data-fx="up"><div class="big">137 s</div>
+      <div class="lab">the fastest real customer: no honest purchase comes that quickly</div></div>
+    <div class="stat" data-in="9.0" data-fx="up"><div class="big" style="color:var(--accent)">a rule, not a feature</div>
+      <div class="lab">under 60 s from sign-up to purchase → deny. Bot rows were taken out of training, so the model learns the harder 4.6%.</div></div>
+  </div>
+  <div class="captions">
+    <div class="cap" data-in="0.3" data-out="8.6">A model trained on this would mostly learn "January" and "fast sign-up", and look far better than it is.</div>
+    <div class="cap" data-in="8.8" data-out="16.5">So the attack became a certain rule. Outside it, about 1 purchase in 22 is fraud, spread over the year.</div>
+  </div>
+</section>
+
+<!-- 3. Key feature + review band -->
+<section class="scene" id="s3" data-dur="21">
+  <div class="eyebrow">2 · What the data showed</div>
+  <h2>One new input mattered more than the algorithm</h2>
+  <div class="panel" style="left:90px; top:200px; width:1060px; height:610px" data-in="0.3">
+    <h3>How well each model ranks fraud (PR-AUC, test months)</h3>
+    <div class="note">Higher is better · 95% intervals in docs/feature_ablation.md</div>
+    <div style="margin-top:30px">
+      <div class="hbar" data-in="0.8"><span>Random guessing</span><div class="track"><div class="fill" data-grow="0.8" style="width:30.7%; background:var(--base)"></div></div><span class="num">0.046</span></div>
+      <div class="hbar" data-in="1.6"><span>Before: XGBoost, 41 inputs</span><div class="track"><div class="fill" data-grow="1.6" style="width:61.3%; background:var(--base)"></div></div><span class="num">0.092</span></div>
+      <div style="font-size:22px; color:var(--accent); margin:30px 0 6px" data-in="4.0">+ "how many other accounts have ever used this device"</div>
+      <div class="hbar" data-in="4.4"><span>Random forest</span><div class="track"><div class="fill" data-grow="4.4" style="width:87.3%; background:var(--s1)"></div></div><span class="num">0.131</span></div>
+      <div class="hbar" data-in="4.7"><span>XGBoost</span><div class="track"><div class="fill" data-grow="4.7" style="width:94%; background:var(--s1)"></div></div><span class="num">0.141</span></div>
+      <div class="hbar" data-in="5.0"><span>LightGBM</span><div class="track"><div class="fill" data-grow="5.0" style="width:94%; background:var(--s1)"></div></div><span class="num">0.141</span></div>
+      <div class="hbar" data-in="5.3"><span>CatBoost</span><div class="track"><div class="fill" data-grow="5.3" style="width:91.3%; background:var(--s1)"></div></div><span class="num">0.137</span></div>
+    </div>
+  </div>
+  <div style="position:absolute; left:1210px; top:210px; width:620px">
+    <div class="eyebrow" data-in="10.4" style="margin-bottom:20px">Last 3½ months, never trained on</div>
+    <div class="stat" data-in="10.8" data-fx="up"><div class="big">1,389 <span style="font-size:34px; color:var(--ink-2)">frauds · $51,395</span></div>
+      <div class="lab">among 30,223 purchases</div></div>
+    <div class="stat" data-in="12.2" data-fx="up"><div class="big" style="color:var(--review)">2,028 <span style="font-size:34px">reviews (6.7%)</span></div>
+      <div class="lab">catch 469 frauds worth $17,326; about 1 review in 4 is fraud</div></div>
+    <div class="stat" data-in="14.4" data-fx="up"><div class="big" style="color:var(--allow)">$44,209</div>
+      <div class="lab">total cost (fraud missed + $5 per review), against $51,395 with no model</div></div>
+  </div>
+  <div class="captions">
+    <div class="cap" data-in="0.3" data-out="10.0">Four well-known algorithms all scored about the same. One input, other accounts on the same device, lifted every one of them.</div>
+    <div class="cap" data-in="10.2" data-out="21.5">Declining these customers would cost as much as it saves. A cheaper extra check, <b>review</b>, is what turns the score into savings.</div>
+  </div>
+</section>
+
+<!-- 4. Serving -->
+<section class="scene" id="s4" data-dur="24">
+  <div class="eyebrow">3 · Model serving</div>
+  <h2>Real requests to the running service</h2>
+  <div class="term" data-in="0.2">
+    <div class="bar"><i></i><i></i><i></i><span>python scripts/demo.py · live Docker stack · output shortened</span></div>
+<pre id="termText">
+<span class="ln p" data-t="0.6">$ python scripts/demo.py</span>
+<span class="ln h" data-t="1.4">1. A normal customer: account 30 days old, new device, US IP</span>
+<span class="ln" data-t="2.0">   decision  <span class="A">ALLOW </span>  rule=-                     model_score=0.446</span>
+<span class="ln h" data-t="3.6">2. A bot: the purchase arrives 1 second after signup</span>
+<span class="ln" data-t="4.2">   decision  <span class="D">DENY  </span>  rule=signup_burst           model not run (hard rule)</span>
+<span class="ln h" data-t="5.8">4. A request from a comprehensively sanctioned country</span>
+<span class="ln" data-t="6.4">   decision  <span class="D">DENY  </span>  rule=ip_country_block       ip_country=Cuba</span>
+<span class="ln h" data-t="8.4">5. A device that returns after 120 days with a different account</span>
+<span class="ln" data-t="9.0">   decision  <span class="R">REVIEW</span>  rule=model_score_review     model_score=0.794   did_other_uid_all=1</span>
+<span class="ln h" data-t="11.4">6. A loyal customer: third purchase on their own device</span>
+<span class="ln" data-t="12.0">   decision  <span class="A">ALLOW </span>  rule=-                     model_score=0.446   did_other_uid_all=0</span>
+<span class="ln h" data-t="14.2">8. The same request sent twice (a client retry after a timeout)</span>
+<span class="ln" data-t="14.8">   first  transaction_id=b22d49f6-…  allow</span>
+<span class="ln" data-t="15.2">   retry  transaction_id=b22d49f6-…  allow     (stored answer, no second decision)</span>
+<span class="ln p" data-t="17.0">   8 / 8 stories gave the expected decision</span>
+</pre>
+  </div>
+  <div class="captions">
+    <div class="cap" data-in="0.3" data-out="7.6">Rules handle the certain cases (a bot, a sanctioned country) before the model even runs.</div>
+    <div class="cap" data-in="7.8" data-out="14.0">A device that comes back with a <b>new</b> account goes to review; a loyal customer on their own device does not.</div>
+    <div class="cap" data-in="14.2" data-out="24.5">At 200 purchases a second on a laptop: <b>6 ms</b> typical, under 20 ms for 99 in 100. Every answer is stored with its reason.</div>
+  </div>
+</section>
+
+<!-- 5. Monitoring -->
+<section class="scene" id="s5" data-dur="20">
+  <div class="eyebrow">3 · Monitoring</div>
+  <h2>Grafana, recorded from the running stack</h2>
+  <div class="shot" data-in="0.2" data-out="6.6"><img src="shots/grafana_golden.png" alt=""><span class="tag">Golden signals</span></div>
+  <div class="shot" data-in="6.6" data-out="13.4"><img src="shots/grafana_decisions.png" alt=""><span class="tag">Decisions and model</span></div>
+  <div class="shot" data-in="13.4"><img src="shots/grafana_drift.png" alt=""><span class="tag">Health and drift</span></div>
+  <div class="captions">
+    <div class="cap" data-in="0.3" data-out="6.4">The four golden signals: how fast, how much traffic, how many errors, how close to capacity.</div>
+    <div class="cap" data-in="6.6" data-out="13.2">Whether a live decision was right is only known weeks later, so the engine watches what it <b>does</b>: allow, review and deny rates.</div>
+    <div class="cap" data-in="13.4" data-out="20.5">Drift: are incoming purchases and scores still shaped like the ones the model learned from?</div>
+  </div>
+</section>
+
+<!-- 6. Alerting -->
+<section class="scene" id="s6" data-dur="20">
+  <div class="eyebrow">3 · Alerting</div>
+  <h2>Drill: a bot attack on the live service</h2>
+  <div class="shot" data-in="0.2" data-out="6.6"><img src="shots/prom_pending.png" alt=""><span class="tag" id="tagPending">Prometheus · pending</span></div>
+  <div class="shot" data-in="6.6" data-out="13.4"><img src="shots/prom_firing.png" alt=""><span class="tag" id="tagFiring">Prometheus · firing</span></div>
+  <div class="shot" data-in="13.4"><img src="shots/alertmanager.png" alt=""><span class="tag">Alertmanager</span></div>
+  <div class="captions">
+    <div class="cap" data-in="0.3" data-out="6.4">scripts/alert_drill.py sends bot sign-ups. Every one is denied, and the attack alert turns <b>pending</b>.</div>
+    <div class="cap" data-in="6.6" data-out="13.2">It stays true for two minutes, so it <b>fires</b>. Brief blips do not wake anyone up.</div>
+    <div class="cap" data-in="13.4" data-out="20.5">Alertmanager receives it with severity and a runbook link. 29 alert rules, each tested in CI.</div>
+  </div>
+</section>
+
+<!-- 7. Close -->
+<section class="scene" id="s7" data-dur="9">
+  <div style="position:absolute; left:140px; top:190px; right:140px;">
+    <div class="eyebrow" data-in="0.2">Fraud Decision Engine</div>
+    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:40px; margin-top:44px">
+      <div class="stat" data-in="0.6" data-fx="up"><div class="big">3×</div><div class="lab">better than guessing at ranking fraud (PR-AUC 0.139 vs 0.046)</div></div>
+      <div class="stat" data-in="1.0" data-fx="up"><div class="big">6 ms</div><div class="lab">typical decision time, under 20 ms for 99 in 100</div></div>
+      <div class="stat" data-in="1.4" data-fx="up"><div class="big">29</div><div class="lab">alerts on speed, errors, capacity, decision mix and drift</div></div>
+    </div>
+    <div class="sub" data-in="2.4" style="margin-top:60px">FastAPI · Redis · Postgres · XGBoost · Prometheus · Grafana · Alertmanager · Docker</div>
+    <div class="sub mono" data-in="3.4" style="color:var(--accent); font-size:40px; margin-top:50px">github.com/abbylxw/fraud-decision-engine</div>
+  </div>
+</section>
+
+<script>
+// Frauds per month (Fraud_Data.csv, purchase month); bot = under 60 s from sign-up.
+const BOT = [7600,0,0,0,0,0,0,0,0,0,0,0];
+const OTHER = [123,291,545,740,921,842,900,833,663,442,216,35];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const bars = document.getElementById("monthBars");
+const MAX = 7723;
+MONTHS.forEach((m, i) => {
+  const col = document.createElement("div"); col.className = "col";
+  const total = BOT[i] + OTHER[i];
+  col.innerHTML = `<span class="v">${total.toLocaleString("en-US")}</span>` +
+    (BOT[i] ? `<div class="seg" data-grow="${0.6 + i*0.08}" style="height:${BOT[i]/MAX*88}%; background:var(--deny)"></div>` : "") +
+    `<div class="seg" data-grow="${0.6 + i*0.08}" style="height:${Math.max(OTHER[i]/MAX*88, 0.4)}%; background:var(--s1); border-radius:${BOT[i] ? 0 : '4px 4px 0 0'}"></div>` +
+    `<span class="x">${m}</span>`;
+  bars.appendChild(col);
+});
+
+// Timeline: every animation is a paused Web Animation, so a recorder can seek any frame.
+function build(scene) {
+  const anims = [];
+  const add = (el, kf, at, dur, fill = "both") => {
+    const a = el.animate(kf, { delay: at * 1000, duration: dur * 1000, fill, easing: "cubic-bezier(.2,.7,.2,1)" });
+    a.pause(); anims.push(a);
+  };
+  scene.querySelectorAll("[data-in]").forEach(el => {
+    const at = parseFloat(el.dataset.in);
+    const fx = el.dataset.fx;
+    add(el, fx === "up" ? [{ opacity: 0, transform: "translateY(24px)" }, { opacity: 1, transform: "none" }]
+                        : [{ opacity: 0 }, { opacity: 1 }], at, 0.6);
+    if (el.dataset.out) add(el, [{ opacity: 1 }, { opacity: 0 }], parseFloat(el.dataset.out), 0.4, "forwards");
+  });
+  scene.querySelectorAll("[data-t]").forEach(el => add(el, [{ opacity: 0 }, { opacity: 1 }], parseFloat(el.dataset.t), 0.15));
+  scene.querySelectorAll("[data-grow]").forEach(el => {
+    const horiz = el.classList.contains("fill");
+    add(el, [{ transform: horiz ? "scaleX(0)" : "scaleY(0)" }, { transform: "none" }], parseFloat(el.dataset.grow), 1.0);
+  });
+  scene.querySelectorAll("[data-hot]").forEach(el => {
+    const at = parseFloat(el.dataset.hot);
+    add(el, [{ borderColor: "#2f3a46" }, { borderColor: "#6cc0dd", boxShadow: "0 0 0 6px rgba(108,192,221,.18)" },
+             { borderColor: "#2f3a46", boxShadow: "none" }], at - 0.6, 1.8, "none");
+  });
+  scene.querySelectorAll("path[data-draw]").forEach(p => {
+    const len = p.getTotalLength();
+    p.style.strokeDasharray = p.style.strokeDasharray || `${len} ${len}`;
+    if (p.style.strokeDasharray.startsWith("8")) { add(p, [{ opacity: 0 }, { opacity: 1 }], parseFloat(p.dataset.draw), 0.5); return; }
+    add(p, [{ strokeDashoffset: len, opacity: 0, offset: 0 }, { strokeDashoffset: len * 0.9, opacity: 1, offset: 0.1 }, { strokeDashoffset: 0, opacity: 1, offset: 1 }], parseFloat(p.dataset.draw), 0.7);
+  });
+  const packet = scene.querySelector("[data-packet]");
+  if (packet) {
+    // A purchase travelling through the request path (centres of the boxes, minus half the dot).
+    const pts = [[277,487,1.0],[447,487,2.4],[747,487,4.6],[1057,487,7.6],[1367,487,10.0],[1682,497,11.6],[1682,497,12.8]];
+    const kf = pts.map(([x, y, t]) => ({ transform: `translate(${x}px, ${y}px)`, offset: (t - 1.0) / 11.8 }));
+    kf.forEach(k => k.opacity = 1); kf[kf.length - 1].opacity = 0;
+    add(packet, [{ transform: `translate(277px,487px)`, opacity: 0 }, { transform: `translate(277px,487px)`, opacity: 1 }], 0.6, 0.4);
+    const a = packet.animate(kf, { delay: 1000, duration: 11800, fill: "forwards", easing: "linear" });
+    a.pause(); anims.push(a);
+  }
+  return anims;
+}
+
+// Caption text in one inline box, so <b> words stay in the sentence.
+document.querySelectorAll(".cap").forEach(c => { c.innerHTML = `<span>${c.innerHTML}</span>`; });
+
+const scenes = [...document.querySelectorAll(".scene")];
+let current = null;
+window.video = {
+  scenes: scenes.map(s => ({ id: s.id, dur: parseFloat(s.dataset.dur) })),
+  show(i) {
+    if (current) current.anims.forEach(a => a.cancel());
+    scenes.forEach(s => s.classList.remove("on"));
+    scenes[i].classList.add("on");
+    current = { anims: build(scenes[i]) };
+  },
+  seek(t) { current.anims.forEach(a => { a.currentTime = t * 1000; }); },
+};
+
+// ?play: watch in a browser at real speed.
+if (location.search.includes("play")) {
+  (async () => {
+    for (let i = 0; i < scenes.length; i++) {
+      window.video.show(i);
+      const start = performance.now(), dur = window.video.scenes[i].dur;
+      await new Promise(done => {
+        const tick = () => { const t = (performance.now() - start) / 1000; window.video.seek(Math.min(t, dur));
+          t < dur ? requestAnimationFrame(tick) : done(); };
+        requestAnimationFrame(tick);
+      });
+    }
+  })();
+}
+</script>
+</body>
+</html>

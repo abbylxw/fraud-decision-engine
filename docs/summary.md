@@ -95,6 +95,8 @@ or let fraud through, the saving would shrink: the model card shows by how much.
 
 ## Read more
 
+- [Demo video](https://github.com/abbylxw/fraud-decision-engine/releases/download/demo-video-v1/fraud_engine_demo.mp4):
+  two minutes, silent, with captions.
 - [README](../README.md): how to run it, and the full results.
 - [Model card](model_card.md): what the model is, how it does for different groups of
   customers, and what it must not be used for.

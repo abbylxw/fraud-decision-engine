@@ -6,6 +6,12 @@ Redis and Postgres, hard rules, a gradient-boosted model, a cost-based decision
 machine-learning engineering project: the interesting part is not the model, it is
 everything needed to trust one.
 
+[![A purchase travelling through the engine: API, features, rules, model, decision](docs/demo/preview.gif)](https://github.com/abbylxw/fraud-decision-engine/releases/download/demo-video-v1/fraud_engine_demo.mp4)
+
+**[Watch the 2-minute demo video](https://github.com/abbylxw/fraud-decision-engine/releases/download/demo-video-v1/fraud_engine_demo.mp4)**
+(silent, with captions): architecture, the bot attack and the key feature, then serving,
+monitoring and an alert firing on the live stack. How it was made: [docs/demo/video/](docs/demo/video/).
+
 | | Before | Now | Evidence |
 |---|---|---|---|
 | Ranking quality on unseen months (PR-AUC; random is 0.046) | 0.092 | **0.139** [0.123, 0.157] | [Model evaluation](#model-evaluation) |
@@ -576,6 +582,7 @@ CI runs all three, then builds the Docker image.
 | [docs/performance_2026-11.md](docs/performance_2026-11.md), [docs/performance_investigation.md](docs/performance_investigation.md) | Load tests, bottlenecks found and fixed |
 | [docs/transaction_failures_and_idempotency.md](docs/transaction_failures_and_idempotency.md) | What happens when a request fails halfway or is sent twice |
 | `docs/demo/tour.html` | A one-page interactive tour (open in a browser) |
+| [docs/demo/video/](docs/demo/video/) | How the 2-minute demo video is built, and how to rebuild it |
 
 ## Project Structure
 
