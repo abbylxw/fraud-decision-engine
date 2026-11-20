@@ -1,560 +1,258 @@
 # Fraud Decision Engine
 
-A real-time fraud decision API for e-commerce purchases, built end to end: features from
-Redis and Postgres, hard rules, a gradient-boosted model, a cost-based decision
-(`allow` / `review` / `deny`), an audit trail, and monitoring with alerts. Written as a
-machine-learning engineering project: the interesting part is not the model, it is
-everything needed to trust one.
+A real-time fraud decision API for online purchases. Each purchase gets `allow`, `review` or
+`deny` in a few milliseconds, from live features (Redis, Postgres), hard rules, an XGBoost
+model and cost-based thresholds. Every decision is audited, and the service is monitored and
+alerted on. An end-to-end machine-learning engineering project.
 
 [![A purchase travelling through the engine: API, features, rules, model, decision](docs/demo/preview.gif)](https://github.com/abbylxw/fraud-decision-engine/releases/download/demo-video-v1/fraud_engine_demo.mp4)
 
 **[Watch the 2-minute demo video](https://github.com/abbylxw/fraud-decision-engine/releases/download/demo-video-v1/fraud_engine_demo.mp4)**
 (silent, with captions): architecture, the bot attack and the key feature, then serving,
-monitoring and an alert firing on the live stack. How it was made: [docs/demo/video/](docs/demo/video/).
+monitoring and an alert firing on the live stack. New to fraud or ML?
+[docs/summary.md](docs/summary.md) explains the project on one page.
 
-| | Before | Now | Evidence |
-|---|---|---|---|
-| Ranking quality on unseen months (PR-AUC; random is 0.046) | 0.092 | **0.139** [0.123, 0.157] | [Model evaluation](#model-evaluation) |
-| Fraud stopped in the test period (of 1,389) | 106, by declining | **469**, by review | [docs/model_card.md](docs/model_card.md) |
-| Cost of fraud + friction over the test period | $49.7k | **$44.2k** | [docs/feature_ablation.md](docs/feature_ablation.md) |
-| Decision latency at 200 requests/s (p50 / p99) | | 7 ms / 15 ms | [Load testing](#load-testing) |
-| Monitoring | a dashboard | 29 tested alerts with a runbook | [docs/monitoring.md](docs/monitoring.md) |
+## Results
 
-Data: the public Fraud_Data set (151,112 purchases, one per user, 4.6% fraud after a bot
-attack is set aside). The numbers are modest because the data is hard and the evaluation is
-honest: split by time, confidence intervals on everything, the test period scored by a fixed
-rule.
+Test period: the last 3½ months (Aug 30 – Dec 16), never used for training or tuning, scored once.
 
-## What this project shows
+| | |
+|---|---|
+| Purchases / frauds | 30,223 / 1,389, worth $51,395 |
+| Ranking quality (PR-AUC) | **0.139** [0.123, 0.157]; random guessing scores 0.046 |
+| Sent to review | 2,028 purchases (6.7%), catching **469 frauds** worth $17,326; 23% of reviews are fraud |
+| Declined by the model | none; declines come only from the hard rules (a review is always cheaper here) |
+| Total cost* | **$44,209**, against $51,395 with no model |
+| Latency at 200 requests/s | p50 7 ms, p99 under 20 ms (local Docker, warm) |
+| Monitoring | 29 alerts, unit-tested in CI, with a runbook; alert chain proven by a drill |
 
-1. **The algorithm did not matter; one feature did.** Four tuned algorithms (random forest,
-   XGBoost, LightGBM, CatBoost) tied at PR-AUC 0.09, on one split and over seven months. One
-   feature, the number of *other* accounts ever seen on a device, lifted all of them to 0.14.
-   → [docs/model_candidates.md](docs/model_candidates.md),
-   [docs/feature_ablation.md](docs/feature_ablation.md)
-2. **Better ranking was worth $0 until the decision changed.** The new catches sat at 23%
-   precision, where declining a customer barely pays. Adding a `review` outcome and choosing
-   both thresholds by cost turned the same model into an 11% cost reduction, and the ship
-   gate now checks cost as well as accuracy. → [docs/feature_ablation.md](docs/feature_ablation.md)
-3. **Features that were right offline and wrong live.** The dataset has no repeat customers,
-   so three features meant something else on real traffic. One was caught by a hand-made
-   request, one by a drift alert, one by a stability check; then all 42 inputs were audited
-   and nine removed at no cost in accuracy. Sex and age, measured to add nothing, went too. → [docs/feature_audit.md](docs/feature_audit.md)
-4. **Training and serving compute the same thing, and it is tested.** Counters use the
-   purchase's own time; a test replays real rows through the API's feature code and the
-   training code and compares every value; `--ship` reloads the saved model the way the API
-   does before replacing the served one. → [Interesting engineering decisions](#interesting-engineering-decisions)
-5. **Monitoring that says what is wrong.** The four golden signals, dependencies, action
-   rates (the proxy for decision quality, since live traffic has no labels) and drift, with
-   alerts unit-tested in CI and a drill that proves the chain. On its first day the drift
-   check found a flaw in a model shipped an hour earlier. → [docs/monitoring.md](docs/monitoring.md)
+\* Fraud that gets through + $10 per wrongly declined customer + $5 per review, with a review
+assumed to stop the fraud. The saving holds for a review up to about $5 that stops at least
+80% of what it sees ([sensitivity](docs/feature_ablation.md)).
 
-New to the subject? [docs/summary.md](docs/summary.md) explains the project, its results and
-its takeaways on one page, without jargon.
+## The data
 
-What the model is, who it works for and what it must not be used for:
-[docs/model_card.md](docs/model_card.md). A one-page interactive tour: `docs/demo/tour.html`.
+The public Fraud_Data set: one purchase per customer, Jan 1 – Dec 16, 2015.
+
+| | |
+|---|---|
+| Purchases | 151,112 |
+| Devices / countries | 137,956 / 182 |
+| Frauds | 14,151 (9.4%) |
+| … of which one bot attack in January | 7,600, every one within a second of sign-up |
+| Fraud rate outside that attack | 4.6% (about 1 in 22) |
+| Typical purchase / average fraud | $35 / $37 |
+
+Split by time: train Jan – Aug 5, validation Aug 5 – 30, test Aug 30 – Dec 16. Bootstrap 95%
+confidence intervals on every metric.
+
+## Key findings
+
+1. **One feature mattered more than the algorithm.** Random forest, XGBoost, LightGBM and
+   CatBoost tie, on one split and over seven rolling months. Adding one feature, how many
+   *other* accounts have ever used this device (`did_other_uid_all`), lifted all four from
+   about 0.09 to about 0.14 PR-AUC (paired difference +0.049 [+0.040, +0.059]).
+   → [feature_ablation.md](docs/feature_ablation.md), [model_candidates.md](docs/model_candidates.md)
+2. **The decision, not the score, is what saves money.** The fraud the model finds is about
+   23% precise. Declining pays only above 21% ($10 / ($10 + $37)), so declines would barely
+   pay; a $5 review pays above 13.5%. Hence three outcomes, and both thresholds are chosen by
+   cost on validation data. → [feature_ablation.md §6–7](docs/feature_ablation.md)
+3. **Inputs that are right offline can be wrong live.** Nobody in the dataset buys twice, so
+   some inputs meant something else for returning customers. Found by hand-made requests, a
+   drift alert and an audit of every input; the model keeps 30 inputs with no loss in accuracy.
+   Sex and age added nothing and are not used. → [feature_audit.md](docs/feature_audit.md),
+   [model_card.md](docs/model_card.md)
+4. **Training and serving compute the same features, and a test proves it.** Counters use the
+   purchase's own timestamp; a parity test runs real rows through both code paths and compares
+   every value. `--ship` reloads the saved model the way the API does before replacing it.
+5. **Without live labels, watch behaviour.** Whether a decision was right is only known weeks
+   later, so the engine monitors action rates (allow / review / deny) and drift of the score
+   and inputs, on top of the four golden signals. → [monitoring.md](docs/monitoring.md)
 
 ## Architecture
 
 ```
-POST /api/transactions
+POST /api/transactions  (Idempotency-Key: a retry gets the stored answer)
         │
         ▼
- [Hard Rules]  ←── signup burst (<60s), 2+ accounts on a device in 1h, impossible age,
-        │            sanctioned-country IP
-        │  deny → short-circuit (model never runs)
+ [Features]    ←── Redis sliding-window counters + Postgres lookups (IP → country, device
+        │            history), computed at the purchase's own time
         ▼
- [ML Model]    ←── XGBoost on 30 features: device/IP sharing counters, transaction fields,
-        │            grouped IP country (one-hot)
-        │
+ [Hard rules]  ←── sign-up under 60 s, 2+ accounts on a device in 1 h, impossible age,
+        │            sanctioned country → deny; the model never runs
         ▼
- [Soft Rules]  ←── model score: allow / review / deny (two cost-based thresholds);
-        │            rate limiter in shadow mode
-        │
+ [Model]       ←── XGBoost on 30 inputs, monotone in "other accounts on this device"
         ▼
- PostgreSQL (audit log) + Redis (velocity counters update, fire-and-forget)
-        │
+ [Decision]    ←── score ≥ review threshold → review (thresholds in model_meta.json)
         ▼
-   { transaction_id, fraud_decision, response_time }
+ Postgres audit row (decision, rule, score, model version) + Redis counter update
+        ▼
+ { transaction_id, fraud_decision, response_time }
 ```
 
-Services: **FastAPI** API · **PostgreSQL 16** · **Redis 7** · **Prometheus** + **Alertmanager** · **Grafana**
+FastAPI (8 workers) · PostgreSQL 16 · Redis 7 · Prometheus + Alertmanager · Grafana · Docker Compose.
+Details: [docs/system_architecture.md](docs/system_architecture.md).
 
-## Quick Start (Docker)
+## Run it
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build           # first start loads ~5M IP→country rows (~30 s)
+curl http://localhost:8000/health   # {"status": "ok", "db": "ok", "redis": "ok"}
 ```
 
-The first start loads ~5M IP→country rows into PostgreSQL automatically. This takes ~30 seconds.
-
-## Quick Start (Local)
-
-Requires PostgreSQL and Redis running on localhost.
+Local, without Docker (needs Postgres and Redis on localhost):
 
 ```bash
 python3.13 -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip          # dependency groups need pip >= 25.1
-pip install --group dev            # API + tests; use --group train for training/notebooks
+pip install --upgrade pip && pip install --group dev   # groups: api, train, dev (pyproject.toml)
 uvicorn app.main:app --reload --port 8000
 ```
 
-Dependencies are declared in `pyproject.toml` as three groups: `api` (what the Docker image
-installs), `train` (adds notebooks, torch, dataset download) and `dev` (adds pytest, ruff).
-
-## Example Request
+A request:
 
 ```bash
 curl -X POST http://localhost:8000/api/transactions \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: test-001" \
-  -d '{
-    "user_id": "user_123",
-    "signup_time": "2024-01-01T00:00:00Z",
-    "purchase_time": "2025-03-14T12:00:00Z",
-    "purchase_value": 250.00,
-    "device_id": "device_abc",
-    "source": "SEO",
-    "browser": "Chrome",
-    "sex": "M",
-    "age": 30,
-    "ip_address": 3663237372
-  }'
+  -H "Content-Type: application/json" -H "Idempotency-Key: test-001" \
+  -d '{"user_id": "user_123", "signup_time": "2024-01-01T00:00:00Z",
+       "purchase_time": "2025-03-14T12:00:00Z", "purchase_value": 250.00,
+       "device_id": "device_abc", "source": "SEO", "browser": "Chrome",
+       "sex": "M", "age": 30, "ip_address": 3663237372}'
+# {"transaction_id": "550e8400-...", "fraud_decision": "allow", "response_time": "..."}
 ```
 
-```json
-{
-  "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
-  "fraud_decision": "allow",
-  "response_time": "2025-03-14T12:00:01.234Z"
-}
-```
-
-`fraud_decision` is one of:
-
-| Value | Meaning for the caller |
+| `fraud_decision` | Meaning for the caller |
 |---|---|
 | `allow` | Approve the order. |
-| `review` | Do not auto-approve: run a step-up check (3-D Secure, SMS code) or queue it for a person. Returned when the model score is between the review and deny thresholds. |
-| `deny` | Decline. A hard rule fired, or the score is high enough that a decline pays for itself. |
+| `review` | Do not auto-approve: step-up check (3-D Secure, SMS code) or a person. |
+| `deny` | Decline: a hard rule fired (or, if a future model allows it, a score where declining pays). |
 
-Both thresholds are chosen by cost on validation data and stored in
-`app/decisions/model_meta.json` ([docs/feature_ablation.md](docs/feature_ablation.md) §7).
-
-## Demo
+The demo and the alert drill run against the live stack:
 
 ```bash
-docker compose up -d --build
-python scripts/demo.py            # eight stories, then ~2,000 replayed transactions
-python scripts/alert_drill.py     # bot burst -> alert pending -> firing -> Alertmanager (~3 min)
+python scripts/demo.py          # eight stories with the decision and its reason, then a replay
+python scripts/alert_drill.py   # bot burst → alert pending → firing → Alertmanager (~6 min)
 ```
 
-The script sends real requests and prints each decision with the reason, read back from
-the audit table: a normal customer (allow), a bot buying one second after signup (deny),
-a second account on one device within the hour (deny), a sanctioned country (deny), a
-device returning after 120 days with a different account (review), a loyal customer's third
-purchase on their own device (allow), a device that six other accounts used months apart
-(review), and a retried request answered from the idempotency cache. The replay then fills the Grafana dashboard
-(http://localhost:3000, row "Decisions and model"): decision mix, review rate, decisions
-by rule, the score distribution against the served thresholds, and the share of traffic
-from devices that other accounts have used before.
+Grafana: http://localhost:3000 · Prometheus: http://localhost:9090 · Alertmanager: http://localhost:9093.
+An existing database volume from an older version needs `app/data/db_init/008` and `009` applied by hand.
 
-A one-page tour for readers who will not run anything is in `docs/demo/tour.html` (open it
-in a browser): the request flow, the eight stories, the rolling-origin chart with and
-without the device feature, and a cost console that re-picks the review and deny thresholds
-for any decline cost, review cost and catch rate. It is built from the evaluation outputs by
-`python -m scripts.export_demo_data`, which writes aggregated curves only, no transaction
-rows.
-
-## Monitoring and Alerting
-
-```bash
-docker compose up -d --build     # API, Postgres, Redis, Prometheus, Alertmanager, Grafana
-```
-
-| | Address | What is there |
-|---|---|---|
-| Grafana | http://localhost:3000 | Dashboard "Fraud Engine": traffic and latency, "Decisions and model", "Health and drift" |
-| Prometheus | http://localhost:9090 | Rules and alert states (`/alerts`, `/rules`) |
-| Alertmanager | http://localhost:9093 | Grouped, routed alerts |
-
-Four layers, each with metrics, a dashboard row and alerts:
+## Monitoring and alerting
 
 | Layer | What is watched |
 |---|---|
-| **Four golden signals** | **Latency** (p50, p99, per step) · **Traffic** (rate against its 1-day average, requests in flight) · **Errors** (our 5xx, invalid 422s, duplicate 409s) · **Saturation** (worker CPU, event-loop lag, Postgres pool and connections, Redis memory) |
-| **Dependencies and feature data** | Postgres and Redis probes, Redis key count, features falling back to Postgres, failed counter updates |
-| **Action rates** | Share of allow / review / deny against the 1-day normal and the training-time expectation; share per rule |
-| **Model and feature drift** | PSI of the score and eight model inputs against buckets saved at training time; shared-device share; model version |
+| **Four golden signals** | Latency (p50, p99, per step) · traffic against its 1-day average · errors (5xx, 422, 409) · saturation (worker CPU, event-loop lag, Postgres pool, Redis memory) |
+| **Dependencies** | Postgres and Redis probes, features falling back to Postgres, failed counter updates |
+| **Action rates** | Allow / review / deny shares against the 1-day normal and the training-time expectation; share per rule |
+| **Drift** | PSI of the score and eight inputs against buckets saved at training time; model version |
 
 29 alerts, each with a severity, a minimum-traffic guard and a runbook section in
-[docs/monitoring.md](docs/monitoring.md). The rules are unit-tested with `promtool` in CI
-(19 scenarios), and `scripts/alert_drill.py` proves the chain end to end on the running
-stack: a bot burst is denied by the rule, detected by Prometheus and delivered to
-Alertmanager.
+[docs/monitoring.md](docs/monitoring.md); unit-tested with `promtool` in CI (19 scenarios).
+Live accuracy is not monitored because live traffic has no labels; it is measured offline at
+every retrain. No notification channel is configured in the repository (a webhook is a secret).
 
-Decision accuracy is deliberately not monitored live: live traffic has no labels, so action
-rates are the proxy, and accuracy is measured offline on labelled history at every retrain.
-No notification channel is configured in the repository (a webhook is a secret).
-
-## Health Check
+## Model
 
 ```bash
-curl http://localhost:8000/health
-# {"status": "ok", "db": "ok", "redis": "ok"}
+python -m training.evaluate        # candidates with bootstrap CIs and charts → results/
+python -m training.train           # retrain and report
+python -m training.train --ship    # also replace the served model, if both ship gates pass
 ```
 
-## Model Evaluation
-
-```bash
-python -m training.evaluate          # ~2 min; writes results/<timestamp>/metrics.json + charts
-```
-
-Time-based split (train Jan–Aug 5 / validation Aug 5–30 / test Aug 30–Dec 16). Early stopping
-and threshold choice use validation only; the test period is scored once. Full write-up:
-[notebooks/evaluation_report.ipynb](notebooks/evaluation_report.ipynb).
-
-| Model (test period, fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
+| Test period (fraud rate 4.6%) | PR-AUC [95% CI] | ROC-AUC |
 |---|---|---|
 | Random guessing | 0.046 | 0.50 |
 | Logistic regression | 0.096 [0.087, 0.108] | 0.63 |
 | Random forest (depth 16, 200 trees) | 0.138 [0.123, 0.156] | 0.64 |
-| XGBoost (depth 3, 140 trees, monotone in the device feature) | 0.139 [0.123, 0.157] | 0.64 |
 | LightGBM (7 leaves, 344 trees) | 0.145 [0.127, 0.163] | 0.64 |
 | CatBoost (depth 4, 90 trees) | 0.136 [0.121, 0.154] | 0.64 |
-| **Served XGBoost** (30 features, refit on train + validation) | **0.139 [0.123, 0.157]** | 0.64 |
-| Previously served XGBoost (41 features, no all-time device feature) | 0.092 [0.081, 0.107] | 0.56 |
-| Original RandomForest (notebook, 52 features) | 0.091 [0.080, 0.105] | 0.56 |
+| **XGBoost, served** (depth 3, 140 trees, 30 inputs, refit on train + validation) | **0.139 [0.123, 0.157]** | 0.64 |
 
-All tree models are trained without the January bot rows, with the tree count chosen on
-validation; hyper-parameters come from `python -m training.tune`. The four tree ensembles
-tie: every confidence interval contains every other point estimate. How they differ and why
-they tie here: [docs/model_candidates.md](docs/model_candidates.md).
+The tree models tie (every interval contains every other estimate); XGBoost stays served
+unless a challenger beats its interval. How it is trained:
 
-**The algorithm did not matter; one feature did.** Before the last feature was added, the
-same four algorithms tied at about 0.09, and a rolling-origin check
-(`python -m training.rolling_eval`: train on the past, score the next month, seven times)
-showed the tie holds over time (LightGBM and CatBoost vs XGBoost: −0.001 [−0.005, +0.002]).
-Then one feature, `did_other_uid_all` (how many *other* accounts have ever used this device;
-every earlier device counter forgot after 90 days), lifted all four together: the served
-model went from 0.092 to 0.141 (paired difference +0.049 [+0.040, +0.059]). The feature
-study, with the things that did not help, is in
-[docs/feature_ablation.md](docs/feature_ablation.md).
+- **The January bot attack is a rule, not a feature.** All 7,600 purchases under 60 s from
+  sign-up are fraud (the fastest real customer took 137 s), so `signup_burst` denies them and
+  those rows are left out of training. The calendar month is not an input.
+- **Tree counts are chosen with scikit-learn's average precision on validation.** XGBoost's
+  and CatBoost's built-in PR-AUC overrate a one-tree model and stopped training at tree 1
+  ([why](docs/model_candidates.md)).
+- **IP country is grouped**: the 10 largest countries, `Unknown`, and continents for the rest,
+  one-hot encoded by one function shared with the API (`country_group()`).
+- **Two thresholds by cost** (missed fraud = purchase value, false decline $10, review $5),
+  chosen on validation; among policies within 1% of the cheapest, the least intrusive wins
+  (`training/policy.py`). For this model no score makes a decline cheaper than a review.
+- **Ship gate:** a new model replaces the served one only if its test PR-AUC is at least the
+  served model's lower confidence bound **and** its policy costs no more.
+- **Audit:** every row records `model_version`, `model_score` (NULL when a hard rule decided)
+  and `decision_rule`.
 
-**Then nine inputs were taken out, and nothing was lost.** Fraud_Data has no repeat
-customers, so a feature can be right on it and wrong on real traffic. Live testing and the
-drift alert each caught one; an audit of every input
-([docs/feature_audit.md](docs/feature_audit.md)) found the rest: inputs that count a
-customer's own purchases as device risk, a "ratio to your usual spend" that was really the
-purchase amount, raw traffic-volume counters, and an account age that only grows in this
-dataset and made the score distribution drift. Sex and age were then removed as well: put
-back, they change test PR-AUC by nothing (0.139 either way). The served model has 30 inputs
-instead of 42, the same accuracy, no personal attributes, a score that never falls as more
-accounts share a device, and a score distribution that stays put on unseen months.
+### Why these numbers look lower than other Fraud_Data projects
 
-**Better ranking was not automatically more money.** The fraud the new feature finds sits at
-about 23% precision. With a $37 average fraud and $10 per wrongly declined customer, a
-decline breaks even at 21% ($10 / ($10 + $37)), so those extra declines earn almost nothing:
-behind allow/deny the better model caught four times the fraud for the same total cost. A $5
-review breaks even at 13.5%. It ships
-with a third decision, `review`, and both thresholds chosen by cost:
+Public notebooks report precision ≈ 0.98, recall ≈ 0.54, ROC-AUC ≈ 0.77 with a **random**
+split. Rerunning that recipe (`python -m training.random_split_baseline`):
 
-| Policy on the test period (30,223 orders, 1,389 frauds) | Reviewed | Denied by model | Fraud stopped | Legit orders touched | Total cost* |
-|---|---|---|---|---|---|
-| Do nothing | | | 0 | 0 | $51,395 |
-| Previous model, deny ≥ 0.843 | 0 | 365 (1.2%) | 106 | 259 declined | $49,714 |
-| **Served model, review ≥ 0.773** | 2,028 (6.7%) | 0 | 469 | 1,559 reviewed | **$44,209** |
-
-\* missed-fraud dollars + $10 per false decline + $5 per reviewed order, a reviewed fraud
-counted as stopped. Difference vs the previous model: −$5,505. (Measured in steps: the new
-feature and review band, −$4,986 with a 95% interval of [−$6,348, −$3,778]; the later
-robustness changes, monotone constraint and feature audit, each moved cost by a few hundred
-dollars with intervals that include zero.) The $5 and the "review stops the fraud" are assumptions; the gain holds
-for a review up to about $5 that stops at least 80% of what it sees
-([sensitivity table](docs/feature_ablation.md)).
-
-**What the evaluation found:**
-- **The previous model barely beat random guessing.** At its hardcoded threshold of 0.7 it
-  flagged 10 of 30,223 test transactions and caught 4 of 1,389 frauds.
-- **25 of the 52 served features never change.** Every user in the dataset has exactly one
-  transaction, so every per-user counter is always 0.
-- **January was a bot attack** (76% fraud; 7,600 purchases within 1 second of signup), and that
-  pattern never appears in the test period. Training without it barely changes the tree models.
-- **`month_of_year` is XGBoost's 3rd most important feature,** but test months (Sep–Dec) never
-  appear in training, so it learns "January = fraud" and nothing that carries forward.
-- **A cost-based threshold** (a $5 review per alert vs. losing the purchase value of missed
-  fraud), chosen on validation, saves $3.1k out of $51.4k of test-period fraud, against $115
-  at the current 0.7.
-
-### Why these numbers look low next to other Fraud_Data projects
-
-Public write-ups on this dataset report Random Forest precision ≈ 0.98, recall ≈ 0.54,
-ROC-AUC ≈ 0.77. Those come from a **random** `train_test_split` with `device_id` label-encoded
-and calendar parts (month, minute, second) as features. Rerunning that recipe here
-(`python -m training.random_split_baseline`) reproduces it, and shows where the recall comes from:
-
-| Same Random Forest, same features | Precision | Recall | ROC-AUC |
+| Same random forest, same features | Precision | Recall | ROC-AUC |
 |---|---|---|---|
 | Random 80/20 split, all test fraud | 0.99 | 0.54 | 0.77 |
-| … bot rows only (1,533 of 2,850 test frauds) | | **1.00** | |
-| … non-bot fraud only | | **0.002** | 0.50 |
+| … bot rows only | | **1.00** | |
+| … all other fraud | | **0.002** | 0.50 |
 | Time split (train Jan–Jun, test Jul–Aug) | 0.00 | 0.00 | 0.50 |
 
-The January bot is 7,600 rows, all fraud, 54% of all fraud in the file. A random split puts
-one fifth of them in the test set, where the same device ids already appear with nine fraud rows
-each in training; the forest memorises the device label and "month = 1" and catches exactly
-those rows. Recall 0.54 is the bot's share of fraud. On every other fraud case the model is a
-coin flip, and trained on the past and tested on the future it catches nothing.
+A random split leaks the January bot's device ids into training; recall 0.54 is just the
+bot's share of fraud. Here the bot goes to rules (100% of bot rows, 0 legitimate rows hit),
+and the model is scored on the remaining 4.6% by time: PR-AUC 0.139, three times random.
 
-This project splits by time, hands the bot to hard rules (`signup_burst`,
-`device_many_users_1h`: 100% of bot rows, 0 legitimate rows hit) and scores the model only on
-the diffuse 4.6% that remains, where PR-AUC 0.092 vs 0.046 random is twice chance, not a
-memorised attack.
+### Do velocity features work with repeat customers?
 
-## Model Training
+Fraud_Data has one purchase per customer, so per-customer counters are always 0.
+`python -m training.compare_datasets` runs the same velocity replay on Sparkov (simulated card
+data, 1.85M purchases, 999 cards):
 
-```bash
-python -m training.train             # ~15 s; train + report to results/train_<timestamp>/
-python -m training.train --ship      # also replace app/decisions/model.joblib + metadata
-```
-
-What the served model does differently from the notebook model, and why:
-
-- **The January bot attack is a rule, not a model feature.** `signup_burst` denies purchases
-  made less than 60 s after signup (all 7,600 such rows are fraud; the fastest legitimate one is
-  137 s). Those rows are excluded from training because the model never scores them in production.
-- **`month_of_year` and the features that are constant on the training rows are dropped.**
-  Nothing measurable is lost on test; the model relies on device sharing
-  (`did_other_uid_all`, `did_uid_30d`, `did_uid_90d`) instead of the calendar.
-- **IP country is grouped and one-hot encoded.** It used to be an alphabetical index over 182
-  countries fed in as a number, so the model saw a fake order (Albania < Zimbabwe). Now: the 10
-  highest-volume countries (~80% of traffic) each get a column, `Unknown` (IP not in the
-  table) gets one, and every other country falls into its continent
-  (`app/decisions/country_groups.json`, 18 groups). One `country_group()` in
-  `app/decisions/models.py` is used by both training and the API, and
-  `tests/test_encoding_contract.py` checks all 182 names. PR-AUC is unchanged (per-country fraud
-  rates are nearly flat, 3.8–5.0%), so the gain is a correct, explainable feature rather than
-  accuracy.
-- **Four tree candidates, one winner by validation PR-AUC.** Random forest, XGBoost, LightGBM
-  and CatBoost, each tuned by a small validation-only grid (`python -m training.tune`). All
-  boosters are shallow (depth 3 / 7 leaves): with the notebook's depth-7 settings early
-  stopping fired after 3 trees, because the signal left after January is weak and deep trees
-  overfit it. XGBoost stays served unless a challenger beats its 95% CI on test; see
-  [docs/model_candidates.md](docs/model_candidates.md) for how the four differ and why they tie.
-- **Two thresholds are chosen by cost on validation** (missed fraud = purchase value, false
-  decline = $10, review = $5): scores above the review threshold get `review`, scores above
-  the deny threshold get `deny`. Among policies within 1% of the cheapest, the one that
-  touches the fewest orders wins (`training/policy.py`). Both are stored in
-  `app/decisions/model_meta.json` with the model version, training window and evaluation
-  results; the API reads them from there. For the served model the deny threshold is "never":
-  no score is confident enough for a decline to beat a review, so declines come from the
-  hard rules.
-- **"Elevated score" for the rate-limiter combos is model-relative.** The soft rules that
-  combine a score with velocity (e.g. score + 5 purchases in 24h) used a fixed 0.5. That value
-  is meaningless for an uncalibrated model (the served XGBoost's median score is ~0.47), so the
-  level is now the top 3% of validation scores (0.828; 26% precision on validation, 26% on
-  test), stored in `model_meta.json`. The velocity cut-offs themselves are expert-set and
-  untested: with one transaction per user, none of those branches can fire on this dataset.
-- **Every decision is auditable.** The `transactions` table records `model_version`,
-  `model_score` (NULL when a hard rule denied first) and `decision_rule`
-  (`app/data/db_init/005_add_model_audit_columns.sql`; idempotent, apply by hand to an
-  existing database).
-- **Upgrading an existing database:** `app/data/db_init/008_add_device_all_time_count.sql`
-  and `009_add_device_other_accounts.sql` add two audit columns and a
-  `(device_id, purchase_time)` index. Fresh Docker volumes get them automatically; an
-  existing database needs both applied by hand before starting this version of the API, or
-  every audit insert fails on the missing columns.
-- **A ship gate with two conditions:** `--ship` refuses unless test PR-AUC is at least the
-  previous model's 95% CI lower bound **and** the new policy costs no more on test than the
-  served one. The second condition was added after a model passed the first while being
-  worth $0.
-
-Test period (Aug 30–Dec 16, scored once):
-
-| | Denied | Fraud caught | False declines | Fraud $ stopped | Total cost* |
-|---|---|---|---|---|---|
-| Deny nothing | 0 | 0 / 1,389 | 0 | $0 | $51.4k |
-| Previous model @ 0.7 | 10 | 4 | 6 | $165 | $51.3k |
-| 25-feature model @ 0.849 | 327 (1.1%) | 98 | 229 | $4,059 | $49.6k |
-| 41-feature model @ 0.843 (grouped country; served until 2026-11-15) | 365 (1.2%) | 106 | 259 | $4,271 | $49.7k |
-| **Served model** (30 features, review ≥ 0.773, no model declines) | 0 denied, 2,028 reviewed (6.7%) | **469** (reviewed) | 0 (1,559 reviewed) | **$17,326** | **$44.2k**† |
-
-\* missed-fraud dollars + $10 per false decline. † plus $5 per reviewed order, a reviewed
-fraud counted as stopped. For the first three models ranking quality (PR-AUC) is unchanged
-and the two cost-tuned ones are a wash: more fraud caught, more false declines, same total
-cost. The served model is the first with better ranking (one new device feature) and the
-first to lower total cost, and it does so by reviewing rather than declining.
-After January, fraud is 4.5% and the signal is who else has used the device.
-
-## Does the Velocity Layer Work? (Datasets With Repeat Users)
-
-Fraud_Data.csv can't answer this: every user has exactly one transaction, so per-user
-counters are always 0. `training/compare_datasets.py` runs the **same velocity replay**
-(`training/build_features.velocity_features`, the code the parity test checks against the
-live API) on datasets where users repeat, and trains one fixed XGBoost configuration with and
-without the velocity features. Time split 70/10/20, test scored once, 95% bootstrap CIs.
-
-```bash
-pip install --group train
-python -m training.datasets.download     # needs a Kaggle API token
-python -m training.compare_datasets      # ~5 min; caches features in results/cache/
-```
-
-| Dataset (test period) | Fraud rate | Static features | + Velocity | + Spend spike | Velocity features that vary |
-|---|---|---|---|---|---|
-| Fraud_Data (151K txns, 1 per user) | 4.6% | PR-AUC 0.050 [0.045, 0.055] | 0.134 [0.122, 0.148] | 0.135 [0.121, 0.151]† | 21 / 56 |
-| **Sparkov** (1.85M txns, 999 cards) | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** | 0.974 [0.967, 0.979] | 54 / 54 |
-
-† All 9 spend-spike features are constant on Fraud_Data, so this move is run-to-run noise
-(XGBoost samples columns at random); it shows roughly how large a difference has to be to mean
-anything here.
-
-On Sparkov, at a cost-chosen threshold ($5 per review, missed fraud = purchase value),
-velocity features **halve the alert rate (0.94% → 0.43%) while catching more fraud
-(1,265 → 1,296 of 1,349)**, cutting total cost from $29.3k to $21.4k (−27%). The top features
-shift from amount / hour / category to `purchase_amt_24h`, `high_amount_vs_hist` and
-`purchase_amt_1h`: spending relative to the card's own recent history.
-
-**Spend-spike features** (`build_features.spend_spike_features`, training only): today's
-spend (UTC day, including the current purchase) divided by the median daily total over the
-card's active days in the last 14 / 30 / 90 days (at least 5 active days, else "no
-baseline"), plus 3× and 5× flags: 9 features. On their own they are strong signals on the
-Sparkov test period:
-
-| Flag | Fires on | Fraud rate when on | when off |
+| Dataset (test period) | Fraud rate | Static features | + Velocity |
 |---|---|---|---|
-| `spend_spike_3x_30d` | 7.8% of transactions | 3.4% | 0.11% |
-| `spend_spike_5x_30d` | 2.6% | 8.6% | 0.15% |
+| Fraud_Data | 4.6% | PR-AUC 0.050 [0.045, 0.055] | 0.134 [0.122, 0.148] |
+| Sparkov | 0.36% | PR-AUC 0.878 [0.864, 0.891] | **0.974 [0.967, 0.980]** |
 
-But they **don't improve the model**: PR-AUC stays at 0.974 with the same CI. The model does
-pick them up (`spend_spike_3x_90d` becomes the #3 feature) largely in place of
-`purchase_amt_24h` and `high_amount_vs_hist`, which already encode "more than usual". Total
-cost at the cost-chosen threshold is lower ($21.4k → $18.9k), but that comes from 4 extra
-frauds caught at one threshold and has no CI, so it isn't evidence of a gain. Verdict: not
-worth porting to the live API (it would need a daily-totals structure in Redis) unless it helps
-on real data, though the flags are a readable basis for a rule or a decline reason.
+On Sparkov, velocity halves the alert rate (0.94% → 0.43%) while catching more fraud, cutting
+cost 27%. Caveats: Sparkov is simulated, it has no devices or IPs (proxies documented in
+`training/datasets/`), and label-history features are excluded because production learns
+labels weeks late. Spend-spike features were tested too and added nothing. Full numbers:
+[docs/evaluation/multi_dataset.json](docs/evaluation/multi_dataset.json).
 
-Honest caveats:
-- **Sparkov is simulated.** Static features alone already reach 0.88 PR-AUC; real fraud is
-  harder, so the size of the gain on real traffic is still an open question.
-- **Datasets without devices or IPs use proxies** (Sparkov: merchant as "device", home zip as
-  "IP", merchant category as "country"); mappings are documented in `training/datasets/`.
-- **Label-history features are excluded from the headline numbers.** `purchase_success_*`
-  counts a user's past *non-fraud* purchases, which the replay knows instantly but production
-  only learns weeks later from chargebacks. Adding them lifts Sparkov to 0.991 and makes
-  `purchase_success_cnt_24h` one of the top features: an upper bound, not a deployable result.
+## Engineering decisions
 
-Full numbers: [docs/evaluation/multi_dataset.json](docs/evaluation/multi_dataset.json).
+- **Async throughout:** asyncpg and `redis.asyncio`; model inference runs in a thread pool so
+  it never blocks the event loop.
+- **Sliding-window counters** in Redis sorted sets, all commands for a request in one pipeline
+  (one round trip), pruned at 90 days, updated after the audit row is committed.
+- **Atomic idempotency:** the key is claimed with `SET NX` before processing; a duplicate in
+  flight gets `409` + `Retry-After`, a later one the stored answer; tested with real concurrency.
+- **Read-through fallback:** if Redis has no history (cold start, eviction), counts are rebuilt
+  from Postgres and the request still succeeds; the fallback rate is a metric with an alert.
+- **Tracked background tasks:** counter updates are referenced, failures counted, and
+  shutdown waits for them.
+- **Hard rules before the model**, so clear cases never pay for inference.
+- **8 workers with bounded connection pools** (88 Postgres connections, under the default 100).
+  A missing index once capped throughput at ~50 req/s; the fix and the measurements are in
+  [docs/performance_2026-11.md](docs/performance_2026-11.md).
 
-## Interesting Engineering Decisions
+Every decision with the alternatives considered: [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md).
 
-**Async throughout** — `AsyncSession` + asyncpg for PostgreSQL, `redis.asyncio` for Redis.
-No blocking calls on the event loop. ML model inference (CPU-bound) runs in a `ThreadPoolExecutor`
-via `loop.run_in_executor`, keeping latency predictable under concurrent load.
-
-**Sliding-window velocity counters** — Redis sorted sets keyed by `(user_id, device_id)` etc.,
-scored by Unix timestamp. Count-only windows use `ZCOUNT` (returns an integer, not the full member
-list). Purchase windows use `ZRANGE WITHSCORES` to fetch amounts for sum/median calculation.
-All 41 Redis commands per request are batched into a single pipeline — one TCP round-trip.
-90-day pruning keeps memory bounded. Counters are updated fire-and-forget after the DB commit
-is returned, so they don't add to request latency.
-
-**Atomic idempotency** — the `Idempotency-Key` is reserved with `SET NX` *before* the
-pipeline runs, so concurrent duplicates can't both write an audit row or double-count
-velocity. A duplicate that arrives mid-flight gets `409` + `Retry-After: 1`; one that arrives
-later gets the stored response (60 s TTL); a request that fails releases the key so the
-client can retry. Tested with real concurrency in `tests/test_idempotency.py`.
-
-**Tracked background tasks** — the velocity update runs after the DB commit (a failed audit
-write never counts toward velocity), the app holds a reference to each task so it can't be
-garbage-collected, failures are logged and counted in `fraud_background_task_failures_total`,
-and shutdown waits up to 5 s for in-flight updates.
-
-**Read-through cache** — When Redis has no purchase history for a user (cold start, eviction),
-the app rebuilds the purchase counts from PostgreSQL `COUNT`/`SUM` queries and continues without
-error. IP-to-country and device-age lookups are cached in Redis in front of Postgres.
-
-**Training-serving parity test** — Velocity windows count back from the transaction's own
-`purchase_time` (event time), exactly like the training replay, not from the server clock.
-`tests/test_feature_parity.py` sends the same transactions through the live feature code
-(against an in-memory fake Redis) and through `training/build_features.py`, and fails if any
-numeric feature differs. Written before the fix, it failed on about 50 features. It also caught
-two smaller counter bugs: same-second collisions and an off-by-one in the 90-day purge.
-See trade-off #12 in the design doc.
-
-**Two-phase rules pipeline** — Hard rules (no model needed) short-circuit before inference.
-Soft rules (velocity anomalies, model threshold) run after. This avoids model overhead for
-clear-cut cases and keeps rule logic separated from model logic.
-
-**Multi-worker scaling** — 8 uvicorn workers, each with its own async event loop, and a DB
-connection pool of `pool_size=5, max_overflow=6` per worker (88 total connections, within
-Postgres's default `max_connections=100`). In April this reached ~520 RPS. The November
-re-measurement found ~50 RPS for repeat customers and under 30 RPS for new users. The cause was
-a missing index on the audit table's `user_id`: the Redis-miss fallback scanned the whole table
-(~46 ms at 433k rows), and the table grows with every load test. With the index
-(`db_init/006`, 0.22 ms per lookup; on an existing database apply it by hand, the command is
-in the script) and a single fallback query, both modes run without errors
-and with p95 under 250 ms up to ~400 RPS, at ~4–6 ms of server time per request. Details:
-[docs/performance_2026-11.md](docs/performance_2026-11.md).
-
-See [docs/design_tradeoffs_and_todos.md](docs/design_tradeoffs_and_todos.md) for full trade-off notes.
-See [docs/performance_investigation.md](docs/performance_investigation.md) for load test methodology and findings.
-
-## Load Testing
+## Load testing
 
 ```bash
-python app/data/client_mimic.py   # rate mode: mean 400 RPS for 120s, cycles through Fraud_Data.csv
-python app/data/client_mimic.py --source sparkov   # repeat customers (needs data/external/sparkov/)
-python app/data/client_mimic.py --rps 50 --duration 60 --seed 1   # choose the rate; repeatable
-python app/data/client_mimic.py --speedup 1000 --duration 3600    # replay mode: realistic traffic
+python app/data/client_mimic.py --rps 200 --duration 60 --seed 1   # rate mode: how much load?
+python app/data/client_mimic.py --speedup 1000 --duration 3600     # replay mode: realistic traffic
 ```
 
-Two modes, for two different questions:
+Rate mode sends Poisson arrivals at a fixed rate; replay mode sends rows in time order on a
+fast-forwarded clock, with returning customers and optional retries after a decline
+(`--retry-declined N`). Latest: 200 requests/s, p50 7 ms, p95 11 ms, p99 15 ms, no errors.
+After a day idle, the first 30 seconds are slower while caches warm up.
+Method and history: [docs/performance_investigation.md](docs/performance_investigation.md).
 
-- **Rate mode (`--rps`)** answers "how much load can the API take?". Arrivals are Poisson
-  (random gaps with mean 1/RPS), because an evenly spaced drip never piles up and so understates
-  tail latency. Rows keep their 2015 timestamps and repeat after one pass through the file, so
-  the velocity features drift (the same user "buys again" at the same second). Use it for
-  throughput and latency, not to judge decisions.
-- **Replay mode (`--speedup K`)** answers "what does the system do under continuous, realistic
-  traffic?". Rows are sorted by `purchase_time` and sent when a virtual clock running K times
-  faster than wall time reaches them. When the file ends, every timestamp (purchase and signup)
-  is shifted forward by the file's span, so time never goes backwards. At `--speedup 1000`,
-  Fraud_Data's 8 months replay in ~6 hours at ~6 req/s, which is this dataset's honest rate:
-  151k transactions over 8 months is 0.006/s, so sending 400/s with realistic timestamps would
-  give country-level velocity counts in the thousands, which the model never saw.
-  - **Returning vs new users.** On the second pass and later, each row is either the same
-    customer coming back (same ids, signup kept, so the account has aged by ~8 months) or, with
-    probability `--new-user-share` (default 0.2), a brand-new signup with fresh user and device
-    ids. Returning users' `days_since_signup` then exceeds anything in the training data; that
-    is realistic, and a good way to see how the model behaves on it.
-  - **Retries after a decline, `--retry-declined N`.** A declined customer tries again with
-    probability `--retry-prob` (default 0.5): a new transaction from the same user, device and
-    IP, 15 s to 10 min later, for a smaller or equal amount, up to N attempts, stopping at the
-    first allow. Exercises the velocity windows and the rules the way real repeat attempts do.
-    Example: `python app/data/client_mimic.py --speedup 1000 --duration 3600 --retry-declined 10`.
-
-The summary prints the achieved RPS (successful responses per second), the error count by kind
-(`ReadTimeout`, `409`, ...), the allow/deny split, retries sent, and p50/p95/p99 latency over
-every completed request.
-
-One client process tops out around 400–500 RPS. For more load, run several in parallel: each
-adds a random run id to its idempotency keys, so they never collide. Grafana's "Requests per
-Worker" panel shows how the load spreads over the 8 uvicorn workers. Not implemented yet:
-duplicate-key resends (the 409/replay path) and a daily traffic rhythm.
-
-`--source sparkov` replays Sparkov card transactions (~100 purchases per card), so the per-user
-Redis windows fill up the way they would in production. Sparkov has no device, IP, source,
-browser or signup time, so the client makes them up: use it for latency and load, not to judge
-the model's decisions.
-
-Latest measurement (2026-11-15, local Docker, one client at 200 requests/s, with all
-monitoring enabled): p50 7 ms, p95 11 ms, p99 15 ms, no errors; average worker CPU 10%,
-event-loop lag 4 ms.
-
-## Running Tests
+## Running tests
 
 ```bash
 pytest tests/ -v                 # 290 tests; data-dependent ones skip without the CSVs
@@ -584,7 +282,7 @@ CI runs all three, then builds the Docker image.
 | `docs/demo/tour.html` | A one-page interactive tour (open in a browser) |
 | [docs/demo/video/](docs/demo/video/) | How the 2-minute demo video is built, and how to rebuild it |
 
-## Project Structure
+## Project structure
 
 ```
 app/
@@ -624,7 +322,7 @@ alertmanager/          # routing and inhibition (no notification channel configu
 grafana/               # dashboard "Fraud Engine" and datasource provisioning
 tests/                 # 290 tests: rules, features, parity, idempotency, policy, monitoring,
                        # the served model file, API
-docs/                  # see "Documentation" below
+docs/                  # see "Documentation" above
 ```
 
 ## License
